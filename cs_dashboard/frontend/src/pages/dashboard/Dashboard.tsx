@@ -17,7 +17,7 @@ type Segment =
 
 interface CatGroup { total: number; subs: CategoryRow[] }
 
-const CATEGORY_ORDER = ['네트워크·앱 오류', '기기·하드웨어 오류', '미납·결제', '해지·유지 상담', '체험 관련', '교재·물류·배송', '계정·서비스', '기타']
+const CATEGORY_ORDER = ['네트워크·앱 오류', '기기·하드웨어 오류', '미납·결제', '해지·유지 상담', '교재·물류·배송', '체험 관련', '계정·서비스', '기타']
 const PAGE_SIZE = 100
 const STEP_SIZES: Record<Period, number> = { hourly_range: 50, day: 200, week: 5000, month: 5000 }
 

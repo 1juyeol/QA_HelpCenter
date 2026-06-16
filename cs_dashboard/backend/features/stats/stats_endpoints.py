@@ -1,10 +1,11 @@
-# 통계 집계 API 라우터 (9개 엔드포인트). 모두 GET 요청이며 쿼리 파라미터로 기간을 지정한다.
+# 통계 집계 API 라우터 (10개 엔드포인트). 모두 GET 요청이며 쿼리 파라미터로 기간을 지정한다.
 # hourly_range     : 날짜 범위의 30분 버킷별 건수 반환 — 차트 X축 26개 버킷 고정 출력.
 # daily            : 일별 건수 (period=day/week/month).
 # category         : 대분류·소분류·버킷 조합 필터 집계 — 카테고리 드릴다운용.
 # weekly           : 주차별 건수 (최근 4주). monthly : 월별 건수 (최근 3개월).
-# category_weekly  : 주별 카테고리별 건수 — SQI 계산용.
-# sentiment_weekly : 주별 부정 키워드 포함 메모 건수 — 고객 언어 온도 계산용.
+# category_weekly  : 주별 카테고리별 건수 — (구) 주별 SQI 계산용.
+# sentiment_weekly : 주별 부정 키워드 포함 메모 건수 — (구) 주별 고객 언어 온도 계산용.
+# category_daily   : 최근 4주 일별·카테고리별 건수, 주말·공휴일 제외 — 일별 SQI 계산용.
 # keyword_trend    : call_memo 한국어 명사 중 이번 주 급증 키워드 TOP 10 — 미지의 버그 탐지기용.
 #                    kiwipiepy로 형태소 분석, 결과를 insights_cache에 캐시한다 (당일 유효).
 # keyword_memos    : 이번 주 call_memo 중 특정 keyword를 포함하는 메모 목록 — 키워드 클릭 시 팝업용.
@@ -260,6 +261,43 @@ def stats_sentiment_weekly(target_date: str = Query(default=None)):
             ORDER BY week_start
             """,
             (*like_params, range_start, range_end),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# 비율 통계에서 제외할 휴일(KST 날짜). 주말 외에 인입이 거의 없는 법정·임시·대체공휴일은
+# 비율(SQI·부정비율)을 왜곡하므로 제외한다. 새 공휴일이 생기면 여기에 추가한다.
+# (2026: 5/25 부처님오신날 대체공휴일, 6/3 제8회 전국동시지방선거 — 둘 다 평일이라 별도 제외 필요)
+HOLIDAYS = {
+    "2026-05-25",
+    "2026-06-03",
+}
+
+
+@router.get("/api/stats/category_daily")
+def stats_category_daily(target_date: str = Query(default=None)):
+    """최근 4주 범위의 일별·카테고리별 건수. (일별 SQI 계산용)
+    - new_category_main이 NULL인 행도 포함하므로 하루 전체 합 = 그날 전체 CS 건수.
+    - 주말(토·일) + HOLIDAYS(공휴일) 인입은 제외한다 (정책 6: 인입이 거의 없는 날은 비율 통계를 왜곡)."""
+    if not target_date:
+        target_date = str(date.today())
+    range_start, range_end = _four_week_range(target_date)
+    kst = "datetime(created_date, '+9 hours')"
+    col = f"date({kst})"
+    holidays = sorted(HOLIDAYS)
+    holiday_clause = f" AND {col} NOT IN ({','.join('?' for _ in holidays)})" if holidays else ""
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT {col} AS day, new_category_main AS main, new_category_sub AS sub, COUNT(*) AS count
+            FROM issues
+            WHERE {col} BETWEEN ? AND ?
+              AND strftime('%w', {kst}) NOT IN ('0', '6')
+              {holiday_clause}
+            GROUP BY day, main, sub
+            ORDER BY day
+            """,
+            (range_start, range_end, *holidays),
         ).fetchall()
     return [dict(r) for r in rows]
 

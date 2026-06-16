@@ -53,6 +53,7 @@ export interface InsightParent {
 
 export interface WeeklyCategoryRow { week_start: string; main: string; sub: string | null; count: number }
 export interface SentimentWeeklyRow { week_start: string; neg_count: number; total: number }
+export interface CategoryDailyRow { day: string; main: string | null; sub: string | null; count: number }
 
 // keyword_trend 엔드포인트 응답 한 행.
 // growth_rate = this_week / max(avg_per_week, 1). is_new = 직전 4주 동안 0회 등장.
@@ -74,6 +75,41 @@ export interface CollectionLatest {
   target_date: string
   count: number
   status: string
+}
+
+export interface JiraBug {
+  key: string
+  summary: string
+  status: string
+  created_at: string
+  cs_count: number
+  cs_keywords: string
+  synced_at: string | null
+}
+
+export interface JiraBugMemo {
+  created_date: string
+  category_main: string | null
+  category_sub: string | null
+  call_memo: string
+}
+
+export interface RiskRow {
+  main: string
+  sub: string
+  count: number
+  memos: { id: number; text: string }[]
+  summary: string
+}
+
+export interface DailyReport {
+  report_date: string
+  generated_at: string
+  total_count: number
+  risk_total: number
+  risk_rows: RiskRow[]
+  peak_window_points: string[]
+  hourly: [number, number][]
 }
 
 // ── 어드민 URL 헬퍼 ──────────────────────────────────────────────
@@ -185,11 +221,35 @@ export const api = {
     return get<SentimentWeeklyRow[]>(`/api/stats/sentiment_weekly?target_date=${targetDate}`)
   },
 
+  fetchCategoryDaily(targetDate: string) {
+    return get<CategoryDailyRow[]>(`/api/stats/category_daily?target_date=${targetDate}`)
+  },
+
   fetchKeywordTrend(targetDate: string) {
     return get<KeywordTrendRow[]>(`/api/stats/keyword_trend?target_date=${targetDate}`)
   },
 
   fetchKeywordMemos(keyword: string, targetDate: string) {
     return get<KeywordMemoRow[]>(`/api/stats/keyword_memos?keyword=${encodeURIComponent(keyword)}&target_date=${targetDate}`)
+  },
+
+  fetchJiraBugs() {
+    return get<{ data: JiraBug[] }>('/api/jira/bugs')
+  },
+
+  fetchJiraBugMemos(key: string) {
+    return get<{ data: JiraBugMemo[] }>(`/api/jira/bugs/${encodeURIComponent(key)}/memos`)
+  },
+
+  syncJiraBugs() {
+    return post<{ status: string }>('/api/jira/sync')
+  },
+
+  fetchDailyReport(date: string) {
+    return get<DailyReport>(`/api/report/daily?date=${date}`)
+  },
+
+  generateDailyReport(date: string) {
+    return post<DailyReport>(`/api/report/daily/generate?date=${date}`)
   },
 }
