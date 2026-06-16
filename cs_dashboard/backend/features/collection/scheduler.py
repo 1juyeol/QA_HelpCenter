@@ -176,7 +176,7 @@ async def _generate_yesterday_report():
     yesterday = str(date.today() - timedelta(days=1))
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     try:
-        generate_report(yesterday)
+        await generate_report(yesterday)
         print(f"[{now}] 일별 보고서 생성 완료: {yesterday}")
     except Exception as e:
         print(f"[{now}] 일별 보고서 생성 실패: {e}")
