@@ -1,5 +1,5 @@
 # FastAPI 애플리케이션 진입점. 비즈니스 로직은 없으며 '배선' 역할만 담당한다.
-# 하는 일: CORS 미들웨어 등록 → features/ 하위 4개 라우터(stats·issues·insights·collection) 연결 →
+# 하는 일: CORS 미들웨어 등록 → features/ 하위 5개 라우터(stats·issues·insights·collection·jira) 연결 →
 # 서버 시작 시 자격증명 입력·DB 초기화·스케줄러 기동·당일 데이터 수집·인사이트 캐시 초기화 →
 # /assets 정적 파일 서빙 + 나머지 모든 경로에 React SPA의 index.html 반환(브라우저 새로고침 대응).
 import asyncio
@@ -16,6 +16,8 @@ from features.stats.stats_endpoints import router as stats_router
 from features.issues.issues_endpoints import router as issues_router
 from features.insights.insights_endpoints import router as insights_router
 from features.collection.collection_endpoints import router as collection_router
+from features.jira.jira_endpoints import router as jira_router
+from features.report.report_endpoints import router as report_router
 
 
 app = FastAPI()
@@ -31,6 +33,8 @@ app.include_router(stats_router)
 app.include_router(issues_router)
 app.include_router(insights_router)
 app.include_router(collection_router)
+app.include_router(jira_router)
+app.include_router(report_router)
 
 
 @app.on_event("startup")

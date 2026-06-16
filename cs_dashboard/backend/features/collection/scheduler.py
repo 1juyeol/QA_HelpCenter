@@ -2,6 +2,7 @@
 # 수집 주기: 업무시간(09:00~20:30) 30분 간격 + 자정(00:00) 1회.
 #   - 09:00 실행이 00~09시 신규분을, 자정 실행이 전날 21~24시 신규분을 증분으로 채운다.
 #   - 자정엔 추가로 어제치 전량 재조회(사후 수정 보정) + 인사이트 캐시 갱신.
+# 00:30 KST: 전날 일별 보고서 자동 생성 (COLLECTION_ENABLED 무관, DB만 읽음).
 # 자격증명(_username, _password)은 서버 시작 시 prompt_credentials()로 입력받아 전역 변수에 보관한다.
 # _wings_token: Wings(Zammad) API 토큰. 인사이트 캐시 갱신 시 티켓 상태를 실시간으로 조회하는 데 사용한다.
 # collect_date()는 성공·실패 모두 collection_log 테이블에 기록해 수집 이력을 추적한다.
@@ -169,14 +170,31 @@ async def update_insights_cache():
     print(f"[{now}] insights cache updated")
 
 
+async def _generate_yesterday_report():
+    """00:30 KST — 전날 일별 보고서를 자동 생성한다. COLLECTION_ENABLED 무관하게 실행."""
+    from features.report.report_client import generate_report
+    yesterday = str(date.today() - timedelta(days=1))
+    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        generate_report(yesterday)
+        print(f"[{now}] 일별 보고서 생성 완료: {yesterday}")
+    except Exception as e:
+        print(f"[{now}] 일별 보고서 생성 실패: {e}")
+
+
 def start_scheduler():
-    if not COLLECTION_ENABLED:
-        print("[scheduler] COLLECTION_ENABLED=False — 자동 수집/API 호출 비활성화됨")
-        return None
     scheduler = AsyncIOScheduler(timezone=KST)
-    # 업무시간(09:00~20:30)만 30분 간격으로 촘촘히 수집. 09:00 실행이 00~09시 신규분을 증분으로 채운다.
-    scheduler.add_job(collect_today, "cron", hour="9-20", minute="0,30")
-    # 자정 1회: 증분으로 전날 21~24시 신규분 + 어제치 전량 보정(사후 수정) + 인사이트 캐시 갱신
-    scheduler.add_job(collect_today, "cron", hour=0, minute=0)
+
+    # 00:30 KST: 전날 일별 보고서 자동 생성 (COLLECTION_ENABLED 무관)
+    scheduler.add_job(_generate_yesterday_report, "cron", hour=0, minute=30)
+
+    if COLLECTION_ENABLED:
+        # 업무시간(09:00~20:30)만 30분 간격으로 촘촘히 수집
+        scheduler.add_job(collect_today, "cron", hour="9-20", minute="0,30")
+        # 자정 1회: 전날 21~24시 신규분 + 어제치 전량 보정 + 인사이트 캐시 갱신
+        scheduler.add_job(collect_today, "cron", hour=0, minute=0)
+    else:
+        print("[scheduler] COLLECTION_ENABLED=False — 자동 수집/API 호출 비활성화됨")
+
     scheduler.start()
     return scheduler
