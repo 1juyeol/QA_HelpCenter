@@ -95,7 +95,7 @@ function RiskRowItem({ row }: { row: RiskRow }) {
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState(0)
 
-  const memos = row.memos
+  const memos = row.analysis_groups?.flatMap(g => g.memos) ?? []
   const pageCount = Math.ceil(memos.length / MEMOS_PER_PAGE)
   const pageMemos = memos.slice(page * MEMOS_PER_PAGE, (page + 1) * MEMOS_PER_PAGE)
 

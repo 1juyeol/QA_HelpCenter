@@ -94,12 +94,19 @@ export interface JiraBugMemo {
   call_memo: string
 }
 
+export interface AnalysisGroup {
+  sub: string
+  count: number
+  memos: { id: number; text: string }[]
+}
+
 export interface RiskRow {
   main: string
   sub: string
   count: number
-  memos: { id: number; text: string }[]
   summary: string
+  analysis_groups: AnalysisGroup[]
+  insufficient_data: boolean
 }
 
 export interface DailyReport {

@@ -19,5 +19,5 @@ def get_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
 
 
 @router.post("/api/report/daily/generate")
-def generate_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
-    return generate_report(date)
+async def generate_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
+    return await generate_report(date)

@@ -9,43 +9,52 @@
 #
 # IP/모델 변경 시 이 파일의 상수 두 줄만 수정하면 된다.
 
+import asyncio
 import json
 import os
 import re
+import time
 import httpx
 
 # 환경변수 OLLAMA_BASE_URL / OLLAMA_MODEL 로 재정의 가능.
 # 미설정 시 아래 기본값 사용.
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://192.168.10.221:4521")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://192.168.11.131:1234")
 OLLAMA_MODEL    = os.environ.get("OLLAMA_MODEL",    "gemma4:12b")
 
 
-def call_ollama(system: str, prompt: str, timeout: int = 300) -> str:
-    """Ollama /api/generate 스트리밍 호출. 토큰을 콘솔에 실시간 출력하며 전체 텍스트 반환. 실패 시 빈 문자열."""
+async def call_ollama(system: str, prompt: str, timeout: int = 300) -> str:
+    """Ollama /api/generate 비동기 스트리밍 호출. asyncio 취소(Ctrl+C) 시 즉시 중단."""
     try:
         full = []
+        start = time.time()
         print("[Ollama] 생성 중... ", end="", flush=True)
-        with httpx.stream(
-            "POST",
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={"model": OLLAMA_MODEL, "system": system, "prompt": prompt, "stream": True},
-            timeout=timeout,
-            verify=False,
-        ) as resp:
-            resp.raise_for_status()
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                chunk = json.loads(line)
-                token = chunk.get("response", "")
-                print(token, end="", flush=True)
-                full.append(token)
-                if chunk.get("done"):
-                    break
-        print()  # 줄바꿈
-        return "".join(full)
+        async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
+            async with client.stream(
+                "POST",
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={"model": OLLAMA_MODEL, "system": system, "prompt": prompt, "stream": True, "options": {"num_ctx": 8192}},
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line:
+                        continue
+                    chunk = json.loads(line)
+                    token = chunk.get("response", "")
+                    print(token, end="", flush=True)
+                    full.append(token)
+                    if chunk.get("done"):
+                        break
+        elapsed = time.time() - start
+        result = "".join(full)
+        print(f"\n[Ollama] 완료 ({elapsed:.1f}초) | 응답 길이: {len(result)}자")
+        if not result:
+            print("[Ollama] 경고: 빈 응답 반환됨")
+        return result
+    except asyncio.CancelledError:
+        print("\n[Ollama] 취소됨")
+        raise
     except Exception as e:
-        print(f"\n[Ollama] 호출 실패: {e}")
+        print(f"\n[Ollama] 호출 실패: {type(e).__name__}: {e}")
         return ""
 
 

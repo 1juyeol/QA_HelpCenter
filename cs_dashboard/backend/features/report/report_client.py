@@ -6,8 +6,8 @@
 #     ├─ _fetch_day_stats()               : DB → 총건수, 리스크 5개, 시간대별 건수, 전체 row
 #     ├─ _prepare_category_brief()        : extract_symptom_fields + 150자 절삭 → Ollama용 텍스트
 #     ├─ _prepare_peak_stats()            : 17~20시 vs 전체 통계 비교표 생성
-#     ├─ _call_ollama_category_insights() : Ollama Call 1 — 카테고리별 1줄 요약
-#     ├─ _call_ollama_peak_window()       : Ollama Call 2 — 17~20시 이슈 2줄 분석
+#     ├─ _call_ollama_category_insights() : Ollama Call 1 — 카테고리별 2줄 분석
+#     ├─ _call_ollama_peak_window()       : Ollama Call 2 — 17~20시 이슈 2줄 분석 (데이터 없으면 스킵)
 #     └─ reports 테이블 UPSERT → 결과 반환
 #
 # 리스크 카테고리: frontend/src/api/categories.ts ALLOWED_MAIN + ALLOWED_SPECIFIC와 동일.
@@ -19,13 +19,11 @@ from collections import Counter
 from datetime import datetime
 from core.db import get_conn
 from core.ollama_client import call_ollama, parse_json_response
-from features.issues.classifier import extract_symptom_fields
+from features.issues.classifier import extract_symptom_fields, RULES, SUB_TO_MAIN
 
-# 보고서 5행 선정 기준
-# RISK_MAIN: 소분류 무관하게 대분류 전체를 리스크로 봄 → 당일 건수 1등 소분류가 자동 선정됨
-# RISK_SPECIFIC: 대분류 안에서 특정 소분류만 리스크로 봄 → 목록에 없는 소분류는 건수가 많아도 무시됨
-#   예) 미납·결제에 "카드 변경 30건 / 미납 관리 10건" 이어도 RISK_SPECIFIC에 "미납 관리"만 있으면
-#       카드 변경은 후보에서 제외되고 미납 관리가 선정됨
+INSUFFICIENT_SUMMARY = "구체적 증상 데이터가 충분하지 않아 분석에서 제외되었습니다."
+_MIN_ANALYSIS_MEMOS = 3
+
 RISK_MAIN = {"네트워크·앱 오류", "기기·하드웨어 오류"}
 RISK_SPECIFIC = {
     "미납·결제 > 미납 관리",
@@ -51,16 +49,6 @@ def _is_risk(main: str, sub: str) -> bool:
 
 
 def _fetch_day_stats(date_str: str) -> dict:
-    """
-    date_str(YYYY-MM-DD) 하루치 데이터를 DB에서 조회한다.
-    반환:
-      total_count : 전체 건수
-      risk_rows   : 대분류별 1등 소분류 5개 [{main, sub, count, memos:[{id,text}], summary:''}]
-      risk_total  : 리스크 건수 합계
-      hourly      : [(hour, count)] 24개 (0건 포함)
-      all_day_rows: [{sub, hour}] — 피크 비교용 (리스크 여부 무관, 전체)
-      hist_peak   : 4주 평균 17~20시 건수 (오늘 제외)
-    """
     with get_conn() as conn:
         total = conn.execute(
             "SELECT COUNT(*) FROM issues WHERE date(datetime(created_date, '+9 hours')) = ?",
@@ -91,7 +79,6 @@ def _fetch_day_stats(date_str: str) -> dict:
             (date_str,)
         ).fetchall()
 
-        # 4주 평균 17~20시 건수 (오늘 제외)
         hist_rows = conn.execute(
             """
             SELECT date(datetime(created_date, '+9 hours')) as d, COUNT(*) as cnt
@@ -110,7 +97,6 @@ def _fetch_day_stats(date_str: str) -> dict:
     hist_counts = [r["cnt"] for r in hist_rows]
     hist_peak = round(sum(hist_counts) / len(hist_counts), 1) if hist_counts else 0.0
 
-    # 리스크 카테고리 집계
     from collections import defaultdict
     main_sub_memos: dict = defaultdict(lambda: defaultdict(list))
     all_day_rows = []
@@ -149,29 +135,59 @@ def _fetch_day_stats(date_str: str) -> dict:
     }
 
 
-def _prepare_category_brief(risk_rows: list) -> str:
-    """
-    5개 리스크 카테고리 메모를 Ollama용으로 압축한다.
-    각 메모에 extract_symptom_fields 적용 → 줄바꿈 제거 → 150자 절삭 → 전부 나열.
-    """
-    sections = []
-    for row in risk_rows:
-        cat_label = f"{row['main']} > {row['sub']}"
+def _build_keyword_groups(memos: list[dict], main_cat: str, current_sub: str, max_groups: int) -> dict:
+    """RULES 키워드로 메모를 그룹핑. SUB_TO_MAIN으로 현재 대분류의 관련 소분류만 탐색.
+    반환: {"prompt_text": str, "groups": [{"sub": str, "count": int, "memos": [...]}]}"""
+    relevant_subs = {sub for sub, main in SUB_TO_MAIN.items() if main == main_cat}
+    relevant_rules = [(sub, kws) for sub, kws in RULES if sub in relevant_subs and sub != current_sub]
+
+    rule_memo_map: dict[str, list] = {sub: [] for sub, _ in relevant_rules}
+    for m in memos:
+        for sub, keywords in relevant_rules:
+            if any(kw in m["text"] for kw in keywords):
+                rule_memo_map[sub].append(m)
+
+    top_groups = sorted(
+        [(sub, ms) for sub, ms in rule_memo_map.items() if ms],
+        key=lambda x: -len(x[1]),
+    )[:max_groups]
+
+    seen_ids: set = set()
+    prompt_sections = []
+    result_groups = []
+
+    for sub, matched_memos in top_groups:
         lines = []
-        for i, m in enumerate(row["memos"]):
+        group_memos = []
+        for m in matched_memos[:30]:
+            if m["id"] in seen_ids:
+                continue
             text = extract_symptom_fields(m["text"])
             text = " ".join(text.split())[:150]
-            if text:
-                lines.append(f"[{i+1}] {text}")
-        sections.append(f"[{cat_label}] {row['count']}건\n" + "\n".join(lines))
-    return "\n\n".join(sections)
+            if len(text) >= 20:
+                lines.append(f"[{len(lines)+1}] {text}")
+                group_memos.append({"id": m["id"], "text": text})
+                seen_ids.add(m["id"])
+        if group_memos:
+            prompt_sections.append(f"# {sub} ({len(group_memos)}건)\n" + "\n".join(lines))
+            result_groups.append({"sub": sub, "count": len(group_memos), "memos": group_memos})
+
+    return {"prompt_text": "\n\n".join(prompt_sections), "groups": result_groups}
+
+
+def _prepare_category_brief(risk_rows: list) -> None:
+    """각 row에 analysis_groups·insufficient_data·_prompt_section 주입. 반환값 없음."""
+    for row in risk_rows:
+        max_groups = 1 if row["count"] >= 50 else 2
+        result = _build_keyword_groups(row["memos"], row["main"], row["sub"], max_groups)
+        total = sum(g["count"] for g in result["groups"])
+        row["analysis_groups"] = result["groups"]
+        row["insufficient_data"] = total < _MIN_ANALYSIS_MEMOS
+        if not row["insufficient_data"]:
+            row["_prompt_section"] = result["prompt_text"]
 
 
 def _prepare_peak_stats(date_str: str, all_day_rows: list, hist_peak: float) -> str:
-    """
-    17~20시 이슈 분석용 통계 비교표를 생성한다.
-    피크 vs 전체 카테고리 비율 비교, 시간별 추이, 4주 평균 대비를 포함.
-    """
     peak_rows = [r for r in all_day_rows if r["hour"] in (17, 18, 19, 20)]
     day_total = len(all_day_rows)
     peak_total = len(peak_rows)
@@ -183,7 +199,6 @@ def _prepare_peak_stats(date_str: str, all_day_rows: list, hist_peak: float) -> 
     day_cats = Counter(r["sub"] for r in all_day_rows if r["sub"])
     hourly = Counter(r["hour"] for r in peak_rows)
 
-    # 피크 비율 / 전체 비율 배수로 정렬
     all_subs = set(peak_cats) | set(day_cats)
     cat_ratios = []
     for sub in all_subs:
@@ -198,7 +213,7 @@ def _prepare_peak_stats(date_str: str, all_day_rows: list, hist_peak: float) -> 
     lines = [f"[17~20시 분석 데이터] {date_str}", ""]
     lines.append("1. 카테고리 집중도 (이 시간대 비율 vs 하루 전체 비율)")
     for sub, pk, pk_pct, dy, dy_pct, ratio in cat_ratios[:10]:
-        flag = "  ← 집중" if ratio >= 1.8 else ("  ← 이 시간대만" if dy == pk else "")
+        flag = "  <- 집중" if ratio >= 1.8 else ("  <- 이 시간대만" if dy == pk else "")
         lines.append(f"  {sub}: 17~20시 {pk}건({pk_pct:.0f}%) / 전체 {dy}건({dy_pct:.0f}%){flag}")
 
     lines.append("")
@@ -215,69 +230,85 @@ def _prepare_peak_stats(date_str: str, all_day_rows: list, hist_peak: float) -> 
     return "\n".join(lines)
 
 
-def _call_ollama_category_insights(date_str: str, risk_rows: list) -> list:
-    """
-    Call 1: 5개 카테고리 압축 텍스트를 한 번에 보내 카테고리별 1줄 요약 생성.
-    반환: [{"category": "대분류 > 소분류", "summary": "한 문장"}, ...]
-    """
-    brief = _prepare_category_brief(risk_rows)
+# ── Ollama 프롬프트 ────────────────────────────────────────────────────────────
+# system: 역할·규칙·응답 형식 고정 텍스트
+# user 템플릿: {date_str}, {cat_label}, {memos}, {stats_text} 자리에 런타임 값 삽입
 
-    system = (
-        "당신은 단비교육 공감센터 CS 분석 전문가입니다. \n"
-        "CS팀 운영이 아닌 개발·서비스 품질 관점에서 분석하세요.\n"
-        "설명·인사말 없이 아래 JSON 형식으로만 응답하세요.\n\n"
-        '{"insights": [{"category": "대분류 > 소분류", "summary": "한 문장"}, ...]}'
-    )
-    prompt = (
-        f"{date_str} 리스크 카테고리별 메모입니다. "
-        "각 카테고리에서 개발·품질 관점으로 주목할 점을 2줄로 분석해주세요.\n\n"
-        + brief
-    )
+_SYSTEM_CATEGORY = (
+    "당신은 단비교육 공감센터 CS 분석 전문가입니다.\n"
+    "CS팀 운영이 아닌 개발·서비스 품질 관점에서 분석하세요.\n"
+    "규칙: 코드 블록 없이 JSON만 출력\n"
+    '응답 형식:\n{"summary": "두 문장 분석."}'
+)
 
-    print(f"[Ollama Call 1] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
-    raw = call_ollama(system, prompt)
-    result = parse_json_response(raw)
-    if not result:
+_PROMPT_CATEGORY = (
+    "아래는 {date_str} [{cat_label}] CS 상담 메모입니다.\n"
+    "개발·서비스 품질 관점에서 어떤 문제가 발생하고 있는지 두 문장으로 분석하세요.\n\n"
+    "{memos}"
+)
+
+_SYSTEM_PEAK = (
+    "당신은 단비교육 공감센터 CS 분석 전문가입니다.\n"
+    "개발·품질 관점에서 분석하세요.\n"
+    "규칙: 코드 블록 없이 JSON만 출력\n"
+    '응답 형식:\n{"key_points": ["한 문장1", "한 문장2"]}'
+)
+
+_PROMPT_PEAK = (
+    "아래는 CS 상담 데이터의 17~20시 시간대 통계입니다.\n"
+    "다른 시간대 대비 이 시간대에 특기할 만한 이슈가 있는지 2줄로 분석해주세요.\n\n"
+    "{stats_text}"
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+async def _call_ollama_category_insights(date_str: str, risk_rows: list) -> None:
+    """Call 1: 카테고리별로 Ollama를 개별 호출. 배치 호출 시 JSON 잘림 방지."""
+    _prepare_category_brief(risk_rows)
+
+    for row in risk_rows:
+        if row.get("insufficient_data"):
+            row["summary"] = INSUFFICIENT_SUMMARY
+            continue
+
+        cat_label = f"{row['main']} > {row['sub']}"
+        prompt = _PROMPT_CATEGORY.format(
+            date_str=date_str,
+            cat_label=cat_label,
+            memos=row.get("_prompt_section", ""),
+        )
+
+        print(f"[Ollama Call 1 - {cat_label}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
+        raw = await call_ollama(_SYSTEM_CATEGORY, prompt)
+        result = parse_json_response(raw)
+        row["summary"] = result.get("summary", "") if result else ""
+
+
+async def _call_ollama_peak_window(date_str: str, all_day_rows: list, hist_peak: float) -> list:
+    """Call 2: 17~20시 통계 기반 2줄 분석. 데이터 없으면 스킵."""
+    peak_rows = [r for r in all_day_rows if r["hour"] in (17, 18, 19, 20)]
+    if not peak_rows:
+        print("[Ollama Call 2] 17~20시 데이터 없음 — 호출 스킵")
         return []
-    return result.get("insights", [])
 
-
-def _call_ollama_peak_window(date_str: str, all_day_rows: list, hist_peak: float) -> list:
-    """
-    Call 2: 17~20시 통계 비교표 기반 2줄 분석.
-    반환: ["줄1", "줄2"]
-    """
-    stats_text = _prepare_peak_stats(date_str, all_day_rows, hist_peak)
-
-    system = (
-        "당신은 단비교육 공감센터 CS 분석 전문가입니다. \n"
-        "개발·품질 관점에서 분석하세요. 설명·인사말 없이 JSON만 응답하세요.\n\n"
-        '{"key_points": ["한 문장1", "한 문장2"]}'
-    )
-    prompt = (
-        "아래는 CS 상담 데이터의 17~20시 시간대 통계입니다. "
-        "다른 시간대 대비 이 시간대에 특기할 만한 이슈가 있는지 2줄로 분석해주세요.\n\n"
-        + stats_text
-    )
+    prompt = _PROMPT_PEAK.format(stats_text=_prepare_peak_stats(date_str, all_day_rows, hist_peak))
 
     print(f"[Ollama Call 2] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
-    raw = call_ollama(system, prompt)
+    raw = await call_ollama(_SYSTEM_PEAK, prompt)
     result = parse_json_response(raw)
     if not result:
         return []
     return result.get("key_points", [])
 
 
-def generate_report(date_str: str) -> dict:
+async def generate_report(date_str: str) -> dict:
     """보고서 생성 → DB 저장 → 결과 반환."""
     stats = _fetch_day_stats(date_str)
 
-    insights = _call_ollama_category_insights(date_str, stats["risk_rows"])
-    insight_map = {item["category"]: item["summary"] for item in insights}
-    for row in stats["risk_rows"]:
-        row["summary"] = insight_map.get(f"{row['main']} > {row['sub']}", "")
+    await _call_ollama_category_insights(date_str, stats["risk_rows"])
 
-    peak_points = _call_ollama_peak_window(
+    peak_points = await _call_ollama_peak_window(
         date_str, stats["all_day_rows"], stats["hist_peak"]
     )
 
@@ -285,7 +316,17 @@ def generate_report(date_str: str) -> dict:
         "report_date": date_str,
         "total_count": stats["total_count"],
         "risk_total": stats["risk_total"],
-        "risk_rows": stats["risk_rows"],
+        "risk_rows": [
+            {
+                "main": r["main"],
+                "sub": r["sub"],
+                "count": r["count"],
+                "summary": r.get("summary", ""),
+                "analysis_groups": r.get("analysis_groups", []),
+                "insufficient_data": r.get("insufficient_data", False),
+            }
+            for r in stats["risk_rows"]
+        ],
         "peak_window_points": peak_points,
         "hourly": stats["hourly"],
     }
