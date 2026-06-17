@@ -104,9 +104,25 @@ export interface RiskRow {
   main: string
   sub: string
   count: number
+  main_total?: number
   summary: string
+  memos: { id: number; text: string }[]
   analysis_groups: AnalysisGroup[]
   insufficient_data: boolean
+}
+
+export interface OllamaSettings {
+  url: string
+  presets: string[]
+}
+
+export interface PeakBucket {
+  bucket_start: string
+  bucket_end: string
+  bucket_count: number
+  avg_count: number
+  summary: string
+  has_pattern: boolean
 }
 
 export interface DailyReport {
@@ -115,7 +131,7 @@ export interface DailyReport {
   total_count: number
   risk_total: number
   risk_rows: RiskRow[]
-  peak_window_points: string[]
+  peak_bucket?: PeakBucket
   hourly: [number, number][]
 }
 
@@ -139,6 +155,16 @@ async function get<T>(url: string): Promise<T> {
 
 async function post<T>(url: string): Promise<T> {
   const r = await fetch(url, { method: 'POST' })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json() as Promise<T>
+}
+
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
   if (!r.ok) throw new Error(await r.text())
   return r.json() as Promise<T>
 }
@@ -258,5 +284,13 @@ export const api = {
 
   generateDailyReport(date: string) {
     return post<DailyReport>(`/api/report/daily/generate?date=${date}`)
+  },
+
+  fetchOllamaSettings() {
+    return get<OllamaSettings>('/api/settings/ollama')
+  },
+
+  setOllamaUrl(url: string) {
+    return postJson<{ url: string }>('/api/settings/ollama', { url })
   },
 }

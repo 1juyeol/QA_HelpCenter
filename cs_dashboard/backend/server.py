@@ -18,6 +18,7 @@ from features.insights.insights_endpoints import router as insights_router
 from features.collection.collection_endpoints import router as collection_router
 from features.jira.jira_endpoints import router as jira_router
 from features.report.report_endpoints import router as report_router
+from features.report.settings_endpoints import router as settings_router
 
 
 app = FastAPI()
@@ -35,6 +36,7 @@ app.include_router(insights_router)
 app.include_router(collection_router)
 app.include_router(jira_router)
 app.include_router(report_router)
+app.include_router(settings_router)
 
 
 @app.on_event("startup")

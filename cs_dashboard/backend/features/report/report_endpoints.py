@@ -6,6 +6,7 @@
 
 from fastapi import APIRouter, HTTPException, Query
 from features.report.report_client import generate_report, get_report
+from core.ollama_client import check_ollama
 
 router = APIRouter()
 
@@ -20,4 +21,6 @@ def get_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
 
 @router.post("/api/report/daily/generate")
 async def generate_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
+    if not await check_ollama():
+        raise HTTPException(status_code=503, detail="Ollama 서버에 연결할 수 없습니다. 서버 상태를 확인해주세요.")
     return await generate_report(date)
