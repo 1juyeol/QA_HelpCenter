@@ -7,19 +7,51 @@
 #   raw = call_ollama(system="...", prompt="...")
 #   data = parse_json_response(raw)  # dict 또는 None
 #
-# IP/모델 변경 시 이 파일의 상수 두 줄만 수정하면 된다.
+# 런타임 URL 변경: set_ollama_url(url) 호출 → 즉시 반영 + ollama_settings.json 저장
+# 서버 재시작 시 ollama_settings.json 이 있으면 저장된 URL로 시작, 없으면 기본값 사용.
 
 import asyncio
 import json
 import os
 import re
 import time
+from pathlib import Path
 import httpx
 
-# 환경변수 OLLAMA_BASE_URL / OLLAMA_MODEL 로 재정의 가능.
-# 미설정 시 아래 기본값 사용.
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://192.168.11.131:1234")
-OLLAMA_MODEL    = os.environ.get("OLLAMA_MODEL",    "gemma4:12b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "gemma4:12b")
+
+_DEFAULT_URL  = os.environ.get("OLLAMA_BASE_URL", "http://192.168.11.131:1234")
+_SETTINGS_FILE = Path(__file__).parent.parent / "ollama_settings.json"
+
+def _load_saved_url() -> str:
+    try:
+        data = json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
+        return data.get("url") or _DEFAULT_URL
+    except Exception:
+        return _DEFAULT_URL
+
+_current_url: str = _load_saved_url()
+
+
+def get_ollama_url() -> str:
+    return _current_url
+
+
+def set_ollama_url(url: str) -> None:
+    global _current_url
+    _current_url = url
+    _SETTINGS_FILE.write_text(json.dumps({"url": url}, ensure_ascii=False), encoding="utf-8")
+    print(f"[Ollama] URL 변경됨: {url}")
+
+
+async def check_ollama() -> bool:
+    """Ollama 서버 연결 가능 여부 확인. 5초 내 응답 없으면 False."""
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=5) as client:
+            resp = await client.get(f"{get_ollama_url()}/api/tags")
+            return resp.status_code == 200
+    except Exception:
+        return False
 
 
 async def call_ollama(system: str, prompt: str, timeout: int = 300) -> str:
@@ -31,7 +63,7 @@ async def call_ollama(system: str, prompt: str, timeout: int = 300) -> str:
         async with httpx.AsyncClient(verify=False, timeout=timeout) as client:
             async with client.stream(
                 "POST",
-                f"{OLLAMA_BASE_URL}/api/generate",
+                f"{get_ollama_url()}/api/generate",
                 json={"model": OLLAMA_MODEL, "system": system, "prompt": prompt, "stream": True, "options": {"num_ctx": 8192}},
             ) as resp:
                 resp.raise_for_status()

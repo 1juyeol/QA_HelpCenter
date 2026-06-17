@@ -68,13 +68,27 @@ RULES = [
 
 
 _TEMPLATE_MARKER = re.compile(r"\*확인사항|점검\s*요청\s*내용")
+_META_FIELD = re.compile(r"\*[^:\n]+:[^\n*]*")          # *KEY : VALUE 메타데이터
+_ABSENCE = re.compile(r"\d*부재")                        # 부재, 2부재, 3부재 등
+_CONSULT_HEADER = re.compile(r"\[\d+차\s*상담\]\s*")    # [2차 상담] 헤더
+_BILLING_META = re.compile(r"-(?:결제일|종료일|해지금)[^-\n]*")  # 결제일/종료일/해지금 메타
+_SKIP_KEYWORDS = {"유종처리"}                            # 메모 전체 스킵 키워드
 
 
 def extract_symptom_fields(memo: str) -> str:
-    """기기 점검 템플릿 메모에서 확인사항·상세증상·점검 요청 내용만 추출해 반환.
-    템플릿이 아닌 자유형식 메모는 원문 그대로 반환."""
+    """메모에서 증상 관련 텍스트만 추출해 반환.
+    - 템플릿 메모(*확인사항/점검 요청 내용): 해당 필드만 추출
+    - 비템플릿 메모: 메타데이터 제거 후 자유형식 텍스트만 반환
+    - 유종처리 등 분석 불필요 키워드 포함 시 빈 문자열 반환 → 호출부에서 스킵"""
+    if any(kw in memo for kw in _SKIP_KEYWORDS):
+        return ""
+
     if not _TEMPLATE_MARKER.search(memo):
-        return memo
+        cleaned = _CONSULT_HEADER.sub("", memo)
+        cleaned = _BILLING_META.sub("", cleaned)
+        cleaned = _META_FIELD.sub("", cleaned)
+        cleaned = _ABSENCE.sub("", cleaned).strip()
+        return cleaned if cleaned else memo
 
     parts = []
 
