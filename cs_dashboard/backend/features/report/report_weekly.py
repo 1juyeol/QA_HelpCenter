@@ -17,6 +17,7 @@
 # 정책 2 준수: DB 날짜 필터는 datetime(created_date, '+9 hours') KST 변환
 
 import json
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
@@ -26,6 +27,7 @@ from features.issues.classifier import extract_symptom_fields
 from features.report.report_utils import (
     INSUFFICIENT_SUMMARY, _MIN_ANALYSIS_MEMOS,
     _MAIN_ORDER, _is_risk, _SYSTEM_CATEGORY,
+    RISK_MAIN, RISK_SPECIFIC,
 )
 
 # ── Ollama 프롬프트 (주간 전용) ───────────────────────────────────────────────
@@ -33,10 +35,13 @@ from features.report.report_utils import (
 _PROMPT_WEEKLY_CATEGORY = (
     "아래는 {week_range} [{cat_label}] 관련 CS 상담 메모입니다.\n"
     "이번 주 접수: {count}건 (전체 리스크 CS의 {risk_pct}%)\n"
-    "메모에서 반복되는 현상을 두 문장으로 분석하세요.\n"
-    "첫 문장: 어떤 현상이 이 주에 두드러졌는지 (규모나 패턴 포함).\n"
-    "두 번째 문장: 그 현상이 사용자에게 어떤 영향을 주는지 또는 왜 심각한지.\n"
-    "건수 단순 반복('N건 접수됐습니다')이나 CS 운영 조언은 쓰지 마세요.\n\n"
+    "이번 주 최다 접수 요일: {peak_day} ({peak_count}건)\n"
+    "자주 등장한 키워드: {top_keywords}\n"
+    "\n"
+    "메모에서 이번 주 두드러진 패턴이나 특이사항을 분석하세요.\n"
+    "첫 문장: 이 주에 어떤 현상이 두드러졌는지 (피크 요일이나 패턴 포함).\n"
+    "두 번째 문장: 그 현상이 사용자에게 어떤 영향을 주는지 또는 왜 주목해야 하는지.\n"
+    "건수 단순 반복이나 CS 운영 조언은 쓰지 마세요.\n\n"
     "{memos}"
 )
 
@@ -44,7 +49,7 @@ _SYSTEM_WEEKLY_SUMMARY = (
     "당신은 단비교육 공감센터 CS 분석 전문가입니다.\n"
     "CS팀 운영이 아닌 개발·서비스 품질 관점에서 분석하세요.\n"
     "규칙: 코드 블록 없이 JSON만 출력\n"
-    '응답 형식:\n{"summary": "세 문장 분석."}'
+    '응답 형식:\n{"summary": "• 항목1\\n• 항목2\\n• 항목3"}'
 )
 
 _PROMPT_WEEKLY_SUMMARY = (
@@ -53,12 +58,61 @@ _PROMPT_WEEKLY_SUMMARY = (
     "리스크 CS: {risk_total}건 (주간 SQI 평균 {week_sqi}%)\n"
     "카테고리별 건수: {category_summary}\n"
     "\n"
-    "이번 주 CS 전체를 세 문장으로 종합 분석하세요.\n"
-    "첫 문장: 이번 주 가장 두드러진 이슈나 트렌드.\n"
-    "두 번째 문장: 리스크 CS 관점에서 주목해야 할 점.\n"
-    "세 번째 문장: 다음 주 모니터링이 필요한 시그널 또는 제품·서비스 개선 방향.\n"
+    "리스크 카테고리별 분석:\n"
+    "{risk_analysis}\n"
+    "\n"
+    "이번 주 CS를 3~4개 항목(•)으로 종합 분석하세요.\n"
+    "각 항목: 핵심 현상 + 서비스·제품 관점 의미 또는 모니터링 포인트.\n"
     "건수 단순 나열이나 CS 운영 조언은 쓰지 마세요.\n"
 )
+
+# ── 내부 유틸 ─────────────────────────────────────────────────────────────────
+
+_WEEKDAYS_KO = ['월', '화', '수', '목', '금', '토', '일']
+
+# 키워드 추출 시 제거할 공통 CS 용어
+_KW_STOPWORDS = {
+    '문의', '상담', '접수', '처리', '고객', '확인', '요청', '연락', '해결', '완료',
+    '관련', '사항', '내용', '부분', '경우', '문제', '발생', '계속', '현재', '이용',
+    '안내', '드립니다', '합니다', '입니다', '됩니다', '했습니다', '있습니다', '없습니다',
+    '것입니다', '주시기', '바랍니다', '주셨', '말씀', '주셔서', '감사', '안녕',
+}
+
+
+def _fmt_date_ko(date_str: str) -> str:
+    """'YYYY-MM-DD' → 'MM/DD(요)'"""
+    d = date.fromisoformat(date_str)
+    return f"{date_str[5:].replace('-', '/')}({_WEEKDAYS_KO[d.weekday()]})"
+
+
+def _weighted_sample_memos(memos: list, max_count: int = 40) -> tuple:
+    """일별 건수 비율로 가중 샘플링. (sampled, peak_day_str, peak_count) 반환."""
+    if not memos:
+        return [], "", 0
+    by_day: dict = defaultdict(list)
+    for m in memos:
+        by_day[m["date"]].append(m)
+    peak_day = max(by_day, key=lambda d: len(by_day[d]))
+    peak_count = len(by_day[peak_day])
+    if len(memos) <= max_count:
+        return memos, _fmt_date_ko(peak_day), peak_count
+    total = len(memos)
+    sampled: list = []
+    for day in sorted(by_day):
+        quota = max(1, round(len(by_day[day]) / total * max_count))
+        sampled.extend(by_day[day][:quota])
+    return sampled[:max_count], _fmt_date_ko(peak_day), peak_count
+
+
+def _extract_top_keywords(texts: list, top_n: int = 7) -> list:
+    """메모 텍스트에서 빈도 높은 한글 키워드 추출."""
+    freq: dict = {}
+    for text in texts:
+        for w in re.findall(r'[가-힣]{2,6}', text):
+            if w not in _KW_STOPWORDS:
+                freq[w] = freq.get(w, 0) + 1
+    return sorted(freq, key=lambda w: freq[w], reverse=True)[:top_n]
+
 
 # ── 내부 함수 ─────────────────────────────────────────────────────────────────
 
@@ -104,7 +158,7 @@ def _fetch_week_stats(week_start: str) -> dict:
         ).fetchall()
 
         risk_memo_raw = conn.execute(
-            f"SELECT id, new_category_main AS main, new_category_sub AS sub, call_memo "
+            f"SELECT id, {col} AS day, new_category_main AS main, new_category_sub AS sub, call_memo "
             f"FROM issues WHERE {col} BETWEEN ? AND ? AND new_category_main IS NOT NULL",
             (week_start, week_end),
         ).fetchall()
@@ -160,7 +214,7 @@ def _fetch_week_stats(week_start: str) -> dict:
     risk_memos: dict = defaultdict(list)
     for row in risk_memo_raw:
         if row["sub"] and _is_risk(row["main"], row["sub"]):
-            risk_memos[row["main"]].append({"id": row["id"], "text": row["call_memo"] or ""})
+            risk_memos[row["main"]].append({"id": row["id"], "date": row["day"], "text": row["call_memo"] or ""})
 
     risk_rows = []
     for main in _MAIN_ORDER:
@@ -173,7 +227,7 @@ def _fetch_week_stats(week_start: str) -> dict:
         risk_rows.append({
             "main": main,
             "count": risk_cnt,
-            "memos": risk_memos.get(main, [])[:40],
+            "memos": risk_memos.get(main, []),
             "summary": "",
         })
 
@@ -197,7 +251,7 @@ def _fetch_week_stats(week_start: str) -> dict:
 
 
 async def _call_ollama_weekly_risk(week_range: str, risk_rows: list) -> None:
-    """리스크 카테고리별 Ollama 호출. 메모 부족 시 INSUFFICIENT_SUMMARY 설정."""
+    """리스크 카테고리별 Ollama 호출. 피크 요일 가중 샘플링 + 키워드 추출 후 분석."""
     total_risk = sum(r["count"] for r in risk_rows)
     for row in risk_rows:
         memos = row["memos"]
@@ -205,26 +259,35 @@ async def _call_ollama_weekly_risk(week_range: str, risk_rows: list) -> None:
             row["summary"] = INSUFFICIENT_SUMMARY
             continue
 
+        sampled, peak_day, peak_count = _weighted_sample_memos(memos)
+
         lines = []
-        for m in memos:
+        raw_texts = []
+        for m in sampled:
             text = extract_symptom_fields(m["text"])
             text = " ".join(text.split())[:150]
             if len(text) >= 20:
+                raw_texts.append(text)
                 lines.append(f"[{len(lines)+1}] {text}")
 
         if not lines:
             row["summary"] = INSUFFICIENT_SUMMARY
             continue
 
+        top_kw = _extract_top_keywords(raw_texts)
         risk_pct = round(row["count"] / max(total_risk, 1) * 100, 1)
         prompt = _PROMPT_WEEKLY_CATEGORY.format(
             week_range=week_range,
             cat_label=row["main"],
             count=row["count"],
             risk_pct=risk_pct,
+            peak_day=peak_day or "-",
+            peak_count=peak_count,
+            top_keywords=", ".join(top_kw) if top_kw else "없음",
             memos="\n".join(lines),
         )
-        print(f"[Ollama Weekly Risk - {row['main']}] 프롬프트 길이: {len(prompt)}자")
+        print(f"[Ollama Weekly Risk - {row['main']}] 프롬프트 길이: {len(prompt)}자, 샘플: {len(lines)}건")
+        print(prompt)
         try:
             raw = await call_ollama(_SYSTEM_CATEGORY, prompt)
             result = parse_json_response(raw)
@@ -240,6 +303,11 @@ async def _call_ollama_weekly_summary(stats: dict) -> str:
         f"{r['main']} {r['count']}건"
         for r in stats["category_breakdown"][:6]
     )
+    risk_analysis = "\n".join(
+        f"- {r['main']} ({r['count']}건): {r.get('summary', '')}"
+        for r in stats["risk_rows"]
+        if r.get("summary") and r.get("summary") != INSUFFICIENT_SUMMARY
+    ) or "(분석 없음)"
     prompt = _PROMPT_WEEKLY_SUMMARY.format(
         week_range=f"{stats['week_start']} ~ {stats['week_end']}",
         total_weekday=stats["total_weekday"],
@@ -247,6 +315,7 @@ async def _call_ollama_weekly_summary(stats: dict) -> str:
         risk_total=stats["risk_total"],
         week_sqi=stats["week_sqi"],
         category_summary=category_summary,
+        risk_analysis=risk_analysis,
     )
     print(f"[Ollama Weekly Summary] 프롬프트 길이: {len(prompt)}자")
     try:
@@ -313,6 +382,52 @@ async def generate_weekly_report(week_start: str) -> dict:
     generated_at = _save_weekly_report(week_start, content)
     content["generated_at"] = generated_at
     return content
+
+
+def get_weekly_risk_memos(
+    week_start: str, main: str, page: int = 1, page_size: int = 20,
+) -> dict:
+    """주간 리스크 카테고리 메모 페이지네이션 조회. 리스크 소분류만 포함."""
+    d0 = date.fromisoformat(week_start)
+    week_end = str(d0 + timedelta(days=6))
+    kst = "datetime(created_date, '+9 hours')"
+    col = f"date({kst})"
+    offset = (page - 1) * page_size
+
+    if main in RISK_MAIN:
+        sub_clause = ""
+        sub_params: list = []
+    else:
+        risk_subs = [s.split(" > ", 1)[1] for s in RISK_SPECIFIC if s.startswith(f"{main} > ")]
+        if not risk_subs:
+            return {"memos": [], "total": 0, "page": page, "page_size": page_size}
+        placeholders = ",".join("?" * len(risk_subs))
+        sub_clause = f"AND new_category_sub IN ({placeholders})"
+        sub_params = risk_subs
+
+    base = [week_start, week_end, main] + sub_params
+
+    with get_conn() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM issues "
+            f"WHERE {col} BETWEEN ? AND ? AND new_category_main = ? {sub_clause}",
+            base,
+        ).fetchone()[0]
+
+        rows = conn.execute(
+            f"SELECT {col} AS day, new_category_sub AS sub, call_memo "
+            f"FROM issues "
+            f"WHERE {col} BETWEEN ? AND ? AND new_category_main = ? {sub_clause} "
+            f"ORDER BY created_date LIMIT ? OFFSET ?",
+            base + [page_size, offset],
+        ).fetchall()
+
+    return {
+        "memos": [{"date": r["day"], "sub": r["sub"] or "", "text": r["call_memo"] or ""} for r in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 def get_weekly_report(week_start: str) -> dict | None:

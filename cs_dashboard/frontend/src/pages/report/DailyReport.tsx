@@ -23,29 +23,6 @@ const RISK_RED = '#ef4444'
 
 // ── 툴팁 ─────────────────────────────────────────────────────────────────────
 
-function InfoTooltip({ text }: { text: string }) {
-  const [visible, setVisible] = useState(false)
-  return (
-    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-      <span
-        onMouseEnter={() => setVisible(true)}
-        onMouseLeave={() => setVisible(false)}
-        style={{ fontSize: 13, color: '#94a3b8', cursor: 'default', userSelect: 'none' }}
-      >ℹ</span>
-      {visible && (
-        <span style={{
-          position: 'absolute', left: 20, top: -4, zIndex: 10,
-          background: '#1e293b', color: '#e2e8f0',
-          fontSize: 11, lineHeight: 1.6, whiteSpace: 'nowrap',
-          borderRadius: 6, padding: '6px 10px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-        }}>
-          {text}
-        </span>
-      )}
-    </span>
-  )
-}
 
 // ── KPI 카드 ──────────────────────────────────────────────────────────────────
 
@@ -129,9 +106,9 @@ function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boo
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 12, color: '#94a3b8' }}>{row.main}</span>
-            <span style={{ fontSize: 11, color: '#cbd5e1' }}>›</span>
-            <span style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>{row.sub}</span>
+            <span style={{ fontSize: 14, color: '#94a3b8' }}>{row.main}</span>
+            <span style={{ fontSize: 13, color: '#cbd5e1' }}>›</span>
+            <span style={{ fontWeight: 700, fontSize: 18, color: '#1e293b' }}>{row.sub}</span>
             <span style={{
               fontSize: 12, fontWeight: 700, color: RISK_RED,
               background: '#fef2f2', borderRadius: 6,
@@ -459,8 +436,8 @@ export default function DailyReport() {
                 display: 'flex', alignItems: 'center', gap: 10,
                 marginBottom: 20, paddingBottom: 14, borderBottom: '1px solid #f1f5f9',
               }}>
-                <h3 style={{ margin: 0, color: NAVY, fontSize: 15 }}>리스크 카테고리 현황</h3>
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>대분류별 최다 발생 소분류</span>
+                <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>리스크 카테고리 현황</h3>
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>해지·장애 등 위험 징후로 분류된 상담 유형별 건수입니다</span>
               </div>
               <RiskBarChart rows={report.risk_rows} />
             </div>
@@ -472,8 +449,8 @@ export default function DailyReport() {
               display: 'flex', alignItems: 'center', gap: 10,
               marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9',
             }}>
-              <h3 style={{ margin: 0, color: NAVY, fontSize: 15 }}>카테고리별 AI 분석</h3>
-              <InfoTooltip text="각 대분류 내 당일 최다 발생 소분류 1개만 목록에 표시 / 전체 리스크 건수는 해당 대분류 모든 소분류 합산" />
+              <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>카테고리별 AI 분석</h3>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>위험 유형마다 당일 가장 많이 접수된 항목을 AI가 분석합니다</span>
             </div>
             {report.risk_rows.length === 0 ? (
               <div style={{ color: '#94a3b8', fontSize: 13 }}>리스크 카테고리 데이터 없음</div>
@@ -490,7 +467,8 @@ export default function DailyReport() {
               display: 'flex', alignItems: 'center', gap: 10,
               marginBottom: 6, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
             }}>
-              <h3 style={{ margin: 0, color: NAVY, fontSize: 15 }}>피크타임 특이사항</h3>
+              <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>피크타임 패턴 분석</h3>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>17시~20시 30분 구간에서 상담이 집중된 시간대를 찾아 AI가 패턴을 분석합니다</span>
             </div>
             <PeakBucketChart buckets={peakBuckets} />
             {!report.peak_bucket ? (
@@ -518,6 +496,23 @@ export default function DailyReport() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* TODO: Ollama 검증 후 삭제 */}
+          <div style={{ marginTop: 16, padding: '16px 20px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 12, fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>
+            <strong style={{ fontSize: 13, display: 'block', marginBottom: 10 }}>🔍 일간 Ollama 첫 실행 체크리스트</strong>
+
+            <div style={{ marginBottom: 8 }}>□ <strong>JSON 응답 형식</strong> — Ollama에게 {"{"}"summary":"..."{"}"} 형태로 돌려달라 지시하는데, 모델에 따라 마크다운으로 감싸거나 plain text로 줄 때가 있음. parse_json_response()가 정규식으로 추출하므로 보통 버티지만, 완전히 다른 형태면 summary가 빈 값이 됨.</div>
+
+            <div style={{ marginBottom: 8 }}>□ <strong>카테고리별 AI 분석 품질</strong> — 대분류별 가장 많이 접수된 소분류 top1을 뽑아 해당 메모만 Ollama에 보냄. "두 문장으로" 지시하지만 모델이 1~3문장 줄 수 있음. 건수 단순 반복이나 CS 운영 조언 나오면 프롬프트 조정 필요.</div>
+
+            <div style={{ marginBottom: 8 }}>□ <strong>피크타임 패턴 분석</strong> — 17:00~20:30 구간을 30분 버킷으로 나눠 가장 많이 접수된 버킷 찾음. has_pattern이 True일 때만 Ollama 호출해서 AI 분석을 보여주고, False면 "특이한 패턴이 없습니다" 고정 문구 표시. 두 분기 모두 직접 확인.</div>
+
+            <div style={{ marginBottom: 8 }}>□ <strong>메모 드롭다운·페이지네이션</strong> — 카테고리별 메모를 20개씩 앞에서부터 보여줌. 페이지 수(총건수 ÷ 20 올림)가 맞는지, 이전/다음 버튼 경계(1페이지·마지막 페이지)에서 비활성화 되는지 확인.</div>
+
+            <div style={{ marginBottom: 8 }}>□ <strong>메모 적은 카테고리</strong> — _MIN_ANALYSIS_MEMOS = 3 미만이면 Ollama 호출 없이 "구체적 증상 데이터가 충분하지 않아..." 고정 문구 표시. 해당 카테고리에서 이 문구 뜨는지 확인.</div>
+
+            <div>□ <strong>AI 분석 회색 배경 스타일</strong> — 일간·주간 모두 background #f0f4fb + 왼쪽 파란 border 스타일 통일했음. 두 페이지 나란히 놓고 동일하게 보이는지 시각 확인.</div>
           </div>
         </>
       )}

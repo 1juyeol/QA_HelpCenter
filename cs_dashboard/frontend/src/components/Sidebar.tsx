@@ -93,12 +93,6 @@ export default function Sidebar() {
         >
           학부모 반복 인입
         </NavLink>
-        <NavLink
-          to="/insights/sqi"
-          className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
-        >
-          서비스 품질 지수
-        </NavLink>
         <div className="nav-sub-item" style={{ color: '#cbd5e1', cursor: 'default' }}>
           이탈 신호
           <span style={{ fontSize: 10, marginLeft: 6, color: '#e2e8f0', background: '#94a3b8', borderRadius: 4, padding: '1px 5px' }}>준비 중</span>
@@ -160,6 +154,25 @@ export default function Sidebar() {
             </button>
           </div>
         )}
+      </div>
+
+      {/* 리스크율 기준 */}
+      <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 8, padding: '10px 16px 14px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', marginBottom: 8, letterSpacing: '0.4px' }}>
+          리스크율 기준
+        </div>
+        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
+          위험 상담 ÷ 전체 상담 × 100
+        </div>
+        <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.9 }}>
+          <div>• 네트워크·앱 오류 (전체)</div>
+          <div>• 기기·하드웨어 오류 (전체)</div>
+          <div>• 미납·결제 › 미납 관리</div>
+          <div>• 해지·유지 상담 › 해지 확정</div>
+          <div>• 해지·유지 상담 › 해지금·위약금</div>
+          <div>• 교재·물류 › 기기 장기미회수</div>
+          <div>• 교재·물류 › 누락·오배송</div>
+        </div>
       </div>
     </nav>
   )
