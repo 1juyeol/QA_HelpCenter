@@ -116,7 +116,7 @@ function RiskBarChart({ rows }: { rows: RiskRow[] }) {
 
 const MEMOS_PER_PAGE = 20
 
-function RiskRowItem({ row }: { row: RiskRow }) {
+function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boolean }) {
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState(0)
 
@@ -160,6 +160,8 @@ function RiskRowItem({ row }: { row: RiskRow }) {
             }}>
               {row.summary}
             </div>
+          ) : aiLoading ? (
+            <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
           ) : (
             <div style={{ fontSize: 12, color: '#94a3b8' }}>(AI 요약 없음)</div>
           )}
@@ -306,6 +308,7 @@ export default function DailyReport() {
   const [peakBuckets, setPeakBuckets] = useState<BucketRow[]>([])
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [aiGenerating, setAiGenerating] = useState(false)
   const [notFound, setNotFound] = useState(false)
 
   useEffect(() => {
@@ -335,22 +338,30 @@ export default function DailyReport() {
   async function handleGenerate() {
     setGenerating(true)
     try {
-      const [data, buckets] = await Promise.all([
-        api.generateDailyReport(date),
+      // 1단계: 통계만 생성 → 차트 바로 렌더링
+      const [statsData, buckets] = await Promise.all([
+        api.generateDailyReportStats(date),
         api.fetchHourly(date, date),
       ])
-      setReport(data)
+      setReport(statsData)
       setPeakBuckets(filterPeakBuckets(buckets))
       setNotFound(false)
+      setGenerating(false)
+
+      // 2단계: AI 분석 → 요약 채움
+      setAiGenerating(true)
+      const fullData = await api.generateDailyReport(date)
+      setReport(fullData)
       const canNotify = await requestNotificationPermission()
       if (canNotify) {
-        const url = `${window.location.origin}/report/daily?date=${data.report_date}`
-        showReportNotification(data, url)
+        const url = `${window.location.origin}/report/daily?date=${fullData.report_date}`
+        showReportNotification(fullData, url)
       }
     } catch (e) {
       alert(`보고서 생성 실패: ${e}`)
-    } finally {
       setGenerating(false)
+    } finally {
+      setAiGenerating(false)
     }
   }
 
@@ -374,16 +385,16 @@ export default function DailyReport() {
         />
         <button
           onClick={handleGenerate}
-          disabled={generating || loading}
+          disabled={generating || aiGenerating || loading}
           style={{
             padding: '8px 18px',
-            background: generating ? '#94a3b8' : NAVY,
+            background: generating || aiGenerating ? '#94a3b8' : NAVY,
             color: '#fff', border: 'none', borderRadius: 8,
             cursor: generating ? 'default' : 'pointer',
             fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
           }}
         >
-          {generating ? '생성 중...' : report ? '↻ 재생성' : '보고서 생성'}
+          {generating ? '집계 중...' : aiGenerating ? 'AI 분석 중...' : report ? '↻ 재생성' : '보고서 생성'}
         </button>
       </div>
 
@@ -407,12 +418,12 @@ export default function DailyReport() {
         </div>
       )}
 
-      {/* 생성 중 */}
+      {/* 통계 집계 중 (1단계) */}
       {generating && !report && (
         <div className="section-card">
           <div style={{ padding: '40px 0', textAlign: 'center', color: '#64748b' }}>
-            <div style={{ fontSize: 13, marginBottom: 8 }}>Ollama 분석 중...</div>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>카테고리 요약 생성 (1~2분 소요)</div>
+            <div style={{ fontSize: 13, marginBottom: 8 }}>통계 집계 중...</div>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>DB 조회 중입니다</div>
           </div>
         </div>
       )}
@@ -468,7 +479,7 @@ export default function DailyReport() {
               <div style={{ color: '#94a3b8', fontSize: 13 }}>리스크 카테고리 데이터 없음</div>
             ) : (
               report.risk_rows.map((row, i) => (
-                <RiskRowItem key={i} row={row} />
+                <RiskRowItem key={i} row={row} aiLoading={aiGenerating} />
               ))
             )}
           </div>
@@ -483,7 +494,9 @@ export default function DailyReport() {
             </div>
             <PeakBucketChart buckets={peakBuckets} />
             {!report.peak_bucket ? (
-              <div style={{ fontSize: 13, color: '#94a3b8' }}>피크타임 데이터가 없습니다.</div>
+              aiGenerating
+                ? <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
+                : <div style={{ fontSize: 13, color: '#94a3b8' }}>피크타임 데이터가 없습니다.</div>
             ) : !report.peak_bucket.has_pattern ? (
               <div style={{ fontSize: 13, color: '#94a3b8' }}>이 날 피크타임에 특이한 패턴이 없습니다.</div>
             ) : (

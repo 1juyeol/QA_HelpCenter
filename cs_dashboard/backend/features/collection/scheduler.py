@@ -1,8 +1,12 @@
-# APScheduler 기반 자동 수집 스케줄러. 서버 시작 시 start_scheduler()를 한 번 호출한다.
-# 수집 주기: 업무시간(09:00~20:30) 30분 간격 + 자정(00:00) 1회.
-#   - 09:00 실행이 00~09시 신규분을, 자정 실행이 전날 21~24시 신규분을 증분으로 채운다.
-#   - 자정엔 추가로 어제치 전량 재조회(사후 수정 보정) + 인사이트 캐시 갱신.
-# 00:30 KST: 전날 일별 보고서 자동 생성 (COLLECTION_ENABLED 무관, DB만 읽음).
+# APScheduler 기반 자동 수집·보고서 스케줄러. 서버 시작 시 start_scheduler()를 한 번 호출한다.
+#
+# ★ 스케줄 약속은 _register_jobs()에만 등록한다. 시간 변경·신규 작업 추가 시 그 함수만 수정.
+#
+# 핸들러 목록 (실제 로직):
+#   _generate_yesterday_report() : 전날 일별 보고서 자동 생성
+#   _generate_last_week_report() : 직전 주 주간 보고서 자동 생성
+#   collect_today()              : Help-Desk 증분 수집 + 자정 보정·캐시 갱신
+#
 # 자격증명(_username, _password)은 서버 시작 시 prompt_credentials()로 입력받아 전역 변수에 보관한다.
 # _wings_token: Wings(Zammad) API 토큰. 인사이트 캐시 갱신 시 티켓 상태를 실시간으로 조회하는 데 사용한다.
 # collect_date()는 성공·실패 모두 collection_log 테이블에 기록해 수집 이력을 추적한다.
@@ -171,8 +175,8 @@ async def update_insights_cache():
 
 
 async def _generate_yesterday_report():
-    """00:30 KST — 전날 일별 보고서를 자동 생성한다. COLLECTION_ENABLED 무관하게 실행."""
-    from features.report.report_client import generate_report
+    """전날 일별 보고서를 자동 생성한다. COLLECTION_ENABLED 무관하게 실행."""
+    from features.report.report_daily import generate_report
     yesterday = str(date.today() - timedelta(days=1))
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     try:
@@ -182,19 +186,43 @@ async def _generate_yesterday_report():
         print(f"[{now}] 일별 보고서 생성 실패: {e}")
 
 
-def start_scheduler():
-    scheduler = AsyncIOScheduler(timezone=KST)
+async def _generate_last_week_report():
+    """직전 주 월요일 날짜를 계산해 주간 보고서를 자동 생성한다. COLLECTION_ENABLED 무관하게 실행."""
+    from features.report.report_weekly import generate_weekly_report
+    today = date.today()
+    last_monday = str(today - timedelta(days=today.weekday() + 7))
+    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        await generate_weekly_report(last_monday)
+        print(f"[{now}] 주간 보고서 생성 완료: {last_monday}")
+    except Exception as e:
+        print(f"[{now}] 주간 보고서 생성 실패: {e}")
 
-    # 00:30 KST: 전날 일별 보고서 자동 생성 (COLLECTION_ENABLED 무관)
+
+# ── 스케줄 약속 ────────────────────────────────────────────────────────────────
+# 언제 무엇을 실행할지 여기서만 등록한다.
+# 시간 변경·신규 작업 추가는 이 함수만 수정하면 된다.
+
+def _register_jobs(scheduler: AsyncIOScheduler) -> None:
+    # 일별 보고서: 매일 00:30 KST (전날 데이터 기준)
     scheduler.add_job(_generate_yesterday_report, "cron", hour=0, minute=30)
 
+    # 주간 보고서: 매주 월요일 00:30 KST (직전 주 월~금 기준)
+    scheduler.add_job(_generate_last_week_report, "cron", day_of_week="mon", hour=0, minute=30)
+
     if COLLECTION_ENABLED:
-        # 업무시간(09:00~20:30)만 30분 간격으로 촘촘히 수집
+        # 업무시간 증분 수집: 09:00~20:30 30분 간격
         scheduler.add_job(collect_today, "cron", hour="9-20", minute="0,30")
-        # 자정 1회: 전날 21~24시 신규분 + 어제치 전량 보정 + 인사이트 캐시 갱신
+        # 자정: 전날 21~24시 신규분 + 어제치 전량 보정 + 인사이트 캐시 갱신
         scheduler.add_job(collect_today, "cron", hour=0, minute=0)
     else:
         print("[scheduler] COLLECTION_ENABLED=False — 자동 수집/API 호출 비활성화됨")
 
+
+# ── 스케줄러 시작 ──────────────────────────────────────────────────────────────
+
+def start_scheduler() -> AsyncIOScheduler:
+    scheduler = AsyncIOScheduler(timezone=KST)
+    _register_jobs(scheduler)
     scheduler.start()
     return scheduler

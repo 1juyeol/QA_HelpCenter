@@ -1,0 +1,48 @@
+# -*- coding: utf-8 -*-
+# 보고서 공통 상수·유틸. daily_client.py와 weekly_client.py가 함께 사용한다.
+#
+# 리스크 카테고리 정의:
+#   RISK_MAIN     : 대분류 전체가 리스크인 카테고리 (네트워크·앱 오류, 기기·하드웨어 오류)
+#   RISK_SPECIFIC : 소분류 단위로 리스크인 카테고리 (미납 관리, 해지 확정 등)
+#   _MAIN_ORDER   : 보고서 표시 순서 (대분류 5개)
+#   _is_risk()    : (main, sub) 조합이 리스크인지 판별
+#
+# Ollama 공통 프롬프트:
+#   _SYSTEM_CATEGORY : 카테고리별 2문장 분석 시스템 프롬프트 (일별·주간 공용)
+#
+# 프론트엔드 categories.ts의 ALLOWED_MAIN + ALLOWED_SPECIFIC와 동일하게 유지해야 한다.
+
+INSUFFICIENT_SUMMARY = "구체적 증상 데이터가 충분하지 않아 분석에서 제외되었습니다."
+_MIN_ANALYSIS_MEMOS = 3
+
+RISK_MAIN = {"네트워크·앱 오류", "기기·하드웨어 오류"}
+RISK_SPECIFIC = {
+    "미납·결제 > 미납 관리",
+    "해지·유지 상담 > 해지 확정",
+    "해지·유지 상담 > 해지금·위약금 문의",
+    "교재·물류·배송 > 기기 장기미회수",
+    "교재·물류·배송 > 누락·오배송",
+}
+
+_MAIN_ORDER = [
+    "네트워크·앱 오류",
+    "기기·하드웨어 오류",
+    "미납·결제",
+    "해지·유지 상담",
+    "교재·물류·배송",
+]
+
+
+def _is_risk(main: str, sub: str) -> bool:
+    if main in RISK_MAIN:
+        return True
+    return f"{main} > {sub}" in RISK_SPECIFIC
+
+
+# 카테고리별 2문장 분석 시스템 프롬프트 — 일별(daily_client)과 주간(weekly_client) 공용
+_SYSTEM_CATEGORY = (
+    "당신은 단비교육 공감센터 CS 분석 전문가입니다.\n"
+    "CS팀 운영이 아닌 개발·서비스 품질 관점에서 분석하세요.\n"
+    "규칙: 코드 블록 없이 JSON만 출력\n"
+    '응답 형식:\n{"summary": "두 문장 분석."}'
+)
