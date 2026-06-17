@@ -143,6 +143,14 @@ export interface WeeklyRiskRow   { main: string; count: number; summary: string 
 // risk_stack: [{ date, "네트워크·앱 오류": number, "기기·하드웨어 오류": number, ... }]
 export type WeeklyRiskStackDay = { date: string } & Record<string, number>
 
+export interface WeeklyMemoItem  { date: string; sub: string; text: string }
+export interface WeeklyMemosPage {
+  memos: WeeklyMemoItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface WeeklyReport {
   week_start: string
   week_end: string
@@ -325,6 +333,10 @@ export const api = {
 
   generateWeeklyReport(weekStart: string) {
     return post<WeeklyReport>(`/api/report/weekly/generate?week_start=${weekStart}`)
+  },
+
+  fetchWeeklyMemos(weekStart: string, main: string, page: number) {
+    return get<WeeklyMemosPage>(`/api/report/weekly/memos?week_start=${weekStart}&main=${encodeURIComponent(main)}&page=${page}`)
   },
 
   fetchOllamaSettings() {

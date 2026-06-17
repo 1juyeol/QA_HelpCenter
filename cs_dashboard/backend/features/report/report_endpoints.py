@@ -7,6 +7,7 @@
 # GET  /api/report/weekly?week_start=YYYY-MM-DD              : 저장된 주간 보고서 반환. 없으면 404.
 # POST /api/report/weekly/generate-stats?week_start=YYYY-MM-DD : 통계만 생성 (1단계).
 # POST /api/report/weekly/generate?week_start=YYYY-MM-DD     : 통계 + AI 분석 전체 생성 (2단계).
+# GET  /api/report/weekly/memos?week_start=&main=&page=      : 카테고리별 리스크 메모 20개씩 페이지네이션.
 #
 # week_start는 반드시 월요일 날짜(ISO 형식)여야 한다.
 # generate-stats → generate 순서로 호출해 차트를 먼저 렌더링하고 AI 분석을 나중에 채운다.
@@ -14,7 +15,8 @@
 from fastapi import APIRouter, HTTPException, Query
 from features.report.report_daily import generate_report, generate_report_stats, get_report
 from features.report.report_weekly import (
-    generate_weekly_report, generate_weekly_report_stats, get_weekly_report,
+    generate_weekly_report, generate_weekly_report_stats,
+    get_weekly_report, get_weekly_risk_memos,
 )
 
 router = APIRouter()
@@ -54,3 +56,12 @@ async def generate_weekly_report_stats_endpoint(week_start: str = Query(..., des
 @router.post("/api/report/weekly/generate")
 async def generate_weekly_report_endpoint(week_start: str = Query(..., description="YYYY-MM-DD (월요일)")):
     return await generate_weekly_report(week_start)
+
+
+@router.get("/api/report/weekly/memos")
+def get_weekly_memos_endpoint(
+    week_start: str = Query(..., description="YYYY-MM-DD (월요일)"),
+    main: str = Query(..., description="대분류 이름"),
+    page: int = Query(1, ge=1),
+):
+    return get_weekly_risk_memos(week_start, main, page)

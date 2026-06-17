@@ -127,7 +127,7 @@ input[type=date], input[type=month] {
   margin-bottom: 20px;
 }
 .chart-card h2 { font-size: 14px; font-weight: 700; margin-bottom: 16px; color: #1e293b; }
-canvas { max-height: 240px; }
+canvas { max-height: 300px; }
 
 .section-card {
   background: #fff;

@@ -22,7 +22,7 @@ import {
   api,
   type WeeklyReport as WeeklyReportType,
   type WeeklyDayCount,
-  type WeeklyPeakDay,
+  type WeeklyMemosPage,
 } from '../../api/client'
 
 const NAVY = '#1e3c72'
@@ -38,6 +38,16 @@ const RISK_MAINS = [
   '교재·물류·배송',
 ]
 
+// 스택 바 범례에 어떤 소분류만 집계됐는지 표시
+// 보고서 수신자 눈높이 범례 — 대분류/소분류 용어 대신 실제 내용으로 표기
+const RISK_DISPLAY_LABEL: Record<string, string> = {
+  '네트워크·앱 오류':   '네트워크·앱 오류',
+  '기기·하드웨어 오류':  '기기·하드웨어 오류',
+  '미납·결제':        '미납 관리',
+  '해지·유지 상담':    '해지 확정 · 해지금·위약금 문의',
+  '교재·물류·배송':    '기기 장기미회수 · 누락·오배송',
+}
+
 // 카테고리 공유 팔레트 — 도넛과 리스크 스택 바가 같은 색 사용
 const PALETTE = [
   '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6',
@@ -51,9 +61,14 @@ function getCatColor(main: string, breakdown: { main: string }[]): string {
 }
 
 const DAYS_KO = ['월', '화', '수', '목', '금', '토', '일']
-const WEEKDAYS_KO = ['월', '화', '수', '목', '금']
 
 // ── 유틸 ──────────────────────────────────────────────────────────────────────
+
+function fmtDate(dateStr: string): string {
+  const dow = new Date(dateStr + 'T12:00:00').getDay()
+  const idx = (dow + 6) % 7
+  return `${dateStr.slice(5).replace('-', '/')}(${DAYS_KO[idx]})`
+}
 
 function getWeekLabel(weekStart: string): string {
   const d = new Date(weekStart + 'T12:00:00')
@@ -100,16 +115,16 @@ function KpiCard({
       boxShadow: '0 1px 6px rgba(0,0,0,.07)', borderTop: `4px solid ${color}`,
     }}>
       <div style={{
-        fontSize: 11, fontWeight: 700, color: '#94a3b8',
+        fontSize: 22, fontWeight: 700, color: '#94a3b8',
         textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 10,
       }}>
         {label}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-        <span style={{ fontSize: 32, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
-        <span style={{ fontSize: 14, color: '#94a3b8', fontWeight: 600 }}>{unit}</span>
+        <span style={{ fontSize: 38, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
+        <span style={{ fontSize: 17, color: '#64748b', fontWeight: 600 }}>{unit}</span>
       </div>
-      {sub && <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 6 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 13, color: '#64748b', marginTop: 6, fontWeight: 600 }}>{sub}</div>}
     </div>
   )
 }
@@ -118,83 +133,29 @@ function KpiCard({
 
 function DailyBar({ dailyCounts }: { dailyCounts: WeeklyDayCount[] }) {
   const max = Math.max(...dailyCounts.map(d => d.count), 1)
-  const BAR_MAX_H = 80
+  const BAR_MAX_H = 144
 
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: BAR_MAX_H + 48 }}>
-      {dailyCounts.map((d, i) => {
+      {dailyCounts.map((d) => {
         const h = Math.max(Math.round((d.count / max) * BAR_MAX_H), d.count > 0 ? 3 : 0)
-        const color = d.is_weekend ? WEEKEND_GREY : NAVY
         return (
           <div
             key={d.date}
             style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}
           >
-            <span style={{ fontSize: 10, color, fontWeight: 700, marginBottom: 2 }}>{d.count}</span>
+            <span style={{ fontSize: 12, color: d.is_weekend ? WEEKEND_GREY : '#3b82f6', fontWeight: 700, marginBottom: 2 }}>{d.count}</span>
             <div style={{
               width: '100%', height: h, borderRadius: '3px 3px 0 0',
-              background: d.is_weekend ? WEEKEND_GREY : `linear-gradient(180deg, ${NAVY}, ${NAVY2})`,
+              background: d.is_weekend ? WEEKEND_GREY : 'linear-gradient(180deg, #60a5fa, #3b82f6)',
             }} />
-            <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3 }}>
-              {d.date.slice(5).replace('-', '/')}
-            </div>
-            <div style={{ fontSize: 10, color: d.is_weekend ? '#94a3b8' : '#475569', fontWeight: 600 }}>
-              ({DAYS_KO[i]})
+            <div style={{ fontSize: 12, color: d.is_weekend ? '#94a3b8' : '#475569', fontWeight: 500, marginTop: 3 }}>
+              {fmtDate(d.date)}
             </div>
           </div>
         )
       })}
     </div>
-  )
-}
-
-// ── 피크타임 바 (HTML) ────────────────────────────────────────────────────────
-
-function PeakBar({ peakDaily }: { peakDaily: WeeklyPeakDay[] }) {
-  const max = Math.max(...peakDaily.map(d => d.count), 1)
-  const BAR_MAX_H = 80
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: BAR_MAX_H + 48 }}>
-      {peakDaily.map((d, i) => {
-        const h = Math.max(Math.round((d.count / max) * BAR_MAX_H), d.count > 0 ? 3 : 0)
-        const isMax = d.count > 0 && d.count === max
-        return (
-          <div
-            key={d.date}
-            style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}
-          >
-            <span style={{ fontSize: 10, color: isMax ? RISK_RED : NAVY, fontWeight: isMax ? 800 : 600, marginBottom: 2 }}>
-              {d.count}
-            </span>
-            <div style={{
-              width: '100%', height: h, borderRadius: '3px 3px 0 0',
-              background: isMax
-                ? `linear-gradient(180deg, ${RISK_RED}, #f87171)`
-                : `linear-gradient(180deg, ${NAVY}, ${NAVY2})`,
-            }} />
-            <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3 }}>
-              {d.date.slice(5).replace('-', '/')}
-            </div>
-            <div style={{ fontSize: 10, color: '#475569', fontWeight: 600 }}>
-              ({WEEKDAYS_KO[i]})
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// ── AI 분석 뱃지 ──────────────────────────────────────────────────────────────
-
-function AiBadge() {
-  return (
-    <span style={{
-      fontSize: 10, fontWeight: 700, color: NAVY,
-      background: '#dbeafe', borderRadius: 4,
-      padding: '1px 6px', letterSpacing: '0.03em',
-    }}>AI 분석</span>
   )
 }
 
@@ -208,6 +169,9 @@ export default function WeeklyReport() {
   const [generating, setGenerating] = useState(false)
   const [aiGenerating, setAiGenerating] = useState(false)
   const [notFound, setNotFound] = useState(false)
+
+  type MemoState = { open: boolean; page: number; data: WeeklyMemosPage | null; loading: boolean }
+  const [memoStates, setMemoStates] = useState<Record<string, MemoState>>({})
 
   // Chart.js 캔버스 및 인스턴스
   const sqiRef      = useRef<HTMLCanvasElement>(null)
@@ -241,10 +205,30 @@ export default function WeeklyReport() {
     renderStackChart(report)
   }, [report])
 
+  async function loadMemos(main: string, page: number) {
+    setMemoStates(s => ({ ...s, [main]: { ...(s[main] ?? { open: true, data: null }), open: true, page, loading: true } }))
+    try {
+      const data = await api.fetchWeeklyMemos(weekStart, main, page)
+      setMemoStates(s => ({ ...s, [main]: { ...s[main], data, loading: false } }))
+    } catch {
+      setMemoStates(s => ({ ...s, [main]: { ...s[main], loading: false } }))
+    }
+  }
+
+  function toggleMemos(main: string) {
+    const cur = memoStates[main]
+    if (cur?.open) {
+      setMemoStates(s => ({ ...s, [main]: { ...s[main], open: false } }))
+    } else {
+      loadMemos(main, cur?.page ?? 1)
+    }
+  }
+
   async function loadReport() {
     setLoading(true)
     setReport(null)
     setNotFound(false)
+    setMemoStates({})
     try {
       const r = await api.fetchWeeklyReport(weekStart)
       setReport(r)
@@ -284,16 +268,30 @@ export default function WeeklyReport() {
     sqiChart.current = new Chart(sqiRef.current, {
       type: 'line',
       data: {
-        labels: r.sqi_daily.map(p => p.date.slice(5).replace('-', '/')),
+        labels: r.sqi_daily.map(p => fmtDate(p.date)),
         datasets: [
           {
             data: r.sqi_daily.map(p => p.sqi),
             borderColor: NAVY,
             backgroundColor: 'rgba(30,60,114,0.07)',
             pointBackgroundColor: r.sqi_daily.map(p => p.sqi > baseline ? RISK_RED : NAVY),
-            pointRadius: 5,
+            pointRadius: r.sqi_daily.map(p => p.sqi > baseline ? 9 : 4),
+            pointBorderColor: r.sqi_daily.map(p => p.sqi > baseline ? '#fff' : NAVY),
+            pointBorderWidth: r.sqi_daily.map(p => p.sqi > baseline ? 2 : 1),
             tension: 0.3,
             fill: true,
+            segment: {
+              borderColor: (ctx: { p0DataIndex: number; p1DataIndex: number }) => {
+                const s0 = r.sqi_daily[ctx.p0DataIndex]?.sqi ?? 0
+                const s1 = r.sqi_daily[ctx.p1DataIndex]?.sqi ?? 0
+                return s0 > baseline || s1 > baseline ? RISK_RED : NAVY
+              },
+              borderWidth: (ctx: { p0DataIndex: number; p1DataIndex: number }) => {
+                const s0 = r.sqi_daily[ctx.p0DataIndex]?.sqi ?? 0
+                const s1 = r.sqi_daily[ctx.p1DataIndex]?.sqi ?? 0
+                return s0 > baseline || s1 > baseline ? 2.5 : 1.5
+              },
+            },
           },
           {
             data: r.sqi_daily.map(() => baseline),
@@ -321,6 +319,7 @@ export default function WeeklyReport() {
     if (!donutRef.current || r.category_breakdown.length === 0) return
     donutChart.current?.destroy()
     const sorted = [...r.category_breakdown].sort((a, b) => b.count - a.count)
+    const total = sorted.reduce((s, c) => s + c.count, 0)
     donutChart.current = new Chart(donutRef.current, {
       type: 'doughnut',
       data: {
@@ -332,14 +331,42 @@ export default function WeeklyReport() {
           borderWidth: 2,
         }],
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       options: {
         cutout: '58%',
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'right', labels: { boxWidth: 11, font: { size: 11 } } },
+          legend: {
+            position: 'right',
+            labels: {
+              boxWidth: 11,
+              font: { size: 11 },
+              generateLabels: (chart: Chart) => {
+                const ds = chart.data.datasets[0]
+                const vals = ds.data as number[]
+                return (chart.data.labels as string[]).map((label, i) => ({
+                  text: `${label}  ${vals[i].toLocaleString()}건`,
+                  fillStyle: (ds.backgroundColor as string[])[i],
+                  strokeStyle: '#fff',
+                  lineWidth: 2,
+                  index: i,
+                  hidden: false,
+                }))
+              },
+            },
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx: any) => {
+                const val = ctx.parsed as number
+                const pct = ((val / total) * 100).toFixed(1)
+                return `  ${val.toLocaleString()}건 (${pct}%)`
+              },
+            },
+          },
         },
-      },
+      } as any,
     })
   }
 
@@ -352,9 +379,9 @@ export default function WeeklyReport() {
     stackChart.current = new Chart(stackRef.current, {
       type: 'bar',
       data: {
-        labels: r.risk_stack.map(d => d.date.slice(5).replace('-', '/')),
+        labels: r.risk_stack.map(d => fmtDate(d.date)),
         datasets: presentMains.map(main => ({
-          label: main,
+          label: RISK_DISPLAY_LABEL[main] ?? main,
           data: r.risk_stack.map(d => (d[main] as number | undefined) ?? 0),
           backgroundColor: getCatColor(main, r.category_breakdown),
           borderRadius: 2,
@@ -458,9 +485,6 @@ export default function WeeklyReport() {
             <div style={{ fontSize: 15, opacity: 0.8 }}>
               {report.week_start} ~ {report.week_end}
             </div>
-            <div style={{ fontSize: 12, opacity: 0.55, marginTop: 4 }}>
-              생성: {report.generated_at}
-            </div>
           </div>
 
           {/* KPI 4개 */}
@@ -469,25 +493,29 @@ export default function WeeklyReport() {
             <KpiCard label="일 평균" value={report.daily_avg.toLocaleString()} unit="건/일" color={NAVY2} />
             <KpiCard label="리스크 CS" value={report.risk_total.toLocaleString()} unit="건" color={RISK_RED} sub={`전체의 ${riskPct}%`} />
             <KpiCard
-              label="SQI"
+              label="리스크율"
               value={`${report.week_sqi}`}
               unit="%"
               color={report.week_sqi > 20 ? RISK_RED : '#4f46e5'}
-              sub="주 평균"
+              sub="전체 상담 중 위험 유형 비중"
             />
           </div>
 
           {/* 일별 건수 + SQI */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
             <div className="section-card">
-              <div style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 4 }}>일별 CS 건수</div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>주말은 회색 표시</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <div style={{ fontSize: 21, fontWeight: 700, color: NAVY }}>일별 CS 건수</div>
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>평일은 파란색, 주말은 회색으로 표시합니다</span>
+              </div>
               <DailyBar dailyCounts={report.daily_counts} />
             </div>
             <div className="section-card">
-              <div style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 4 }}>SQI 추이</div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>기준선(주 평균) 초과일은 빨간 점</div>
-              <div style={{ height: 160, position: 'relative' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                <div style={{ fontSize: 21, fontWeight: 700, color: NAVY }}>리스크율 추이</div>
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>주 평균 기준선을 초과한 날은 빨간 점으로 표시합니다</span>
+              </div>
+              <div style={{ height: 192, position: 'relative' }}>
                 {report.sqi_daily.length === 0
                   ? <div style={{ fontSize: 13, color: '#94a3b8', paddingTop: 60, textAlign: 'center' }}>데이터 없음</div>
                   : <canvas ref={sqiRef} />
@@ -496,103 +524,171 @@ export default function WeeklyReport() {
             </div>
           </div>
 
-          {/* 카테고리 도넛 + 리스크 스택 */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-            <div className="section-card">
-              <div style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 16 }}>전체 카테고리 비율</div>
-              <div style={{ height: 220, position: 'relative' }}>
-                <canvas ref={donutRef} />
-              </div>
+          {/* 도넛 (전체 폭) */}
+          <div className="section-card" style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <div style={{ fontSize: 21, fontWeight: 700, color: NAVY }}>이번 주 CS 유형 분포</div>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>전체 상담을 문의 유형별로 나눈 비중입니다</span>
             </div>
-            <div className="section-card">
-              <div style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 4 }}>리스크 카테고리 일별</div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>평일 기준 스택 바</div>
-              <div style={{ height: 220, position: 'relative' }}>
-                {report.risk_stack.length === 0
-                  ? <div style={{ fontSize: 13, color: '#94a3b8', paddingTop: 80, textAlign: 'center' }}>데이터 없음</div>
-                  : <canvas ref={stackRef} />
-                }
-              </div>
+            <div style={{ height: 264, position: 'relative' }}>
+              <canvas ref={donutRef} />
             </div>
           </div>
 
-          {/* 리스크 AI 분석 */}
-          {report.risk_rows.length > 0 && (
-            <div className="section-card" style={{ marginBottom: 14 }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
-              }}>
-                <h3 style={{ margin: 0, color: NAVY, fontSize: 15 }}>리스크 카테고리별 AI 분석</h3>
-                <AiBadge />
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-                {report.risk_rows.map(row => (
-                  <div key={row.main} style={{
-                    border: `1px solid ${getCatColor(row.main, report.category_breakdown)}30`,
-                    borderLeft: `4px solid ${getCatColor(row.main, report.category_breakdown)}`,
-                    borderRadius: 8, padding: '12px 14px',
-                    background: '#fafbff',
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: getCatColor(row.main, report.category_breakdown) }}>
-                        {row.main}
-                      </span>
-                      <span style={{
-                        fontSize: 11, fontWeight: 700, color: RISK_RED,
-                        background: '#fef2f2', borderRadius: 6,
-                        padding: '2px 7px', border: '1px solid #fecaca',
-                      }}>
-                        {row.count}건
-                      </span>
-                    </div>
-                    <p style={{ margin: 0, fontSize: 12, color: '#374151', lineHeight: 1.65 }}>
+          {/* 리스크 카테고리 일별 추이 + AI 분석 */}
+          <div className="section-card" style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <div style={{ fontSize: 21, fontWeight: 700, color: NAVY }}>리스크 카테고리 일별 추이</div>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>해지·결제·오류 등 위험 유형이 요일별로 얼마나 발생했는지 보여줍니다</span>
+            </div>
+            <div style={{ height: 264, position: 'relative' }}>
+              {report.risk_stack.length === 0
+                ? <div style={{ fontSize: 13, color: '#94a3b8', paddingTop: 80, textAlign: 'center' }}>데이터 없음</div>
+                : <canvas ref={stackRef} />
+              }
+            </div>
+            {report.risk_rows.length > 0 && (
+              <div style={{ marginTop: 24, borderTop: '1px solid #f1f5f9', paddingTop: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+                  <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>리스크 카테고리별 AI 분석</h3>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>각 위험 유형에서 이번 주 두드러진 패턴을 AI가 분석합니다</span>
+                </div>
+                {report.risk_rows.map((row, i) => {
+                  const ms = memoStates[row.main]
+                  const totalPages = ms?.data ? Math.ceil(ms.data.total / ms.data.page_size) : 1
+                  return (
+                    <div key={row.main} style={{
+                      borderBottom: i < report.risk_rows.length - 1 ? '1px solid #f1f5f9' : 'none',
+                      paddingBottom: 16, marginBottom: 16,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                        <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
+                          {RISK_DISPLAY_LABEL[row.main] ?? row.main}
+                        </span>
+                        <span style={{
+                          fontSize: 12, fontWeight: 700, color: RISK_RED,
+                          background: '#fef2f2', borderRadius: 6,
+                          padding: '2px 8px', border: '1px solid #fecaca',
+                        }}>
+                          {row.count}건
+                        </span>
+                      </div>
                       {row.summary
-                        ? row.summary
-                        : aiGenerating
-                          ? <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</span>
-                          : <span style={{ color: '#94a3b8' }}>(분석 없음)</span>
+                        ? <div style={{
+                            fontSize: 13, color: '#374151', lineHeight: 1.7,
+                            background: '#f0f4fb', borderRadius: 6,
+                            padding: '7px 12px', borderLeft: `3px solid ${NAVY}`,
+                            margin: '0 0 10px', whiteSpace: 'pre-line',
+                          }}>{row.summary}</div>
+                        : <p style={{ margin: '0 0 10px', fontSize: 13, lineHeight: 1.7 }}>
+                            {aiGenerating
+                              ? <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</span>
+                              : <span style={{ color: '#94a3b8' }}>(분석 없음)</span>
+                            }
+                          </p>
                       }
-                    </p>
-                  </div>
-                ))}
+                      {/* 메모 토글 */}
+                      <button
+                        onClick={() => toggleMemos(row.main)}
+                        style={{
+                          fontSize: 11, color: '#64748b', background: 'none',
+                          border: '1px solid #e2e8f0', borderRadius: 5,
+                          padding: '3px 10px', cursor: 'pointer',
+                        }}
+                      >
+                        {ms?.open ? '메모 접기 ▴' : '메모 보기 ▾'}
+                      </button>
+                      {ms?.open && (
+                        <div style={{ marginTop: 10 }}>
+                          {ms.loading
+                            ? <div style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0' }}>불러오는 중...</div>
+                            : ms.data && ms.data.memos.length > 0
+                              ? <>
+                                  {ms.data.memos.map((m, mi) => (
+                                    <div key={mi} style={{
+                                      display: 'flex', gap: 8, alignItems: 'baseline',
+                                      padding: '5px 0', borderBottom: '1px solid #f8fafc',
+                                      fontSize: 12,
+                                    }}>
+                                      <span style={{ color: '#94a3b8', whiteSpace: 'nowrap', minWidth: 70 }}>{fmtDate(m.date)}</span>
+                                      <span style={{
+                                        color: '#475569', background: '#f1f5f9',
+                                        borderRadius: 4, padding: '1px 6px',
+                                        whiteSpace: 'nowrap', fontSize: 11,
+                                      }}>{m.sub}</span>
+                                      <span style={{ color: '#374151', lineHeight: 1.5 }}>
+                                        {m.text.length > 120 ? m.text.slice(0, 120) + '…' : m.text}
+                                      </span>
+                                    </div>
+                                  ))}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12, color: '#64748b' }}>
+                                    <button
+                                      disabled={ms.page <= 1}
+                                      onClick={() => loadMemos(row.main, ms.page - 1)}
+                                      style={{ border: '1px solid #e2e8f0', borderRadius: 4, padding: '2px 8px', background: '#fff', cursor: ms.page <= 1 ? 'default' : 'pointer', color: ms.page <= 1 ? '#cbd5e1' : '#374151' }}
+                                    >이전</button>
+                                    <span>{ms.page} / {totalPages} 페이지 (총 {ms.data.total}건)</span>
+                                    <button
+                                      disabled={ms.page >= totalPages}
+                                      onClick={() => loadMemos(row.main, ms.page + 1)}
+                                      style={{ border: '1px solid #e2e8f0', borderRadius: 4, padding: '2px 8px', background: '#fff', cursor: ms.page >= totalPages ? 'default' : 'pointer', color: ms.page >= totalPages ? '#cbd5e1' : '#374151' }}
+                                    >다음</button>
+                                  </div>
+                                </>
+                              : <div style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0' }}>메모 없음</div>
+                          }
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* 피크타임 + 주간 종합 */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div className="section-card">
-              <div style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 4 }}>피크타임 요일별 건수</div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16 }}>17~20:30 KST · 최다 요일 강조</div>
-              {report.peak_daily.length > 0
-                ? <PeakBar peakDaily={report.peak_daily} />
-                : <div style={{ fontSize: 13, color: '#94a3b8' }}>데이터 없음</div>
-              }
+          {/* 주간 종합 분석 (전체 폭) */}
+          <div className="section-card">
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
+            }}>
+              <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>이번 주 CS 종합 브리핑</h3>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>이번 주 CS 전반을 AI가 핵심 패턴 중심으로 종합 분석합니다</span>
             </div>
-            <div className="section-card">
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
-              }}>
-                <h3 style={{ margin: 0, color: NAVY, fontSize: 15 }}>주간 종합 분석</h3>
-                <AiBadge />
-              </div>
-              {report.weekly_summary
-                ? (
-                  <div style={{
-                    fontSize: 13, color: '#374151', lineHeight: 1.7,
-                    background: '#f0f4fb', borderRadius: 6,
-                    padding: '10px 14px', borderLeft: `3px solid ${NAVY}`,
-                  }}>
-                    {report.weekly_summary}
-                  </div>
-                )
-                : aiGenerating
-                  ? <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
-                  : <div style={{ fontSize: 13, color: '#94a3b8' }}>(분석 없음)</div>
-              }
-            </div>
+            {report.weekly_summary
+              ? (
+                <div style={{
+                  fontSize: 13, color: '#374151', lineHeight: 1.7,
+                  background: '#f0f4fb', borderRadius: 6,
+                  padding: '10px 14px', borderLeft: `3px solid ${NAVY}`,
+                  whiteSpace: 'pre-line',
+                }}>
+                  {report.weekly_summary}
+                </div>
+              )
+              : aiGenerating
+                ? <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
+                : <div style={{ fontSize: 13, color: '#94a3b8' }}>(분석 없음)</div>
+            }
+          </div>
+
+          {/* TODO: Ollama 검증 후 삭제 */}
+          <div style={{ marginTop: 16, padding: '16px 20px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 12, fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>
+            <strong style={{ fontSize: 13, display: 'block', marginBottom: 10 }}>🔍 주간 Ollama 첫 실행 체크리스트</strong>
+
+            <div style={{ marginBottom: 8 }}>□ <strong>AI 분석 내용이 보이는지</strong> — 각 위험 유형 아래에 AI가 쓴 2문장이 보여야 함. 빈 칸이거나 "(분석 없음)"이 뜨면 AI가 응답을 제대로 못 준 것. 서버 콘솔에서 에러 메시지 확인.</div>
+
+            <div style={{ marginBottom: 8 }}>□ <strong>서버 콘솔에 찍히는 AI 입력 내용 확인</strong> — 보고서 생성하면 서버 화면에 AI에게 보낸 내용이 그대로 출력됨. 피크 요일(예: "06/11(수) 87건")과 자주 등장한 키워드가 실제 데이터와 맞는 것들인지 눈으로 확인.</div>
+
+            <div style={{ marginBottom: 8 }}>□ <strong>AI가 쓴 내용의 품질</strong> — "이번 주 223건이 접수됐습니다" 같이 숫자만 읊거나, "CS 담당자에게 연락하세요" 같은 뻔한 말이 나오면 실패. 실제 어떤 증상이 반복됐는지 구체적으로 써줘야 함.</div>
+
+            <div style={{ marginBottom: 8 }}>□ <strong>종합 브리핑이 줄 나눠서 보이는지</strong> — "이번 주 CS 종합 브리핑" 섹션이 • 항목 여러 개로 줄줄이 나와야 함. 한 줄로 쭉 붙어서 나오면 AI가 줄바꿈 형식을 안 지킨 것.</div>
+
+            <div style={{ marginBottom: 8 }}>□ <strong>메모 보기 버튼 동작</strong> — 각 위험 유형 아래 "메모 보기 ▾" 버튼 클릭 시 메모 20개가 펼쳐지고, 이전/다음 버튼으로 페이지 넘어가는지 확인. 한글 카테고리명(예: 네트워크·앱 오류)이 제대로 전달되는지도 체크.</div>
+
+            <div style={{ marginBottom: 8 }}>□ <strong>메모가 거의 없는 카테고리</strong> — 이번 주 데이터가 아주 적은 위험 유형은 AI 분석 대신 "구체적 증상 데이터가 충분하지 않아 분석에서 제외되었습니다" 문구가 나와야 함.</div>
+
+            <div>□ <strong>총 소요시간</strong> — 위험 유형 최대 5개 + 종합 1번, 총 6번 AI를 순서대로 호출함. 서버 콘솔에 각 호출마다 "완료 (X.Xs)"가 찍히는데, 카테고리 하나당 몇 초 걸리는지 확인. 전체가 너무 오래 걸리면 타임아웃 설정 조정 필요.</div>
           </div>
         </>
       )}
