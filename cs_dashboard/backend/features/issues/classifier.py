@@ -69,7 +69,7 @@ RULES = [
 
 _TEMPLATE_MARKER = re.compile(r"\*확인사항|점검\s*요청\s*내용")
 _META_FIELD = re.compile(r"\*[^:\n]+:[^\n*]*")          # *KEY : VALUE 메타데이터
-_ABSENCE = re.compile(r"\d*부재")                        # 부재, 2부재, 3부재 등
+_ABSENCE = re.compile(r"(?<!점검 )\d*부재")               # 부재, 2부재, 3부재 등 (점검 부재는 보존)
 _CONSULT_HEADER = re.compile(r"\[\d+차\s*상담\]\s*")    # [2차 상담] 헤더
 _BILLING_META = re.compile(r"-(?:결제일|종료일|해지금)[^-\n]*")  # 결제일/종료일/해지금 메타
 _SKIP_KEYWORDS = {"유종처리"}                            # 메모 전체 스킵 키워드

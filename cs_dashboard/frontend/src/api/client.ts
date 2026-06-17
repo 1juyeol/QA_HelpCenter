@@ -51,8 +51,6 @@ export interface InsightParent {
   latest_date: string
 }
 
-export interface WeeklyCategoryRow { week_start: string; main: string; sub: string | null; count: number }
-export interface SentimentWeeklyRow { week_start: string; neg_count: number; total: number }
 export interface CategoryDailyRow { day: string; main: string | null; sub: string | null; count: number }
 
 // keyword_trend 엔드포인트 응답 한 행.
@@ -277,14 +275,6 @@ export const api = {
 
   fetchLatestCollection() {
     return get<CollectionLatest>('/api/collection/latest')
-  },
-
-  fetchCategoryWeekly(targetDate: string) {
-    return get<WeeklyCategoryRow[]>(`/api/stats/category_weekly?target_date=${targetDate}`)
-  },
-
-  fetchSentimentWeekly(targetDate: string) {
-    return get<SentimentWeeklyRow[]>(`/api/stats/sentiment_weekly?target_date=${targetDate}`)
   },
 
   fetchCategoryDaily(targetDate: string) {
