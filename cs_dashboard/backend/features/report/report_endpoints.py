@@ -1,12 +1,21 @@
 # -*- coding: utf-8 -*-
-# 일별 보고서 API 라우터.
-# GET  /api/report/daily?date=YYYY-MM-DD  : 저장된 보고서 반환. 없으면 404.
-# POST /api/report/daily/generate?date=YYYY-MM-DD : 강제 재생성 (Ollama 재호출).
-# 보고서 생성은 시간이 걸리므로(Ollama 2회 호출) POST는 완료까지 대기한다.
+# 보고서 API 라우터. 일별·주간 보고서 조회/생성 엔드포인트를 제공한다.
+#
+# GET  /api/report/daily?date=YYYY-MM-DD                     : 저장된 일별 보고서 반환. 없으면 404.
+# POST /api/report/daily/generate-stats?date=YYYY-MM-DD      : 통계만 생성 (Ollama 없음, 1단계).
+# POST /api/report/daily/generate?date=YYYY-MM-DD            : 통계 + AI 분석 전체 생성 (2단계).
+# GET  /api/report/weekly?week_start=YYYY-MM-DD              : 저장된 주간 보고서 반환. 없으면 404.
+# POST /api/report/weekly/generate-stats?week_start=YYYY-MM-DD : 통계만 생성 (1단계).
+# POST /api/report/weekly/generate?week_start=YYYY-MM-DD     : 통계 + AI 분석 전체 생성 (2단계).
+#
+# week_start는 반드시 월요일 날짜(ISO 형식)여야 한다.
+# generate-stats → generate 순서로 호출해 차트를 먼저 렌더링하고 AI 분석을 나중에 채운다.
 
 from fastapi import APIRouter, HTTPException, Query
-from features.report.report_client import generate_report, get_report
-from core.ollama_client import check_ollama
+from features.report.report_daily import generate_report, generate_report_stats, get_report
+from features.report.report_weekly import (
+    generate_weekly_report, generate_weekly_report_stats, get_weekly_report,
+)
 
 router = APIRouter()
 
@@ -19,8 +28,29 @@ def get_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
     return report
 
 
+@router.post("/api/report/daily/generate-stats")
+async def generate_daily_report_stats(date: str = Query(..., description="YYYY-MM-DD")):
+    return await generate_report_stats(date)
+
+
 @router.post("/api/report/daily/generate")
 async def generate_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
-    if not await check_ollama():
-        raise HTTPException(status_code=503, detail="Ollama 서버에 연결할 수 없습니다. 서버 상태를 확인해주세요.")
     return await generate_report(date)
+
+
+@router.get("/api/report/weekly")
+def get_weekly_report_endpoint(week_start: str = Query(..., description="YYYY-MM-DD (월요일)")):
+    report = get_weekly_report(week_start)
+    if report is None:
+        raise HTTPException(status_code=404, detail="보고서 없음")
+    return report
+
+
+@router.post("/api/report/weekly/generate-stats")
+async def generate_weekly_report_stats_endpoint(week_start: str = Query(..., description="YYYY-MM-DD (월요일)")):
+    return await generate_weekly_report_stats(week_start)
+
+
+@router.post("/api/report/weekly/generate")
+async def generate_weekly_report_endpoint(week_start: str = Query(..., description="YYYY-MM-DD (월요일)")):
+    return await generate_weekly_report(week_start)

@@ -64,10 +64,12 @@ export default function Sidebar() {
         >
           일별 보고서
         </NavLink>
-        <div className="nav-sub-item" style={{ color: '#cbd5e1', cursor: 'default' }}>
-          주별 보고서
-          <span style={{ fontSize: 10, marginLeft: 6, color: '#e2e8f0', background: '#94a3b8', borderRadius: 4, padding: '1px 5px' }}>준비 중</span>
-        </div>
+        <NavLink
+          to="/report/weekly"
+          className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
+        >
+          주간 보고서
+        </NavLink>
         <div className="nav-sub-item" style={{ color: '#cbd5e1', cursor: 'default' }}>
           월별 보고서
           <span style={{ fontSize: 10, marginLeft: 6, color: '#e2e8f0', background: '#94a3b8', borderRadius: 4, padding: '1px 5px' }}>준비 중</span>

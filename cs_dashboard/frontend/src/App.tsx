@@ -12,6 +12,7 @@ import WingsTickets from './pages/insights/WingsTickets'
 import RepeatParents from './pages/insights/RepeatParents'
 import JiraBugs from './pages/insights/JiraBugs'
 import DailyReport from './pages/report/DailyReport'
+import WeeklyReport from './pages/report/WeeklyReport'
 import { api } from './api/client'
 
 function headerDate() {
@@ -60,6 +61,7 @@ export default function App() {
             <Route path="/insights/parents" element={<RepeatParents />} />
             <Route path="/insights/jira-bugs" element={<JiraBugs />} />
             <Route path="/report/daily" element={<DailyReport />} />
+            <Route path="/report/weekly" element={<WeeklyReport />} />
           </Routes>
         </div>
       </div>

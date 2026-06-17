@@ -135,6 +135,31 @@ export interface DailyReport {
   hourly: [number, number][]
 }
 
+export interface WeeklyDayCount  { date: string; count: number; is_weekend: boolean }
+export interface WeeklySqiDay    { date: string; sqi: number }
+export interface WeeklyCatItem   { main: string; count: number }
+export interface WeeklyPeakDay   { date: string; count: number }
+export interface WeeklyRiskRow   { main: string; count: number; summary: string }
+// risk_stack: [{ date, "네트워크·앱 오류": number, "기기·하드웨어 오류": number, ... }]
+export type WeeklyRiskStackDay = { date: string } & Record<string, number>
+
+export interface WeeklyReport {
+  week_start: string
+  week_end: string
+  generated_at: string
+  total_weekday: number
+  daily_avg: number
+  risk_total: number
+  week_sqi: number
+  daily_counts: WeeklyDayCount[]
+  sqi_daily: WeeklySqiDay[]
+  category_breakdown: WeeklyCatItem[]
+  risk_stack: WeeklyRiskStackDay[]
+  peak_daily: WeeklyPeakDay[]
+  risk_rows: WeeklyRiskRow[]
+  weekly_summary: string
+}
+
 // ── 어드민 URL 헬퍼 ──────────────────────────────────────────────
 // 내부 어드민 페이지 URL을 생성한다. fetch 호출이 아니라 <a href> 링크용이므로
 // api 객체가 아닌 별도 함수로 분리한다. URL 구조가 바뀌면 여기만 수정하면 된다.
@@ -282,8 +307,24 @@ export const api = {
     return get<DailyReport>(`/api/report/daily?date=${date}`)
   },
 
+  generateDailyReportStats(date: string) {
+    return post<DailyReport>(`/api/report/daily/generate-stats?date=${date}`)
+  },
+
   generateDailyReport(date: string) {
     return post<DailyReport>(`/api/report/daily/generate?date=${date}`)
+  },
+
+  fetchWeeklyReport(weekStart: string) {
+    return get<WeeklyReport>(`/api/report/weekly?week_start=${weekStart}`)
+  },
+
+  generateWeeklyReportStats(weekStart: string) {
+    return post<WeeklyReport>(`/api/report/weekly/generate-stats?week_start=${weekStart}`)
+  },
+
+  generateWeeklyReport(weekStart: string) {
+    return post<WeeklyReport>(`/api/report/weekly/generate?week_start=${weekStart}`)
   },
 
   fetchOllamaSettings() {
