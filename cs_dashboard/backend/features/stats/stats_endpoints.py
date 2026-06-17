@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Query
 from core.db import get_conn
 from core.date_bucket_utils import BUCKET_SQL, BUCKETS, _bucket_where, _period_where, _four_week_range
+from core.holidays import is_off_day
 
 router = APIRouter()
 
@@ -201,39 +202,35 @@ def stats_monthly(target_date: str = Query(default=None)):
     return [{"month": r["month"], "count": r["count"]} for r in rows]
 
 
-# 비율 통계에서 제외할 휴일(KST 날짜). 주말 외에 인입이 거의 없는 법정·임시·대체공휴일은
-# 비율(SQI·부정비율)을 왜곡하므로 제외한다. 새 공휴일이 생기면 여기에 추가한다.
-# (2026: 5/25 부처님오신날 대체공휴일, 6/3 제8회 전국동시지방선거 — 둘 다 평일이라 별도 제외 필요)
-HOLIDAYS = {
-    "2026-05-25",
-    "2026-06-03",
-}
-
-
 @router.get("/api/stats/category_daily")
 def stats_category_daily(target_date: str = Query(default=None)):
     """최근 4주 범위의 일별·카테고리별 건수. (일별 SQI 계산용)
     - new_category_main이 NULL인 행도 포함하므로 하루 전체 합 = 그날 전체 CS 건수.
-    - 주말(토·일) + HOLIDAYS(공휴일) 인입은 제외한다 (정책 6: 인입이 거의 없는 날은 비율 통계를 왜곡)."""
+    - 주말·공휴일 인입은 제외한다 (정책 6: 인입이 거의 없는 날은 비율 통계를 왜곡)."""
     if not target_date:
         target_date = str(date.today())
     range_start, range_end = _four_week_range(target_date)
     kst = "datetime(created_date, '+9 hours')"
     col = f"date({kst})"
-    holidays = sorted(HOLIDAYS)
-    holiday_clause = f" AND {col} NOT IN ({','.join('?' for _ in holidays)})" if holidays else ""
+    start = date.fromisoformat(range_start)
+    end = date.fromisoformat(range_end)
+    off_days = [
+        str(start + timedelta(days=i))
+        for i in range((end - start).days + 1)
+        if is_off_day(str(start + timedelta(days=i)))
+    ]
+    off_clause = f"AND {col} NOT IN ({','.join('?' for _ in off_days)})" if off_days else ""
     with get_conn() as conn:
         rows = conn.execute(
             f"""
             SELECT {col} AS day, new_category_main AS main, new_category_sub AS sub, COUNT(*) AS count
             FROM issues
             WHERE {col} BETWEEN ? AND ?
-              AND strftime('%w', {kst}) NOT IN ('0', '6')
-              {holiday_clause}
+              {off_clause}
             GROUP BY day, main, sub
             ORDER BY day
             """,
-            (range_start, range_end, *holidays),
+            (range_start, range_end, *off_days),
         ).fetchall()
     return [dict(r) for r in rows]
 

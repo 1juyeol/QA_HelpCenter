@@ -22,6 +22,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 from core.db import get_conn
+from core.holidays import is_off_day
 from core.ollama_client import call_ollama, parse_json_response
 from features.issues.classifier import extract_symptom_fields
 from features.report.report_utils import (
@@ -181,23 +182,23 @@ def _fetch_week_stats(week_start: str) -> dict:
 
     sqi_daily = []
     for day, dow in week_days:
-        if dow >= 5:
+        if is_off_day(day):
             continue
         total = daily_map.get(day, 0)
         if total == 0:
             continue
         sqi_daily.append({"date": day, "sqi": round(day_risk.get(day, 0) / total * 100, 1)})
 
-    weekday_counts = [daily_map.get(day, 0) for day, dow in week_days if dow < 5]
-    total_weekday = sum(weekday_counts)
-    nonzero_days = sum(1 for c in weekday_counts if c > 0)
+    workday_counts = [daily_map.get(day, 0) for day, _ in week_days if not is_off_day(day)]
+    total_weekday = sum(workday_counts)
+    nonzero_days = sum(1 for c in workday_counts if c > 0)
     daily_avg = round(total_weekday / max(nonzero_days, 1), 1)
-    risk_total = sum(day_risk.get(day, 0) for day, dow in week_days if dow < 5)
+    risk_total = sum(day_risk.get(day, 0) for day, _ in week_days if not is_off_day(day))
     week_sqi = round(sum(p["sqi"] for p in sqi_daily) / max(len(sqi_daily), 1), 1) if sqi_daily else 0.0
 
     risk_stack = []
     for day, dow in week_days:
-        if dow >= 5:
+        if is_off_day(day):
             continue
         entry = {"date": day}
         for main in _MAIN_ORDER:
@@ -206,7 +207,7 @@ def _fetch_week_stats(week_start: str) -> dict:
 
     peak_daily = [
         {"date": day, "count": peak_map.get(day, 0)}
-        for day, dow in week_days if dow < 5
+        for day, _ in week_days if not is_off_day(day)
     ]
 
     category_breakdown = [{"main": r["main"], "count": r["cnt"]} for r in cat_total]

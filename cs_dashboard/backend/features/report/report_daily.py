@@ -16,9 +16,10 @@
 
 import json
 from collections import defaultdict
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from core.db import get_conn
+from core.holidays import is_off_day
 from core.ollama_client import call_ollama, parse_json_response
 from features.issues.classifier import extract_symptom_fields, RULES, SUB_TO_MAIN
 from features.report.report_utils import (
@@ -93,16 +94,24 @@ def _fetch_day_stats(date_str: str) -> dict:
             (date_str,)
         ).fetchall()
 
+        d_report = date.fromisoformat(date_str)
+        hist_off_days = [
+            str(d_report - timedelta(days=i))
+            for i in range(1, 29)
+            if is_off_day(str(d_report - timedelta(days=i)))
+        ]
+        hist_off_clause = f"AND date(datetime(created_date, '+9 hours')) NOT IN ({','.join('?' for _ in hist_off_days)})" if hist_off_days else ""
         hist_rows = conn.execute(
-            """
+            f"""
             SELECT date(datetime(created_date, '+9 hours')) as d, COUNT(*) as cnt
             FROM issues
             WHERE CAST(strftime('%H', datetime(created_date, '+9 hours')) AS INTEGER) BETWEEN 17 AND 20
               AND date(datetime(created_date, '+9 hours')) != ?
               AND date(datetime(created_date, '+9 hours')) >= date(?, '-28 days')
+              {hist_off_clause}
             GROUP BY d
             """,
-            (date_str, date_str)
+            (date_str, date_str, *hist_off_days)
         ).fetchall()
 
     hourly_map = {h: cnt for h, cnt in hourly_raw}
