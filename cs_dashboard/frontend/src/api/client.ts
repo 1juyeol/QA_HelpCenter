@@ -119,6 +119,7 @@ export interface PeakBucket {
   bucket_end: string
   bucket_count: number
   avg_count: number
+  pattern: string
   summary: string
   has_pattern: boolean
 }
@@ -311,6 +312,18 @@ export const api = {
 
   generateDailyReport(date: string) {
     return post<DailyReport>(`/api/report/daily/generate?date=${date}`)
+  },
+
+  analyzeDailyCategory(date: string, main: string) {
+    return post<{ main: string; sub: string; count: number; summary: string; insufficient_data: boolean; prompt_section: string }>(
+      `/api/report/daily/analyze-category?date=${date}&main=${encodeURIComponent(main)}`
+    )
+  },
+
+  analyzeDailyPeak(date: string) {
+    return post<{ bucket_start: string; bucket_end: string; bucket_count: number; avg_count: number; pattern: string; summary: string; has_pattern: boolean; insufficient_data: boolean; prompt_section: string }>(
+      `/api/report/daily/analyze-peak?date=${date}`
+    )
   },
 
   fetchWeeklyReport(weekStart: string) {
