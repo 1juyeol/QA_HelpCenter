@@ -5,7 +5,9 @@
 #   generate_report_stats(date_str) → 통계만 저장 (Ollama 없음, 빠른 첫 렌더링)
 #   generate_report(date_str)       → 통계 + Ollama 분석 전체 저장
 #     ├─ _fetch_day_stats()               : DB → 총건수, 리스크 5개, 시간대별 건수, 피크 버킷 row
-#     ├─ _prepare_category_brief()        : RULES 키워드 그룹핑 + 150자 절삭 → Ollama용 텍스트
+#     ├─ _prepare_category_brief()        : 카테고리별 Ollama용 텍스트 생성
+#     │     해지·유지 상담 → _build_cancellation_brief() (해지 사유 카운팅)
+#     │     그 외          → _build_keyword_groups()     (RULES 키워드 그룹핑)
 #     ├─ _call_ollama_category_insights() : Ollama Call 1 — 카테고리별 2줄 분석
 #     ├─ _call_ollama_peak_bucket()       : Ollama Call 2 — 피크 최다 버킷 분석
 #     └─ reports 테이블 UPSERT (report_type='daily') → 결과 반환
@@ -15,6 +17,7 @@
 # 정책 2 준수: DB 날짜 필터는 datetime(created_date, '+9 hours') KST 변환
 
 import json
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
@@ -26,6 +29,11 @@ from features.report.report_utils import (
     INSUFFICIENT_SUMMARY, _MIN_ANALYSIS_MEMOS,
     _MAIN_ORDER, _is_risk, _SYSTEM_CATEGORY,
 )
+
+# "해지요청사유 :아이흥미없음" 또는 "해지사유 콘텐츠불만" 형태에서 사유 추출
+_CANCEL_REASON_RE = re.compile(r'해지(?:요청)?사유\s*[: ]\s*(\S+)')
+# N차 상담 fallback: "-해지확정 아이흥미없음" 형태
+_CANCEL_REASON_FALLBACK_RE = re.compile(r'해지확정\s+([가-힣()\-_·]+)')
 
 # ── Ollama 프롬프트 (일별 전용) ───────────────────────────────────────────────
 
@@ -42,7 +50,7 @@ _SYSTEM_PEAK_BUCKET = (
     "당신은 단비교육 공감센터 CS 분석 전문가입니다.\n"
     "CS팀 운영이 아닌 개발·서비스 품질 관점에서 분석하세요.\n"
     "규칙: 코드 블록 없이 JSON만 출력\n"
-    '응답 형식:\n{"summary": "두 문장 분석.", "has_pattern": true}'
+    '응답 형식:\n{"pattern": "반복 패턴 키워드. 없으면 빈 문자열.", "summary": "두 문장 분석. 항상 작성."}'
 )
 
 _PROMPT_PEAK_BUCKET = (
@@ -51,10 +59,10 @@ _PROMPT_PEAK_BUCKET = (
     "이 구간에 {bucket_count}건이 접수됐으며, 피크타임 30분 평균은 {avg_count}건입니다.\n"
     "\n"
     "메모를 읽고 이 시간대에 특이한 패턴이 있는지 판단하세요.\n"
-    "패턴이 있다면 두 문장으로 분석하세요.\n"
-    "첫 문장: 어떤 현상·증상이 반복됐는지.\n"
-    "두 번째 문장: 왜 이 시간에 집중됐을 가능성이 있는지, 또는 사용자에게 어떤 영향을 주는지.\n"
-    "패턴이 없다면 summary는 빈 문자열로 두고 has_pattern을 false로 반환하세요.\n"
+    "summary는 항상 두 문장으로 작성하세요.\n"
+    "  첫 문장: 이 시간대에 어떤 현상·증상이 접수됐는지.\n"
+    "  두 번째 문장: 왜 이 시간에 집중됐을 가능성 또는 사용자 영향.\n"
+    "pattern: 같은 유형의 문제가 반복된다면 10자 이내 키워드 (예: '기기 전원 꺼짐·배터리 방전'). 특정 패턴이 없으면 빈 문자열.\n"
     "건수 단순 반복('N건 접수됐습니다')이나 CS 운영 조언은 쓰지 마세요.\n\n"
     "{memos}"
 )
@@ -210,11 +218,74 @@ def _build_keyword_groups(memos: list[dict], main_cat: str, current_sub: str, ma
     return {"prompt_text": "\n\n".join(prompt_sections), "groups": result_groups}
 
 
+def _build_cancellation_brief(memos: list[dict]) -> dict:
+    """해지 확정 메모에서 해지 사유를 카운팅해 프롬프트 텍스트 생성.
+    RULES 키워드 매칭 대신 사용. '해지요청사유 :X' / '해지사유 X' 패턴 추출."""
+    counts: dict[str, int] = {}
+    for m in memos:
+        text = m.get("text", "")
+        match = _CANCEL_REASON_RE.search(text) or _CANCEL_REASON_FALLBACK_RE.search(text)
+        if match:
+            reason = match.group(1).strip(".,")
+            counts[reason] = counts.get(reason, 0) + 1
+
+    sorted_reasons = sorted(counts.items(), key=lambda x: -x[1])
+    total = sum(c for _, c in sorted_reasons)
+
+    dist_lines = [f"{reason}: {cnt}건" for reason, cnt in sorted_reasons]
+    dist_section = f"# 해지 사유 분포 ({total}건)\n" + "\n".join(dist_lines)
+
+    # 각 사유별 대표 메모 1건씩, 최대 5건
+    seen_reasons: set = set()
+    sample_lines = []
+    for m in memos:
+        text = m.get("text", "")
+        match = _CANCEL_REASON_RE.search(text) or _CANCEL_REASON_FALLBACK_RE.search(text)
+        if not match:
+            continue
+        reason = match.group(1).strip(".,")
+        if reason in seen_reasons:
+            continue
+        seen_reasons.add(reason)
+        text = extract_symptom_fields(m["text"])
+        text = " ".join(text.split())[:150]
+        if len(text) >= 20:
+            sample_lines.append(f"[{len(sample_lines)+1}] {text}")
+        if len(sample_lines) >= 5:
+            break
+
+    sample_section = "# 메모 샘플\n" + "\n".join(sample_lines) if sample_lines else ""
+    prompt_text = dist_section + ("\n\n" + sample_section if sample_section else "")
+
+    groups = [{"sub": reason, "count": cnt, "memos": []} for reason, cnt in sorted_reasons]
+    return {"prompt_text": prompt_text, "groups": groups}
+
+
+def _build_raw_memo_brief(memos: list[dict], sub: str, max_memos: int = 20) -> dict:
+    """키워드 그룹핑 결과가 부족할 때 폴백. 전처리 후 메모 원문을 직접 전송용 텍스트로 변환."""
+    lines = []
+    for m in memos[:max_memos]:
+        text = extract_symptom_fields(m["text"])
+        text = " ".join(text.split())[:150]
+        if len(text) >= 20:
+            lines.append(f"[{len(lines)+1}] {text}")
+    if not lines:
+        return {"prompt_text": "", "groups": []}
+    prompt_text = f"# {sub} ({len(lines)}건)\n" + "\n".join(lines)
+    groups = [{"sub": sub, "count": len(lines), "memos": []}]
+    return {"prompt_text": prompt_text, "groups": groups}
+
+
 def _prepare_category_brief(risk_rows: list) -> None:
     """각 row에 analysis_groups·insufficient_data·_prompt_section 주입. 반환값 없음."""
     for row in risk_rows:
-        max_groups = 1 if row["count"] >= 50 else 2
-        result = _build_keyword_groups(row["memos"], row["main"], row["sub"], max_groups)
+        if row["main"] == "해지·유지 상담":
+            result = _build_cancellation_brief(row["memos"])
+        else:
+            max_groups = 1 if row["count"] >= 50 else 2
+            result = _build_keyword_groups(row["memos"], row["main"], row["sub"], max_groups)
+            if sum(g["count"] for g in result["groups"]) < _MIN_ANALYSIS_MEMOS:
+                result = _build_raw_memo_brief(row["memos"], row["sub"])
         total = sum(g["count"] for g in result["groups"])
         row["analysis_groups"] = result["groups"]
         row["insufficient_data"] = total < _MIN_ANALYSIS_MEMOS
@@ -268,11 +339,13 @@ async def _call_ollama_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dic
     bucket_end = f"{end_h}:{end_m:02d}"
 
     lines = []
-    for memo in memos[:40]:
+    for memo in memos:
         text = extract_symptom_fields(memo["text"])
         text = " ".join(text.split())[:150]
         if len(text) >= 20:
             lines.append(f"[{len(lines)+1}] {text}")
+        if len(lines) >= 30:
+            break
 
     if not lines:
         return {}
@@ -285,7 +358,7 @@ async def _call_ollama_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dic
         avg_count=avg_count,
         memos="\n".join(lines),
     )
-    print(f"[Ollama Daily Peak {max_bucket}~{bucket_end}] 프롬프트 길이: {len(prompt)}자")
+    print(f"[Ollama Daily Peak {max_bucket}~{bucket_end}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
     try:
         raw = await call_ollama(_SYSTEM_PEAK_BUCKET, prompt)
         result = parse_json_response(raw)
@@ -296,13 +369,15 @@ async def _call_ollama_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dic
     if not result:
         return {}
 
+    pattern = result.get("pattern", "")
     return {
         "bucket_start": max_bucket,
         "bucket_end": bucket_end,
         "bucket_count": bucket_count,
         "avg_count": avg_count,
+        "pattern": pattern,
         "summary": result.get("summary", ""),
-        "has_pattern": result.get("has_pattern", False),
+        "has_pattern": bool(pattern),
     }
 
 # ── 공개 API ──────────────────────────────────────────────────────────────────
@@ -361,6 +436,106 @@ async def generate_report(date_str: str) -> dict:
     generated_at = _save_report(date_str, content)
     content["generated_at"] = generated_at
     return content
+
+
+async def analyze_single_category(date_str: str, main_category: str) -> dict:
+    """특정 대분류만 Ollama 분석 실행. 기존 보고서가 있으면 해당 카테고리 summary를 패치 저장."""
+    stats = _fetch_day_stats(date_str)
+    target_rows = [r for r in stats["risk_rows"] if r["main"] == main_category]
+    if not target_rows:
+        return {"error": f"'{main_category}' 카테고리 없음"}
+    await _call_ollama_category_insights(date_str, target_rows)
+    row = target_rows[0]
+
+    existing = get_report(date_str)
+    if existing:
+        for r in existing["risk_rows"]:
+            if r["main"] == main_category:
+                r["summary"] = row.get("summary", "")
+                r["analysis_groups"] = row.get("analysis_groups", [])
+                r["insufficient_data"] = row.get("insufficient_data", False)
+                break
+        _save_report(date_str, existing)
+
+    return {
+        "main": row["main"],
+        "sub": row["sub"],
+        "count": row["count"],
+        "summary": row.get("summary", ""),
+        "insufficient_data": row.get("insufficient_data", False),
+        "prompt_section": row.get("_prompt_section", ""),
+    }
+
+
+async def analyze_peak_bucket(date_str: str) -> dict:
+    """피크타임 최다 버킷만 Ollama 분석 실행. 저장하지 않고 결과만 반환. 테스트용."""
+    stats = _fetch_day_stats(date_str)
+    peak_bucket_rows = stats["peak_bucket_rows"]
+    if not peak_bucket_rows:
+        return {"error": "피크타임 데이터 없음"}
+
+    max_bucket = max(peak_bucket_rows, key=lambda k: len(peak_bucket_rows[k]))
+    memos = peak_bucket_rows[max_bucket]
+    bucket_count = len(memos)
+
+    total_peak = sum(len(v) for v in peak_bucket_rows.values())
+    avg_count = round(total_peak / len(peak_bucket_rows), 1)
+
+    h, m = map(int, max_bucket.split(':'))
+    end_h, end_m = (h, 30) if m == 0 else (h + 1, 0)
+    bucket_end = f"{end_h}:{end_m:02d}"
+
+    lines = []
+    for memo in memos:
+        text = extract_symptom_fields(memo["text"])
+        text = " ".join(text.split())[:150]
+        if len(text) >= 20:
+            lines.append(f"[{len(lines)+1}] {text}")
+        if len(lines) >= 30:
+            break
+
+    prompt = _PROMPT_PEAK_BUCKET.format(
+        date_str=date_str,
+        bucket_start=max_bucket,
+        bucket_end=bucket_end,
+        bucket_count=bucket_count,
+        avg_count=avg_count,
+        memos="\n".join(lines),
+    )
+
+    print(f"[Ollama Peak Test {max_bucket}~{bucket_end}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
+    result_pattern = ""
+    result_summary = ""
+    insufficient = len(lines) < 3
+    if not insufficient:
+        try:
+            raw = await call_ollama(_SYSTEM_PEAK_BUCKET, prompt)
+            parsed = parse_json_response(raw)
+            if parsed:
+                result_pattern = parsed.get("pattern", "")
+                result_summary = parsed.get("summary", "")
+        except Exception as e:
+            print(f"[Ollama Peak Test] 실패: {e}")
+
+    result = {
+        "bucket_start": max_bucket,
+        "bucket_end": bucket_end,
+        "bucket_count": bucket_count,
+        "avg_count": avg_count,
+        "pattern": result_pattern,
+        "summary": result_summary,
+        "has_pattern": bool(result_pattern),
+        "insufficient_data": insufficient,
+        "prompt_section": prompt if lines else "",
+    }
+
+    if not insufficient and result_summary:
+        existing = get_report(date_str)
+        if existing:
+            existing["peak_bucket"] = {k: v for k, v in result.items() if k != "prompt_section" and k != "insufficient_data"}
+            _save_report(date_str, existing)
+
+    return result
 
 
 def get_report(date_str: str) -> dict | None:

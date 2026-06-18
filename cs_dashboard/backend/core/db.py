@@ -6,7 +6,7 @@
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent / "cs_dashboard.db"
+DB_PATH = Path(__file__).parent.parent / "helpdesk.db"
 
 
 def get_conn():

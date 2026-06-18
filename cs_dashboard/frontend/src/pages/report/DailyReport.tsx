@@ -21,6 +21,136 @@ const NAVY = '#1e3c72'
 const NAVY2 = '#2a5298'
 const RISK_RED = '#ef4444'
 
+const RISK_MAINS = ['네트워크·앱 오류', '기기·하드웨어 오류', '미납·결제', '해지·유지 상담', '교재·물류·배송']
+
+// ── 카테고리 단건 테스트 패널 ─────────────────────────────────────────────────
+
+const TEST_TARGETS = ['피크타임 패턴 분석', ...RISK_MAINS]
+
+type CategoryResult = { main?: string; sub: string; count: number; summary: string; insufficient_data: boolean; prompt_section: string }
+type PeakResult = { bucket_start: string; bucket_end: string; bucket_count: number; avg_count: number; pattern: string; summary: string; has_pattern: boolean; insufficient_data: boolean; prompt_section: string }
+
+function CategoryTestPanel({
+  date,
+  onCategoryResult,
+  onPeakResult,
+}: {
+  date: string
+  onCategoryResult: (main: string, summary: string) => void
+  onPeakResult: (peak: PeakResult) => void
+}) {
+  const [target, setTarget] = useState(TEST_TARGETS[0])
+  const [running, setRunning] = useState(false)
+  const [catResult, setCatResult] = useState<CategoryResult | null>(null)
+  const [peakResult, setPeakResult] = useState<PeakResult | null>(null)
+  const [error, setError] = useState('')
+
+  function resetResults() {
+    setCatResult(null)
+    setPeakResult(null)
+    setError('')
+  }
+
+  async function handleRun() {
+    setRunning(true)
+    resetResults()
+    try {
+      if (target === '피크타임 패턴 분석') {
+        const data = await api.analyzeDailyPeak(date)
+        setPeakResult(data)
+        onPeakResult(data)
+      } else {
+        const data = await api.analyzeDailyCategory(date, target)
+        setCatResult(data)
+        onCategoryResult(target, data.summary)
+      }
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 16, padding: '16px 20px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', marginBottom: 12 }}>Ollama 단건 테스트</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+        <select
+          value={target}
+          onChange={e => { setTarget(e.target.value); resetResults() }}
+          style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, flex: 1 }}
+        >
+          {TEST_TARGETS.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <button
+          onClick={handleRun}
+          disabled={running}
+          style={{
+            padding: '6px 16px', background: running ? '#94a3b8' : '#166534',
+            color: '#fff', border: 'none', borderRadius: 6,
+            fontSize: 13, fontWeight: 600, cursor: running ? 'default' : 'pointer', whiteSpace: 'nowrap',
+          }}
+        >
+          {running ? '분석 중...' : '분석 실행'}
+        </button>
+      </div>
+
+      {error && <div style={{ fontSize: 12, color: RISK_RED }}>{error}</div>}
+
+      {catResult && (
+        <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.6 }}>
+          <div style={{ marginBottom: 6 }}>
+            <span style={{ fontWeight: 700 }}>{catResult.sub}</span>
+            <span style={{ color: '#64748b', marginLeft: 6 }}>{catResult.count}건</span>
+            {catResult.insufficient_data && <span style={{ color: '#f59e0b', marginLeft: 8 }}>데이터 부족</span>}
+          </div>
+          {catResult.prompt_section && (
+            <details style={{ marginBottom: 8 }}>
+              <summary style={{ cursor: 'pointer', color: '#64748b', marginBottom: 4 }}>프롬프트 보기</summary>
+              <pre style={{ fontSize: 11, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, overflowX: 'auto', whiteSpace: 'pre-wrap', border: '1px solid #e2e8f0' }}>
+                {catResult.prompt_section}
+              </pre>
+            </details>
+          )}
+          {catResult.summary && (
+            <div style={{ background: '#f0f4fb', borderRadius: 6, padding: '7px 12px', borderLeft: `3px solid ${NAVY}`, fontSize: 13 }}>
+              {catResult.summary}
+            </div>
+          )}
+        </div>
+      )}
+
+      {peakResult && (
+        <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.6 }}>
+          <div style={{ marginBottom: 6 }}>
+            <span style={{ fontWeight: 700 }}>{peakResult.bucket_start}~{peakResult.bucket_end}</span>
+            <span style={{ color: '#64748b', marginLeft: 6 }}>{peakResult.bucket_count}건 (평균 {peakResult.avg_count}건)</span>
+            {peakResult.insufficient_data && <span style={{ color: '#f59e0b', marginLeft: 8 }}>데이터 부족</span>}
+            {!peakResult.insufficient_data && (
+              <span style={{ marginLeft: 8, color: peakResult.has_pattern ? '#166534' : '#64748b' }}>
+                {peakResult.has_pattern ? '패턴 있음' : '패턴 없음'}
+              </span>
+            )}
+          </div>
+          {peakResult.prompt_section && (
+            <details style={{ marginBottom: 8 }}>
+              <summary style={{ cursor: 'pointer', color: '#64748b', marginBottom: 4 }}>프롬프트 보기</summary>
+              <pre style={{ fontSize: 11, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, overflowX: 'auto', whiteSpace: 'pre-wrap', border: '1px solid #e2e8f0' }}>
+                {peakResult.prompt_section}
+              </pre>
+            </details>
+          )}
+          {peakResult.summary && (
+            <div style={{ background: '#f0f4fb', borderRadius: 6, padding: '7px 12px', borderLeft: `3px solid ${NAVY}`, fontSize: 13 }}>
+              {peakResult.summary}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── 툴팁 ─────────────────────────────────────────────────────────────────────
 
 
@@ -475,28 +605,56 @@ export default function DailyReport() {
               aiGenerating
                 ? <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
                 : <div style={{ fontSize: 13, color: '#94a3b8' }}>피크타임 데이터가 없습니다.</div>
-            ) : !report.peak_bucket.has_pattern ? (
-              <div style={{ fontSize: 13, color: '#94a3b8' }}>이 날 피크타임에 특이한 패턴이 없습니다.</div>
             ) : (
               <div>
-                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>
-                  {report.peak_bucket.bucket_start}~{report.peak_bucket.bucket_end} 집중
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+                  <span style={{ fontSize: 17, fontWeight: 700, color: NAVY }}>
+                    {report.peak_bucket.bucket_start}~{report.peak_bucket.bucket_end}
+                  </span>
+                  <span style={{ fontSize: 13, color: '#374151' }}>
+                    {report.peak_bucket.bucket_count}건 집중
+                    <span style={{ color: '#94a3b8', marginLeft: 4 }}>(피크타임 평균 {report.peak_bucket.avg_count}건)</span>
+                  </span>
                 </div>
-                <div style={{
-                  fontSize: 13, color: '#374151', lineHeight: 1.6,
-                  background: '#f0f4fb', borderRadius: 6,
-                  padding: '7px 12px', borderLeft: `3px solid ${NAVY}`,
-                }}>
-                  <span style={{
-                    display: 'inline-block', fontSize: 10, fontWeight: 700,
-                    color: NAVY, background: '#dbeafe', borderRadius: 4,
-                    padding: '1px 6px', marginBottom: 5, letterSpacing: '0.03em',
-                  }}>AI 분석</span>
-                  <div>{report.peak_bucket.summary}</div>
-                </div>
+                {report.peak_bucket.pattern && (
+                  <div style={{ marginBottom: 8 }}>
+                    <span style={{
+                      fontSize: 13, fontWeight: 700, color: NAVY,
+                      background: '#dbeafe', borderRadius: 4,
+                      padding: '3px 10px',
+                    }}>
+                      {report.peak_bucket.pattern} 반복
+                    </span>
+                  </div>
+                )}
+                {!report.peak_bucket.pattern && (
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>특이 패턴 없음</div>
+                )}
+                {report.peak_bucket.summary && (
+                  <div style={{
+                    fontSize: 13, color: '#374151', lineHeight: 1.6,
+                    background: '#f0f4fb', borderRadius: 6,
+                    padding: '7px 12px', borderLeft: `3px solid ${NAVY}`,
+                  }}>
+                    {report.peak_bucket.summary}
+                  </div>
+                )}
               </div>
             )}
           </div>
+
+          <CategoryTestPanel
+            date={date}
+            onCategoryResult={(main, summary) => {
+              setReport(prev => prev ? {
+                ...prev,
+                risk_rows: prev.risk_rows.map(r => r.main === main ? { ...r, summary } : r),
+              } : prev)
+            }}
+            onPeakResult={(peak) => {
+              setReport(prev => prev ? { ...prev, peak_bucket: peak } : prev)
+            }}
+          />
 
           {/* TODO: Ollama 검증 후 삭제 */}
           <div style={{ marginTop: 16, padding: '16px 20px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 12, fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>
