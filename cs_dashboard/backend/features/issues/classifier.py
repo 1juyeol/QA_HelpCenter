@@ -74,14 +74,74 @@ _CONSULT_HEADER = re.compile(r"\[\d+차\s*상담\]\s*")    # [2차 상담] 헤�
 _BILLING_META = re.compile(r"-(?:결제일|종료일|해지금)[^-\n]*")  # 결제일/종료일/해지금 메타
 _SKIP_KEYWORDS = {"유종처리"}                            # 메모 전체 스킵 키워드
 
+# 해지 템플릿 감지: 해지확정 + 구조화 필드(-해지방어 또는 >해지확정)
+_CHAEJI_DASH = re.compile(r"-해지방어\s*상담일")
+_CHAEJI_ARROW = re.compile(r">해지확정")
+# 슬래시 형식: 해지확정 / 날짜 / 해지금 : ... (반각/전각 슬래시·콜론 모두 허용)
+_CHAEJI_SLASH_FMT = re.compile(r"^해지확정\s*[/／]")
+_CHAEJI_SLASH_STRIP = re.compile(r"^해지확정\s*[/／]\s*([\d.\s]+)\s*[/／]\s*해지금\s*[:：][^-]*(.*)", re.DOTALL)
+# 학습종료일 : [날짜(휴지포함)] 이후 텍스트
+_CHAEJI_AFTER_END = re.compile(r"-학습종료일\s*[:：]\s*[\d.]+(?:\([^)]*\))?\s*(.*)", re.DOTALL)
+# >형식에서 메타데이터 항목 (학습종료일/결제일/해지금 으로 시작)
+_CHAEJI_META_ITEM = re.compile(r"^(?:학습종료일|결제일|해지금|해지확정)\b")
+
+
+def _extract_chaeji_memo(memo: str) -> str:
+    """해지 확정 메모 전용 추출. 슬래시·대시·화살표 형식 모두 처리."""
+    memo = _CONSULT_HEADER.sub("", memo).strip()
+    # 슬래시 형식: 해지확정 / 날짜 / 해지금 : 금액 -사유...
+    m = _CHAEJI_SLASH_STRIP.match(memo)
+    if m:
+        date_part = re.sub(r"\s+", "", m.group(1).strip())
+        rest = m.group(2).strip().lstrip("-").strip()
+        # 해지금 결제일 항목도 제거
+        rest = re.sub(r"-?해지금\s*결제일\s*:[^-]*", "", rest).strip().lstrip("-").strip()
+        return f"해지확정/{date_part}/{rest}" if rest else f"해지확정/{date_part}"
+
+    # -형식: -해지방어 상담일 포함
+    if _CHAEJI_DASH.search(memo):
+        date_m = re.search(r"해지방어\s*상담일\s*[:：]\s*([\d.\s]+)", memo)
+        date_str = date_m.group(1).strip() if date_m else ""
+        after_m = _CHAEJI_AFTER_END.search(memo)
+        if after_m:
+            content = after_m.group(1).strip().lstrip("-").strip()
+            # 학습종료일 바로 뒤에 붙는 해지금 금액 및 결제일 블록 제거
+            content = re.sub(r"^해지금\s*[:：][^-\n]*", "", content).strip().lstrip("-").strip()
+            content = re.sub(r"-?해지금\s*결제일\s*[:：][^-\n]*", "", content).strip().lstrip("-").strip()
+            parts = ["해지확정"]
+            if date_str:
+                parts.append(date_str)
+            if content:
+                parts.append(content)
+            return " / ".join(parts)
+
+    # >형식: >해지확정 으로 시작
+    if _CHAEJI_ARROW.search(memo):
+        items = [i.strip() for i in memo.split(">") if i.strip()]
+        meaningful = []
+        for item in items:
+            if _CHAEJI_META_ITEM.match(item):
+                continue
+            if re.match(r"^[\d\s./()]+$", item):  # 순수 날짜·숫자 항목 스킵
+                continue
+            meaningful.append(item)
+        return " / ".join(meaningful) if meaningful else memo
+
+    return memo
+
 
 def extract_symptom_fields(memo: str) -> str:
     """메모에서 증상 관련 텍스트만 추출해 반환.
     - 템플릿 메모(*확인사항/점검 요청 내용): 해당 필드만 추출
     - 비템플릿 메모: 메타데이터 제거 후 자유형식 텍스트만 반환
     - 유종처리 등 분석 불필요 키워드 포함 시 빈 문자열 반환 → 호출부에서 스킵"""
+    memo = memo.strip()
     if any(kw in memo for kw in _SKIP_KEYWORDS):
         return ""
+
+    # 해지 템플릿 메모 전용 처리
+    if _CHAEJI_SLASH_FMT.match(memo) or _CHAEJI_DASH.search(memo) or _CHAEJI_ARROW.search(memo):
+        return _extract_chaeji_memo(memo)
 
     if not _TEMPLATE_MARKER.search(memo):
         cleaned = _CONSULT_HEADER.sub("", memo)

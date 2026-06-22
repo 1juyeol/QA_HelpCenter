@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from core.db import init_db
+from core.ollama_client import log_ollama_models
 from features.collection.scheduler import start_scheduler, collect_today, prompt_credentials, COLLECTION_ENABLED
 from features.insights.insights_cache import _init_insights_cache
 from features.stats.stats_endpoints import router as stats_router
@@ -45,6 +46,7 @@ async def startup():
         prompt_credentials()
     init_db()
     start_scheduler()
+    asyncio.create_task(log_ollama_models())
     if COLLECTION_ENABLED:
         asyncio.create_task(collect_today())
     asyncio.create_task(_init_insights_cache())

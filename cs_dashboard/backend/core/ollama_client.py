@@ -54,6 +54,23 @@ async def check_ollama() -> bool:
         return False
 
 
+async def log_ollama_models() -> None:
+    """서버 시작 시 Ollama에 로드된 모델 목록 출력."""
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=5) as client:
+            resp = await client.get(f"{get_ollama_url()}/api/tags")
+            models = resp.json().get("models", [])
+        if models:
+            print(f"[Ollama] 서버: {get_ollama_url()}")
+            print(f"[Ollama] 요청 모델: {OLLAMA_MODEL}")
+            for m in models:
+                print(f"[Ollama] 로드된 모델: {m['name']}")
+        else:
+            print(f"[Ollama] 서버 응답했으나 모델 없음 (URL: {get_ollama_url()})")
+    except Exception as e:
+        print(f"[Ollama] 서버 연결 실패: {e}")
+
+
 async def _call_ollama_once(system: str, prompt: str) -> str:
     """Ollama 단일 호출. 빈 응답 포함한 원시 결과 반환."""
     full = []
@@ -72,10 +89,14 @@ async def _call_ollama_once(system: str, prompt: str) -> str:
             },
         ) as resp:
             resp.raise_for_status()
+            first = True
             async for line in resp.aiter_lines():
                 if not line:
                     continue
                 chunk = json.loads(line)
+                if first:
+                    print(f"\n[Ollama] 실제 모델: {chunk.get('model', '?')}", flush=True)
+                    first = False
                 if chunk.get("thinking"):
                     has_thinking = True
                 token = chunk.get("response", "")

@@ -19,6 +19,7 @@ from features.report.report_daily import generate_report, generate_report_stats,
 from features.report.report_weekly import (
     generate_weekly_report, generate_weekly_report_stats,
     get_weekly_report, get_weekly_risk_memos,
+    analyze_weekly_category, analyze_weekly_summary,
 )
 
 router = APIRouter()
@@ -71,6 +72,19 @@ async def generate_weekly_report_stats_endpoint(week_start: str = Query(..., des
 @router.post("/api/report/weekly/generate")
 async def generate_weekly_report_endpoint(week_start: str = Query(..., description="YYYY-MM-DD (월요일)")):
     return await generate_weekly_report(week_start)
+
+
+@router.post("/api/report/weekly/analyze-category")
+async def analyze_weekly_category_endpoint(
+    week_start: str = Query(..., description="YYYY-MM-DD (월요일)"),
+    main: str = Query(..., description="대분류 이름"),
+):
+    return await analyze_weekly_category(week_start, main)
+
+
+@router.post("/api/report/weekly/analyze-summary")
+async def analyze_weekly_summary_endpoint(week_start: str = Query(..., description="YYYY-MM-DD (월요일)")):
+    return await analyze_weekly_summary(week_start)
 
 
 @router.get("/api/report/weekly/memos")

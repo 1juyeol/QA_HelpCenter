@@ -1,8 +1,10 @@
 // 반복 Wings 티켓 인사이트 페이지. 동일 Wings 티켓 번호가 여러 CS 건에서 언급된 목록을 테이블로 표시한다.
 // 마운트 시 /api/insights/wings_tickets를 fetch하고, 새로고침 버튼은 POST /api/insights/refresh → 재조회 순서로 동작한다.
 // 최초 접수일부터 7일 이상 경과한 티켓은 '처리 지연' 배지를 표시하며, 각 행을 클릭하면 CS 메모 이력을 펼쳐 볼 수 있다.
+// 차트 영역: Treemap(CSS) + Scatter(경과일×CS건수) + Timeline(경과일 가로바) 3종을 다크 배경으로 표시한다.
 // 이 컴포넌트 내부에서만 상태를 관리하며 다른 페이지와 상태를 공유하지 않는다 (정책 8).
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import Chart from 'chart.js/auto'
 import { api, type InsightWings } from '../../api/client'
 
 const STATE_STYLE: Record<string, { bg: string; color: string }> = {
@@ -12,6 +14,17 @@ const STATE_STYLE: Record<string, { bg: string; color: string }> = {
   '해결':        { bg: '#dcfce7', color: '#15803d' },
   '요청취소':    { bg: '#f1f5f9', color: '#64748b' },
   'merged':      { bg: '#f1f5f9', color: '#64748b' },
+}
+
+function getDiffDays(r: InsightWings): number {
+  if (!r.first_date) return 0
+  const end = r.latest_date ? new Date(r.latest_date) : new Date()
+  return Math.floor((end.getTime() - new Date(r.first_date).getTime()) / 86400000)
+}
+
+function isDelayedTicket(r: InsightWings): boolean {
+  const closed = r.state === '해결' || r.state === '요청취소' || r.state === 'merged'
+  return getDiffDays(r) >= 7 && !closed
 }
 
 function StateBadge({ state, delayed, diffDays }: { state?: string; delayed: boolean; diffDays: number }) {
@@ -37,7 +50,104 @@ export default function WingsTickets() {
   const [refreshing, setRefreshing] = useState(false)
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
 
+  const scatterCanvasRef = useRef<HTMLCanvasElement>(null)
+  const scatterChartRef = useRef<Chart | null>(null)
+  const timelineCanvasRef = useRef<HTMLCanvasElement>(null)
+  const timelineChartRef = useRef<Chart | null>(null)
+
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    if (loading || !rows.length) return
+
+    if (scatterCanvasRef.current) {
+      scatterChartRef.current?.destroy()
+      scatterChartRef.current = new Chart(scatterCanvasRef.current, {
+        type: 'scatter',
+        data: {
+          datasets: [{
+            data: rows.map(r => ({ x: getDiffDays(r), y: r.cs_count })),
+            backgroundColor: rows.map(r => isDelayedTicket(r) ? '#ef4444cc' : '#3b82f6cc'),
+            pointRadius: rows.map(r => Math.max(6, r.cs_count * 5)),
+            pointHoverRadius: rows.map(r => Math.max(8, r.cs_count * 5 + 2)),
+          }],
+        },
+        options: {
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => {
+                  const r = rows[ctx.dataIndex]
+                  return `#${r.ticket_id} · CS ${r.cs_count}건 · ${getDiffDays(r)}일 경과`
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              title: { display: true, text: '경과일수', color: '#64748b' },
+              grid: { color: 'rgba(255,255,255,0.06)' },
+              ticks: { color: '#94a3b8', font: { size: 11 } },
+            },
+            y: {
+              title: { display: true, text: 'CS 건수', color: '#64748b' },
+              grid: { color: 'rgba(255,255,255,0.06)' },
+              ticks: { color: '#94a3b8', font: { size: 11 } },
+            },
+          },
+        },
+      })
+    }
+
+    if (timelineCanvasRef.current) {
+      timelineChartRef.current?.destroy()
+      const sorted = [...rows].sort((a, b) => getDiffDays(b) - getDiffDays(a))
+      timelineChartRef.current = new Chart(timelineCanvasRef.current, {
+        type: 'bar',
+        data: {
+          labels: sorted.map(r => `#${r.ticket_id}`),
+          datasets: [{
+            data: sorted.map(r => getDiffDays(r)),
+            backgroundColor: sorted.map(r => isDelayedTicket(r) ? '#ef444499' : '#3b82f699'),
+            borderColor: sorted.map(r => isDelayedTicket(r) ? '#ef4444' : '#3b82f6'),
+            borderWidth: 1,
+            borderRadius: 3,
+            borderSkipped: false,
+          }],
+        },
+        options: {
+          indexAxis: 'y',
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => {
+                  const r = sorted[ctx.dataIndex]
+                  return `${getDiffDays(r)}일 경과 · CS ${r.cs_count}건`
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              title: { display: true, text: '경과일수', color: '#64748b' },
+              grid: { color: 'rgba(255,255,255,0.06)' },
+              ticks: { color: '#94a3b8', font: { size: 11 } },
+            },
+            y: { grid: { display: false }, ticks: { color: '#e2e8f0', font: { size: 11 } } },
+          },
+        },
+      })
+    }
+  }, [loading, rows])
+
+  useEffect(() => () => {
+    scatterChartRef.current?.destroy()
+    timelineChartRef.current?.destroy()
+  }, [])
 
   async function load() {
     setLoading(true)
@@ -68,6 +178,9 @@ export default function WingsTickets() {
     })
   }
 
+  const delayedCount = rows.filter(isDelayedTicket).length
+  const maxCs = Math.max(...rows.map(r => r.cs_count), 1)
+
   return (
     <div className="container">
       <div className="section-card">
@@ -85,6 +198,76 @@ export default function WingsTickets() {
             {refreshing ? '업데이트 중...' : '↻ 새로고침'}
           </button>
         </div>
+
+        {!loading && rows.length > 0 && (
+          <div style={{ background: '#0f172a', borderRadius: 16, padding: 24, marginBottom: 20 }}>
+            {/* KPI 카드 */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+              {[
+                { label: '전체 티켓', value: rows.length, alert: false },
+                { label: '처리 지연', value: delayedCount, alert: delayedCount > 0 },
+                { label: '총 CS 건수', value: rows.reduce((a, r) => a + r.cs_count, 0), alert: false },
+              ].map(kpi => (
+                <div key={kpi.label} style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: '16px 20px', border: `1px solid ${kpi.alert ? 'rgba(239,68,68,0.4)' : 'rgba(255,255,255,0.08)'}` }}>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>{kpi.label}</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: kpi.alert ? '#ef4444' : '#f1f5f9' }}>{kpi.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Treemap */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Treemap</div>
+              <div style={{ fontSize: 11, color: '#475569', marginBottom: 12 }}>크기 = CS 건수 · 빨강 = 처리 지연</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-end' }}>
+                {[...rows].sort((a, b) => b.cs_count - a.cs_count).map(r => {
+                  const size = Math.max(52, Math.sqrt(r.cs_count / maxCs) * 140)
+                  const delayed = isDelayedTicket(r)
+                  return (
+                    <a
+                      key={r.ticket_id}
+                      href={`https://wings.danbiedu.co.kr/#ticket/zoom/${r.ticket_id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={`#${r.ticket_id} · CS ${r.cs_count}건 · ${getDiffDays(r)}일 경과`}
+                      style={{
+                        width: size, height: size,
+                        background: delayed ? 'rgba(239,68,68,0.2)' : 'rgba(59,130,246,0.2)',
+                        border: `1px solid ${delayed ? '#ef4444' : '#3b82f6'}`,
+                        borderRadius: 8,
+                        display: 'flex', flexDirection: 'column',
+                        alignItems: 'center', justifyContent: 'center',
+                        textDecoration: 'none',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <div style={{ fontSize: Math.max(9, size / 7), color: '#e2e8f0', fontWeight: 700 }}>#{r.ticket_id}</div>
+                      <div style={{ fontSize: Math.max(9, size / 9), color: '#94a3b8' }}>{r.cs_count}건</div>
+                    </a>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Scatter */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Scatter</div>
+              <div style={{ fontSize: 11, color: '#475569', marginBottom: 12 }}>경과일 × CS 건수 · 점 크기 = CS 건수 · 오른쪽 위 = 위험</div>
+              <div style={{ height: 220 }}>
+                <canvas ref={scatterCanvasRef} />
+              </div>
+            </div>
+
+            {/* Timeline */}
+            <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 16 }}>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 4 }}>Timeline</div>
+              <div style={{ fontSize: 11, color: '#475569', marginBottom: 12 }}>티켓별 경과일 · 빨강 = 처리 지연 (7일+)</div>
+              <div style={{ height: Math.max(160, rows.length * 28) }}>
+                <canvas ref={timelineCanvasRef} />
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="insight-table-wrap">
           {loading ? (
@@ -110,11 +293,8 @@ export default function WingsTickets() {
                   const isOpen = expanded.has(i)
                   const latestMemo = r.memos?.[0]?.memo ?? ''
                   const preview = latestMemo.replace(/\n/g, ' ').slice(0, 100)
-                  const diffDays = r.first_date && r.latest_date
-                    ? Math.floor((new Date(r.latest_date).getTime() - new Date(r.first_date).getTime()) / 86400000)
-                    : 0
-                  const closed = r.state === '해결' || r.state === '요청취소' || r.state === 'merged'
-                  const delayed = diffDays >= 7 && !closed
+                  const diffDays = getDiffDays(r)
+                  const delayed = isDelayedTicket(r)
 
                   return (
                     <Fragment key={i}>

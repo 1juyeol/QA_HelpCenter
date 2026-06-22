@@ -3,7 +3,8 @@
 // 각 이슈별로 CS 메모 키워드 매칭으로 집계된 연관 CS 건수를 보여주며, 건수 내림차순으로 정렬된다.
 // 행 클릭 시 해당 이슈에 연관된 CS 메모 전체를 펼쳐 보여준다 (지연 로딩).
 // 데이터: GET /api/jira/bugs (캐시 60분), GET /api/jira/bugs/{key}/memos, POST /api/jira/sync.
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import Chart from 'chart.js/auto'
 import { api, type JiraBug, type JiraBugMemo } from '../../api/client'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -38,7 +39,43 @@ export default function JiraBugs() {
   const [memos, setMemos] = useState<JiraBugMemo[]>([])
   const [memosLoading, setMemosLoading] = useState(false)
 
+  const barCanvasRef = useRef<HTMLCanvasElement>(null)
+  const barChartRef = useRef<Chart | null>(null)
+
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    if (loading || !bugs.length || !barCanvasRef.current) return
+    barChartRef.current?.destroy()
+    const top = bugs.filter(b => b.cs_count > 0).slice(0, 12)
+    if (!top.length) return
+    barChartRef.current = new Chart(barCanvasRef.current, {
+      type: 'bar',
+      data: {
+        labels: top.map(b => b.key),
+        datasets: [{
+          data: top.map(b => b.cs_count),
+          backgroundColor: top.map(b => STATUS_COLOR[b.status] ?? '#64748b'),
+          borderRadius: 4,
+          borderSkipped: false,
+        }],
+      },
+      options: {
+        indexAxis: 'y',
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => `CS ${ctx.parsed.x}건` } },
+        },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { color: '#94a3b8', font: { size: 11 } } },
+          y: { grid: { display: false }, ticks: { color: '#e2e8f0', font: { size: 12 } } },
+        },
+      },
+    })
+  }, [loading, bugs])
+
+  useEffect(() => () => { barChartRef.current?.destroy() }, [])
 
   async function load() {
     setLoading(true)
@@ -116,6 +153,29 @@ export default function JiraBugs() {
             </button>
           </div>
         </div>
+
+        {!loading && bugs.length > 0 && (
+          <div style={{ background: '#0f172a', borderRadius: 16, padding: 24, marginBottom: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+              {[
+                { label: '전체 이슈', value: bugs.length },
+                { label: 'CS 연관 이슈', value: bugs.filter(b => b.cs_count > 0).length },
+                { label: '총 CS 건수', value: bugs.reduce((a, b) => a + b.cs_count, 0) },
+              ].map(kpi => (
+                <div key={kpi.label} style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: '16px 20px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>{kpi.label}</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: '#f1f5f9' }}>{kpi.value}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 16 }}>
+              <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 12 }}>이슈별 CS 건수 (CS 연관 상위 12개)</div>
+              <div style={{ height: Math.max(160, bugs.filter(b => b.cs_count > 0).slice(0, 12).length * 32) }}>
+                <canvas ref={barCanvasRef} />
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="insight-table-wrap">
           {loading ? (

@@ -159,6 +159,86 @@ function DailyBar({ dailyCounts }: { dailyCounts: WeeklyDayCount[] }) {
   )
 }
 
+// ── Ollama 단건 테스트 패널 ───────────────────────────────────────────────────
+
+const WEEKLY_TEST_TARGETS = [...RISK_MAINS, '종합 브리핑']
+
+function WeeklyTestPanel({
+  weekStart,
+  onCategoryResult,
+  onSummaryResult,
+}: {
+  weekStart: string
+  onCategoryResult: (main: string, summary: string) => void
+  onSummaryResult: (summary: string) => void
+}) {
+  const [target, setTarget] = useState(WEEKLY_TEST_TARGETS[0])
+  const [running, setRunning] = useState(false)
+  const [result, setResult] = useState<{ label: string; summary: string; insufficient_data?: boolean } | null>(null)
+  const [error, setError] = useState('')
+
+  async function run() {
+    setRunning(true)
+    setResult(null)
+    setError('')
+    try {
+      if (target === '종합 브리핑') {
+        const r = await api.analyzeWeeklySummary(weekStart)
+        setResult({ label: '종합 브리핑', summary: r.summary })
+        onSummaryResult(r.summary)
+      } else {
+        const r = await api.analyzeWeeklyCategory(weekStart, target)
+        setResult({ label: target, summary: r.summary, insufficient_data: r.insufficient_data })
+        onCategoryResult(target, r.summary)
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 16, padding: '14px 18px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 10 }}>Ollama 단건 테스트</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+        <select
+          value={target}
+          onChange={e => { setTarget(e.target.value); setResult(null); setError('') }}
+          style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13 }}
+        >
+          {WEEKLY_TEST_TARGETS.map(t => <option key={t} value={t}>{RISK_DISPLAY_LABEL[t] ?? t}</option>)}
+        </select>
+        <button
+          onClick={run}
+          disabled={running}
+          style={{
+            padding: '6px 14px', background: running ? '#94a3b8' : NAVY,
+            color: '#fff', border: 'none', borderRadius: 6,
+            cursor: running ? 'default' : 'pointer', fontSize: 13, fontWeight: 600,
+          }}
+        >
+          {running ? '분석 중...' : '분석 실행'}
+        </button>
+      </div>
+      {error && <div style={{ fontSize: 12, color: '#ef4444', marginBottom: 6 }}>{error}</div>}
+      {result && (
+        <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.6 }}>
+          <div style={{ marginBottom: 4 }}>
+            <span style={{ fontWeight: 700 }}>{RISK_DISPLAY_LABEL[result.label] ?? result.label}</span>
+            {result.insufficient_data && <span style={{ color: '#f59e0b', marginLeft: 8 }}>데이터 부족</span>}
+          </div>
+          {result.summary && (
+            <div style={{ background: '#f0f4fb', borderRadius: 6, padding: '7px 12px', borderLeft: `3px solid ${NAVY}`, fontSize: 13 }}>
+              {result.summary}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── 메인 페이지 ───────────────────────────────────────────────────────────────
 
 export default function WeeklyReport() {
@@ -263,8 +343,7 @@ export default function WeeklyReport() {
   function renderSqiChart(r: WeeklyReportType) {
     if (!sqiRef.current || r.sqi_daily.length === 0) return
     sqiChart.current?.destroy()
-    const avg = r.sqi_daily.reduce((s, p) => s + p.sqi, 0) / r.sqi_daily.length
-    const baseline = Math.round(avg * 10) / 10
+    const baseline = Math.round(r.risk_total / Math.max(r.total_weekday, 1) * 1000) / 10
     sqiChart.current = new Chart(sqiRef.current, {
       type: 'line',
       data: {
@@ -491,12 +570,12 @@ export default function WeeklyReport() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
             <KpiCard label="총 상담" value={report.total_weekday.toLocaleString()} unit="건" color={NAVY} sub="평일 기준" />
             <KpiCard label="일 평균" value={report.daily_avg.toLocaleString()} unit="건/일" color={NAVY2} />
-            <KpiCard label="리스크 CS" value={report.risk_total.toLocaleString()} unit="건" color={RISK_RED} sub={`전체의 ${riskPct}%`} />
+            <KpiCard label="리스크 CS" value={report.risk_total.toLocaleString()} unit="건" color={RISK_RED} />
             <KpiCard
               label="리스크율"
-              value={`${report.week_sqi}`}
+              value={riskPct}
               unit="%"
-              color={report.week_sqi > 20 ? RISK_RED : '#4f46e5'}
+              color={Number(riskPct) > 20 ? RISK_RED : '#4f46e5'}
               sub="전체 상담 중 위험 유형 비중"
             />
           </div>
@@ -672,24 +751,18 @@ export default function WeeklyReport() {
             }
           </div>
 
-          {/* TODO: Ollama 검증 후 삭제 */}
-          <div style={{ marginTop: 16, padding: '16px 20px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 12, fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>
-            <strong style={{ fontSize: 13, display: 'block', marginBottom: 10 }}>🔍 주간 Ollama 첫 실행 체크리스트</strong>
-
-            <div style={{ marginBottom: 8 }}>□ <strong>AI 분석 내용이 보이는지</strong> — 각 위험 유형 아래에 AI가 쓴 2문장이 보여야 함. 빈 칸이거나 "(분석 없음)"이 뜨면 AI가 응답을 제대로 못 준 것. 서버 콘솔에서 에러 메시지 확인.</div>
-
-            <div style={{ marginBottom: 8 }}>□ <strong>서버 콘솔에 찍히는 AI 입력 내용 확인</strong> — 보고서 생성하면 서버 화면에 AI에게 보낸 내용이 그대로 출력됨. 피크 요일(예: "06/11(수) 87건")과 자주 등장한 키워드가 실제 데이터와 맞는 것들인지 눈으로 확인.</div>
-
-            <div style={{ marginBottom: 8 }}>□ <strong>AI가 쓴 내용의 품질</strong> — "이번 주 223건이 접수됐습니다" 같이 숫자만 읊거나, "CS 담당자에게 연락하세요" 같은 뻔한 말이 나오면 실패. 실제 어떤 증상이 반복됐는지 구체적으로 써줘야 함.</div>
-
-            <div style={{ marginBottom: 8 }}>□ <strong>종합 브리핑이 줄 나눠서 보이는지</strong> — "이번 주 CS 종합 브리핑" 섹션이 • 항목 여러 개로 줄줄이 나와야 함. 한 줄로 쭉 붙어서 나오면 AI가 줄바꿈 형식을 안 지킨 것.</div>
-
-            <div style={{ marginBottom: 8 }}>□ <strong>메모 보기 버튼 동작</strong> — 각 위험 유형 아래 "메모 보기 ▾" 버튼 클릭 시 메모 20개가 펼쳐지고, 이전/다음 버튼으로 페이지 넘어가는지 확인. 한글 카테고리명(예: 네트워크·앱 오류)이 제대로 전달되는지도 체크.</div>
-
-            <div style={{ marginBottom: 8 }}>□ <strong>메모가 거의 없는 카테고리</strong> — 이번 주 데이터가 아주 적은 위험 유형은 AI 분석 대신 "구체적 증상 데이터가 충분하지 않아 분석에서 제외되었습니다" 문구가 나와야 함.</div>
-
-            <div>□ <strong>총 소요시간</strong> — 위험 유형 최대 5개 + 종합 1번, 총 6번 AI를 순서대로 호출함. 서버 콘솔에 각 호출마다 "완료 (X.Xs)"가 찍히는데, 카테고리 하나당 몇 초 걸리는지 확인. 전체가 너무 오래 걸리면 타임아웃 설정 조정 필요.</div>
-          </div>
+          <WeeklyTestPanel
+            weekStart={weekStart}
+            onCategoryResult={(main, summary) => {
+              setReport(prev => prev ? {
+                ...prev,
+                risk_rows: prev.risk_rows.map(r => r.main === main ? { ...r, summary } : r),
+              } : prev)
+            }}
+            onSummaryResult={(summary) => {
+              setReport(prev => prev ? { ...prev, weekly_summary: summary } : prev)
+            }}
+          />
         </>
       )}
     </div>

@@ -157,7 +157,6 @@ export interface WeeklyReport {
   total_weekday: number
   daily_avg: number
   risk_total: number
-  week_sqi: number
   daily_counts: WeeklyDayCount[]
   sqi_daily: WeeklySqiDay[]
   category_breakdown: WeeklyCatItem[]
@@ -336,6 +335,18 @@ export const api = {
 
   generateWeeklyReport(weekStart: string) {
     return post<WeeklyReport>(`/api/report/weekly/generate?week_start=${weekStart}`)
+  },
+
+  analyzeWeeklyCategory(weekStart: string, main: string) {
+    return post<{ main: string; count: number; summary: string; insufficient_data: boolean }>(
+      `/api/report/weekly/analyze-category?week_start=${weekStart}&main=${encodeURIComponent(main)}`
+    )
+  },
+
+  analyzeWeeklySummary(weekStart: string) {
+    return post<{ summary: string }>(
+      `/api/report/weekly/analyze-summary?week_start=${weekStart}`
+    )
   },
 
   fetchWeeklyMemos(weekStart: string, main: string, page: number) {
