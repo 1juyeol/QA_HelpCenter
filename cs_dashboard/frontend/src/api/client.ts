@@ -314,10 +314,6 @@ export const api = {
     return post<DailyReport>(`/api/report/daily/generate-stats?date=${date}`)
   },
 
-  generateDailyReport(date: string) {
-    return post<DailyReport>(`/api/report/daily/generate?date=${date}`)
-  },
-
   analyzeDailyCategory(date: string, main: string) {
     return post<{ main: string; sub: string; count: number; summary: string; insufficient_data: boolean; prompt_section: string }>(
       `/api/report/daily/analyze-category?date=${date}&main=${encodeURIComponent(main)}`
