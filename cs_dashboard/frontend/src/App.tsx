@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
+import StrategicDashboard from './pages/dashboard/StrategicDashboard'
 import Dashboard from './pages/dashboard/Dashboard'
 import ServiceQualityIndex from './pages/insights/ServiceQualityIndex'
 
@@ -54,7 +55,8 @@ export default function App() {
         <Sidebar />
         <div className="content">
           <Routes>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<StrategicDashboard />} />
+            <Route path="/operations" element={<Dashboard />} />
             <Route path="/insights/sqi" element={<ServiceQualityIndex />} />
 
             <Route path="/insights/wings" element={<WingsTickets />} />

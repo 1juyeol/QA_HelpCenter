@@ -67,10 +67,21 @@ def _auth_header() -> dict:
     return {"Authorization": f"Basic {encoded}", "Content-Type": "application/json"}
 
 
-def extract_keywords(summary: str) -> list:
-    clean = re.sub(r"\[[^\]]+\]", "", summary).strip()
-    quoted = re.findall(r'["“‘\'](.*?)["”’\']', clean)
-    clean2 = re.sub(r'["“‘\'](.*?)["”’\']', "", clean)
+def _extract_adf_text(node: dict | None) -> str:
+    """JIRA ADF(Atlassian Document Format) 노드에서 평문 텍스트 추출."""
+    if not node or not isinstance(node, dict):
+        return ""
+    if node.get("type") == "text":
+        return node.get("text", "")
+    parts = [_extract_adf_text(child) for child in node.get("content", [])]
+    return " ".join(p for p in parts if p)
+
+
+def extract_keywords(summary: str, description: str = "") -> list:
+    combined = summary + " " + description
+    clean = re.sub(r"\[[^\]]+\]", "", combined).strip()
+    quoted = re.findall(r'[“”"](.*?)[“”"]', clean)
+    clean2 = re.sub(r'[“”"](.*?)[“”"]', "", clean)
     words = re.split(r"[\s,./\->&<]+", clean2)
 
     result = []
@@ -116,7 +127,7 @@ def fetch_jira_bugs() -> list:
         payload = {
             "jql": f'parent = {_EPIC_KEY} OR "Epic Link" = {_EPIC_KEY}',
             "maxResults": 100,
-            "fields": ["summary", "status", "created"],
+            "fields": ["summary", "status", "created", "description"],
         }
         if next_page:
             payload["nextPageToken"] = next_page
@@ -145,11 +156,14 @@ def fetch_jira_bugs() -> list:
             continue
         if not any(tag in summary for tag in SERVICE_TAGS):
             continue
+        desc_adf = i["fields"].get("description") or {}
+        description = _extract_adf_text(desc_adf)
         result.append({
-            "key":        i["key"],
-            "summary":    summary,
-            "status":     status,
-            "created_at": i["fields"]["created"][:10],
+            "key":         i["key"],
+            "summary":     summary,
+            "description": description,
+            "status":      status,
+            "created_at":  i["fields"]["created"][:10],
         })
     return result
 
@@ -160,7 +174,7 @@ def sync_bugs() -> None:
 
     with get_conn() as conn:
         for bug in issues:
-            keywords = extract_keywords(bug["summary"])
+            keywords = extract_keywords(bug["summary"], bug.get("description", ""))
             cs_count = _compute_cs_count(keywords)
             conn.execute(
                 """

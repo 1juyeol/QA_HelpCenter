@@ -48,6 +48,12 @@ export default function Sidebar() {
       >
         <span className="nav-icon">📊</span> 대시보드
       </NavLink>
+      <NavLink
+        to="/operations"
+        className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
+      >
+        <span className="nav-icon">🖥️</span> 운영 현황
+      </NavLink>
 
       <div
         className={`nav-group-label${insightsOpen ? ' open' : ''}`}
@@ -70,17 +76,6 @@ export default function Sidebar() {
         >
           주간 보고서
         </NavLink>
-        <div className="nav-sub-item" style={{ color: '#cbd5e1', cursor: 'default' }}>
-          월별 보고서
-          <span style={{ fontSize: 10, marginLeft: 6, color: '#e2e8f0', background: '#94a3b8', borderRadius: 4, padding: '1px 5px' }}>준비 중</span>
-        </div>
-        <NavLink
-          to="/insights/jira-bugs"
-          className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
-        >
-          방치된 JIRA 버그
-        </NavLink>
-
         <NavLink
           to="/insights/wings"
           className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
@@ -92,6 +87,16 @@ export default function Sidebar() {
           className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
         >
           학부모 반복 인입
+        </NavLink>
+        <div className="nav-sub-item" style={{ color: '#cbd5e1', cursor: 'default' }}>
+          월별 보고서
+          <span style={{ fontSize: 10, marginLeft: 6, color: '#e2e8f0', background: '#94a3b8', borderRadius: 4, padding: '1px 5px' }}>준비 중</span>
+        </div>
+        <NavLink
+          to="/insights/jira-bugs"
+          className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
+        >
+          방치된 JIRA 버그
         </NavLink>
         <div className="nav-sub-item" style={{ color: '#cbd5e1', cursor: 'default' }}>
           이탈 신호
