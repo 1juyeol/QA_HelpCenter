@@ -1,5 +1,5 @@
 // 앱의 최상위 레이아웃 컴포넌트이자 라우터. 헤더(제목·날짜·마지막 수집 시각)와 사이드바를 렌더링하고
-// URL 경로에 따라 Dashboard / 서비스 품질 지수 / 미지의 버그 탐지기 / WingsTickets / RepeatParents / JiraBugs 페이지를 교체한다 (정책 7).
+// URL 경로에 따라 Dashboard / WingsTickets / RepeatParents / JiraBugs / KeywordTrend / 보고서 페이지를 교체한다 (정책 7).
 // 마지막 수집 시각 표시를 위해 /api/collection/latest를 60초 간격으로 폴링하는 것만 여기서 담당하며,
 // 그 외 기능 로직은 모두 각 페이지 컴포넌트 안에 있다.
 import { useEffect, useState } from 'react'
@@ -12,6 +12,7 @@ import ServiceQualityIndex from './pages/insights/ServiceQualityIndex'
 import WingsTickets from './pages/insights/WingsTickets'
 import RepeatParents from './pages/insights/RepeatParents'
 import JiraBugs from './pages/insights/JiraBugs'
+import KeywordTrend from './pages/insights/KeywordTrend'
 import DailyReport from './pages/report/DailyReport'
 import WeeklyReport from './pages/report/WeeklyReport'
 import { api } from './api/client'
@@ -62,6 +63,7 @@ export default function App() {
             <Route path="/insights/wings" element={<WingsTickets />} />
             <Route path="/insights/parents" element={<RepeatParents />} />
             <Route path="/insights/jira-bugs" element={<JiraBugs />} />
+            <Route path="/insights/keywords" element={<KeywordTrend />} />
             <Route path="/report/daily" element={<DailyReport />} />
             <Route path="/report/weekly" element={<WeeklyReport />} />
           </Routes>

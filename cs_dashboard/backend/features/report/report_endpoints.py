@@ -3,9 +3,8 @@
 #
 # GET  /api/report/daily?date=YYYY-MM-DD                     : 저장된 일별 보고서 반환. 없으면 404.
 # POST /api/report/daily/generate-stats?date=YYYY-MM-DD      : 통계만 생성 (Ollama 없음, 1단계).
-# POST /api/report/daily/generate?date=YYYY-MM-DD            : 통계 + AI 분석 전체 생성 (2단계).
-# POST /api/report/daily/analyze-category?date=&main=        : 특정 대분류만 Ollama 분석 (테스트용, 저장 안 함).
-# POST /api/report/daily/analyze-peak?date=                  : 피크타임 최다 버킷 Ollama 분석 (테스트용, 저장 안 함).
+# POST /api/report/daily/analyze-category?date=&main=        : 특정 대분류 Ollama 분석 후 DB 저장.
+# POST /api/report/daily/analyze-peak?date=                  : 피크타임 최다 버킷 Ollama 분석 후 DB 저장.
 # GET  /api/report/weekly?week_start=YYYY-MM-DD              : 저장된 주간 보고서 반환. 없으면 404.
 # POST /api/report/weekly/generate-stats?week_start=YYYY-MM-DD : 통계만 생성 (1단계).
 # POST /api/report/weekly/generate?week_start=YYYY-MM-DD     : 통계 + AI 분석 전체 생성 (2단계).
@@ -15,7 +14,7 @@
 # generate-stats → generate 순서로 호출해 차트를 먼저 렌더링하고 AI 분석을 나중에 채운다.
 
 from fastapi import APIRouter, HTTPException, Query
-from features.report.report_daily import generate_report, generate_report_stats, get_report, analyze_single_category, analyze_peak_bucket
+from features.report.report_daily import generate_report_stats, get_report, analyze_single_category, analyze_peak_bucket
 from features.report.report_weekly import (
     generate_weekly_report, generate_weekly_report_stats,
     get_weekly_report, get_weekly_risk_memos,
@@ -36,11 +35,6 @@ def get_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
 @router.post("/api/report/daily/generate-stats")
 async def generate_daily_report_stats(date: str = Query(..., description="YYYY-MM-DD")):
     return await generate_report_stats(date)
-
-
-@router.post("/api/report/daily/generate")
-async def generate_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
-    return await generate_report(date)
 
 
 @router.post("/api/report/daily/analyze-category")

@@ -98,6 +98,12 @@ export default function Sidebar() {
         >
           방치된 JIRA 버그
         </NavLink>
+        <NavLink
+          to="/insights/keywords"
+          className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
+        >
+          키워드 급등 탐지
+        </NavLink>
         <div className="nav-sub-item" style={{ color: '#cbd5e1', cursor: 'default' }}>
           이탈 신호
           <span style={{ fontSize: 10, marginLeft: 6, color: '#e2e8f0', background: '#94a3b8', borderRadius: 4, padding: '1px 5px' }}>준비 중</span>
