@@ -157,6 +157,9 @@ export interface WeeklyReport {
   total_weekday: number
   daily_avg: number
   risk_total: number
+  prev_total_weekday?: number | null
+  prev_risk_total?: number | null
+  prev_daily_avg?: number | null
   daily_counts: WeeklyDayCount[]
   sqi_daily: WeeklySqiDay[]
   category_breakdown: WeeklyCatItem[]

@@ -31,7 +31,11 @@ COLLECTION_ENABLED = False
 
 _username: str = ""
 _password: str = ""
-_wings_token: str = ""
+
+import os as _os
+from dotenv import load_dotenv as _load_dotenv
+_load_dotenv()
+_wings_token: str = _os.environ.get("WINGS_TOKEN", "").strip()
 # 로그인 세션을 재사용하기 위한 공유 클라이언트. 매 수집마다 새로 로그인하지 않고
 # 이 인스턴스를 계속 쓰다가, 인증 만료(401/403)가 감지될 때만 _relogin()으로 교체한다.
 _client = None
@@ -41,17 +45,16 @@ _WINGS_STATE = {1: "신규", 2: "진행 중", 4: "해결", 5: "merged", 7: "요�
 
 
 def prompt_credentials():
-    global _username, _password, _wings_token
+    global _username, _password
     print("\nhelp-desk 로그인")
     _username = input("  아이디: ")
     _password = getpass.getpass("  비밀번호: ")
-    _wings_token = input("  Wings API 토큰 (없으면 엔터): ").strip()
     print()
 
 
 async def _fetch_wings_states(ticket_ids: list) -> dict:
     """Wings API로 티켓 상태를 비동기 병렬 조회한다. 토큰이 없으면 빈 dict 반환."""
-    if not COLLECTION_ENABLED or not _wings_token:
+    if not _wings_token:
         return {}
     headers = {"Authorization": f"Token token={_wings_token}"}
     async with httpx.AsyncClient(timeout=10) as client:

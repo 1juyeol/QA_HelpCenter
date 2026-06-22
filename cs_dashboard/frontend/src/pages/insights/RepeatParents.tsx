@@ -1,8 +1,15 @@
 // 학부모 반복 인입 인사이트 페이지. 30일 내 동일 학부모가 3회 이상 CS 인입한 목록을 표시한다.
-// 상단에 문의 유형 도넛 차트·추이 스택 바 차트를 표시해 반복 고객의 주요 불만 카테고리를 시각화한다.
-// 대분류 선택 → 해당 대분류 전체 소분류 조회 / 소분류 선택 → 해당 소분류 메모만 조회.
-// 새로고침 버튼은 POST /api/insights/refresh → 재조회 순서로 동작한다.
-// 이 컴포넌트 내부에서만 상태를 관리하며 다른 페이지와 상태를 공유하지 않는다 (정책 8).
+// 단순 횟수 순이 아니라 위험도(긴급·주의·관찰)로 정렬해 미해결 가능성이 높은 학부모를 우선 확인한다.
+//
+// 우선순위 기준 (조건 기반):
+//   긴급: 동일 이슈 반복 AND 2일 내 재인입 (미해결 가능성 가장 높음)
+//   주의: 동일 이슈 반복 OR 최근 7일 내 재인입 (한 가지 위험 신호)
+//   관찰: 30일 3회 이상이지만 위 조건 미해당
+//
+// 상단: KPI 4개 (각 모수 관계 표시) + 반복 인입 학부모 문의 유형 분포 차트
+// 테이블 열: 우선순위·학부모번호·반복위험신호·인입횟수·유형수·최근접수·최근메모
+//
+// 의존: api/client.ts (InsightParent), api/categories.ts (ALLOWED_MAIN, isAllowedCategory 등)
 import { Fragment, useEffect, useRef, useState } from 'react'
 import Chart from 'chart.js/auto'
 import { api, adminParentUrl, type InsightParent } from '../../api/client'
@@ -16,16 +23,80 @@ const CATEGORY_COLORS: Record<string, string> = {
   '교재·물류·배송':     '#10b981',
 }
 
-
 type ActiveFilter = { main: string | null; sub: string | null }
+type PriorityLevel = 'urgent' | 'warning' | 'watch'
 
-function isQualified(r: InsightParent) {
-  const count = r.memos.filter(m => {
+// ── 자격 판별 ─────────────────────────────────────────────────────────────────
+
+function getQualifyingMemos(r: InsightParent) {
+  return r.memos.filter(m => {
     const main = m.category.split(' > ')[0]
     return ALLOWED_MAIN.has(main) || ALLOWED_SPECIFIC.has(m.category)
-  }).length
-  return count >= 3
+  })
 }
+
+function isQualified(r: InsightParent): boolean {
+  return getQualifyingMemos(r).length >= 3
+}
+
+// ── 패턴 판별 ─────────────────────────────────────────────────────────────────
+
+function hasSameIssueRepeat(r: InsightParent): boolean {
+  const counts: Record<string, number> = {}
+  getQualifyingMemos(r).forEach(m => {
+    const main = m.category.split(' > ')[0]
+    counts[main] = (counts[main] ?? 0) + 1
+  })
+  return Object.values(counts).some(c => c >= 2)
+}
+
+function isComplexIssue(r: InsightParent): boolean {
+  const mains = new Set(getQualifyingMemos(r).map(m => m.category.split(' > ')[0]))
+  return mains.size >= 3
+}
+
+function hasShortGap(r: InsightParent): boolean {
+  const dates = getQualifyingMemos(r)
+    .map(m => new Date(m.date).getTime())
+    .sort((a, b) => a - b)
+  for (let i = 1; i < dates.length; i++) {
+    if ((dates[i] - dates[i - 1]) / 86400000 <= 2) return true
+  }
+  return false
+}
+
+function getLastGapDays(r: InsightParent): number | null {
+  const dates = getQualifyingMemos(r)
+    .map(m => new Date(m.date).getTime())
+    .sort((a, b) => b - a)
+  if (dates.length < 2) return null
+  return Math.floor((dates[0] - dates[1]) / 86400000)
+}
+
+// 우선순위 기준: 점수 합산 아닌 조건 기반 3단계
+function getPriorityLevel(r: InsightParent): PriorityLevel {
+  const sameIssue  = hasSameIssueRepeat(r)
+  const shortGap   = hasShortGap(r)
+  const lastGap    = getLastGapDays(r)
+  const recentGap  = lastGap !== null && lastGap <= 7
+
+  if (sameIssue && shortGap) return 'urgent'
+  if (sameIssue || recentGap) return 'warning'
+  return 'watch'
+}
+
+function getPriorityBadge(level: PriorityLevel): { text: string; color: string; bg: string } {
+  if (level === 'urgent')  return { text: '긴급', color: '#fff',    bg: '#ef4444' }
+  if (level === 'warning') return { text: '주의', color: '#fff',    bg: '#f97316' }
+  return                          { text: '관찰', color: '#64748b', bg: '#f1f5f9' }
+}
+
+function priorityOrder(r: InsightParent): number {
+  const l = getPriorityLevel(r)
+  return l === 'urgent' ? 0 : l === 'warning' ? 1 : 2
+}
+
+// ── 필터 ──────────────────────────────────────────────────────────────────────
 
 function memoMatches(category: string, f: ActiveFilter): boolean {
   if (!f.main) return true
@@ -34,18 +105,18 @@ function memoMatches(category: string, f: ActiveFilter): boolean {
   return ALLOWED_SPECIFIC.has(category) && category.startsWith(`${f.main} > `)
 }
 
-export default function RepeatParents() {
-  const [data, setData] = useState<InsightParent[]>([])
-  const [updatedAt, setUpdatedAt] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [filter, setFilter] = useState<ActiveFilter>({ main: null, sub: null })
-  const [expanded, setExpanded] = useState<Set<number>>(new Set())
+// ── 컴포넌트 ──────────────────────────────────────────────────────────────────
 
-  const donutCanvasRef = useRef<HTMLCanvasElement>(null)
-  const donutChartRef = useRef<Chart | null>(null)
-  const barCanvasRef = useRef<HTMLCanvasElement>(null)
-  const barChartRef = useRef<Chart | null>(null)
+export default function RepeatParents() {
+  const [data, setData]             = useState<InsightParent[]>([])
+  const [updatedAt, setUpdatedAt]   = useState('')
+  const [loading, setLoading]       = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [filter, setFilter]         = useState<ActiveFilter>({ main: null, sub: null })
+  const [expanded, setExpanded]     = useState<Set<number>>(new Set())
+
+  const hbarCanvasRef = useRef<HTMLCanvasElement>(null)
+  const hbarChartRef  = useRef<Chart | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -91,113 +162,154 @@ export default function RepeatParents() {
 
   function getDisplayCount(r: InsightParent) {
     if (filter.main) return r.memos.filter(m => memoMatches(m.category, filter)).length
-    return r.memos.filter(m => {
-      const main = m.category.split(' > ')[0]
-      return ALLOWED_MAIN.has(main) || ALLOWED_SPECIFIC.has(m.category)
-    }).length
+    return getQualifyingMemos(r).length
   }
+
+  // ── 차트 ──────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (loading || !data.length) return
 
     const catCount: Record<string, number> = {}
-    const dateMatrixMap: Record<string, Record<string, number>> = {}
-
     data.forEach(p => {
       p.memos.forEach(m => {
-        if (!m.category || !isAllowedCategory(m.category)) return
+        if (!isAllowedCategory(m.category)) return
         const main = m.category.split(' > ')[0]
         catCount[main] = (catCount[main] ?? 0) + 1
-        const d = m.date?.slice(0, 10)
-        if (d) {
-          if (!dateMatrixMap[d]) dateMatrixMap[d] = {}
-          dateMatrixMap[d][main] = (dateMatrixMap[d][main] ?? 0) + 1
-        }
       })
     })
+    const labels = Object.keys(catCount).sort((a, b) => catCount[b] - catCount[a])
 
-    if (donutCanvasRef.current) {
-      donutChartRef.current?.destroy()
-      const labels = Object.keys(catCount).sort((a, b) => catCount[b] - catCount[a])
-      donutChartRef.current = new Chart(donutCanvasRef.current, {
-        type: 'doughnut',
+    if (hbarCanvasRef.current) {
+      hbarChartRef.current?.destroy()
+      hbarChartRef.current = new Chart(hbarCanvasRef.current, {
+        type: 'bar',
         data: {
           labels,
           datasets: [{
             data: labels.map(l => catCount[l]),
             backgroundColor: labels.map(l => CATEGORY_COLORS[l] ?? '#94a3b8'),
-            borderWidth: 2,
-            borderColor: '#fff',
+            borderRadius: 4,
+            borderSkipped: false,
           }],
         },
         options: {
-          cutout: '58%',
-          plugins: {
-            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, padding: 10 } },
-          },
-        },
-      })
-    }
-
-    if (barCanvasRef.current) {
-      barChartRef.current?.destroy()
-      const dates = Object.keys(dateMatrixMap).sort()
-      const cats = Object.keys(catCount).sort((a, b) => catCount[b] - catCount[a])
-      barChartRef.current = new Chart(barCanvasRef.current, {
-        type: 'bar',
-        data: {
-          labels: dates.map(d => d.slice(5)),
-          datasets: cats.map(cat => ({
-            label: cat,
-            data: dates.map(d => dateMatrixMap[d]?.[cat] ?? 0),
-            backgroundColor: CATEGORY_COLORS[cat] ?? '#94a3b8',
-            stack: 'stack',
-          })),
-        },
-        options: {
-          plugins: {
-            legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, padding: 8 } },
-          },
+          indexAxis: 'y',
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
           scales: {
-            x: { stacked: true, ticks: { font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
-            y: { stacked: true, ticks: { font: { size: 11 } } },
+            x: { ticks: { stepSize: 5, font: { size: 11 }, color: '#374151' }, grid: { color: 'rgba(0,0,0,0.06)' }, min: 0 },
+            y: { ticks: { font: { size: 11 }, color: '#374151' }, grid: { display: false } },
           },
         },
       })
     }
   }, [loading, data])
 
-  useEffect(() => () => {
-    donutChartRef.current?.destroy()
-    barChartRef.current?.destroy()
-  }, [])
+  useEffect(() => () => { hbarChartRef.current?.destroy() }, [])
+
+  // ── 집계·정렬 ────────────────────────────────────────────────────────────────
+
+  const total           = data.length
+  const sameIssueCount  = data.filter(hasSameIssueRepeat).length
+  const complexCount    = data.filter(isComplexIssue).length
+  const shortGapCount   = data.filter(hasShortGap).length
 
   const rows = [...(filter.main
     ? data.filter(r => r.memos.some(m => memoMatches(m.category, filter)))
     : data
-  )].sort((a, b) => getDisplayCount(b) - getDisplayCount(a))
+  )].sort((a, b) => {
+    const diff = priorityOrder(a) - priorityOrder(b)
+    return diff !== 0 ? diff : getDisplayCount(b) - getDisplayCount(a)
+  })
+
+  // ── 렌더 ──────────────────────────────────────────────────────────────────────
 
   return (
     <div className="container">
-      {/* B+C: 문의 유형 차트 — 데이터 로드 후 표시 */}
+
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ margin: 0, marginBottom: 4, fontSize: 18, fontWeight: 700, color: '#1e293b' }}>학부모 반복 인입</h2>
+        <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>
+          위험도 순 정렬 — 긴급(동일이슈+단기재인입) · 주의(동일이슈 또는 7일내 재인입) · 관찰(그 외)
+        </p>
+      </div>
+
       {!loading && data.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
-          <div className="section-card">
-            <h2>문의 유형 분포 <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}>30일</span></h2>
-            <canvas ref={donutCanvasRef} />
+        <>
+          {/* KPI 카드 — 모수 관계 서브텍스트 포함 */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+            {[
+              {
+                label: '반복 인입 학부모',
+                value: total,
+                unit: '명',
+                color: '#3b82f6',
+                base: '최근 30일 3회 이상',
+                sub: null,
+              },
+              {
+                label: '동일 이슈 반복',
+                value: sameIssueCount,
+                unit: '명',
+                color: '#f59e0b',
+                base: '동일 유형 2회 이상',
+                sub: `반복 인입 ${total}명 중`,
+              },
+              {
+                label: '복합 이슈',
+                value: complexCount,
+                unit: '명',
+                color: '#8b5cf6',
+                base: '문의 유형 3개 이상',
+                sub: `반복 인입 ${total}명 중`,
+              },
+              {
+                label: '단기간 재인입',
+                value: shortGapCount,
+                unit: '명',
+                color: '#ef4444',
+                base: '2일 내 재인입',
+                sub: `반복 인입 ${total}명 중`,
+              },
+            ].map(kpi => (
+              <div key={kpi.label} style={{
+                background: '#fff',
+                border: '1px solid #e2e8f0',
+                borderLeft: `4px solid ${kpi.color}`,
+                borderRadius: 12,
+                padding: '14px 18px',
+              }}>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>{kpi.base}</div>
+                {kpi.sub && (
+                  <div style={{ fontSize: 10, color: '#cbd5e1', marginBottom: 6 }}>{kpi.sub}</div>
+                )}
+                <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 8, marginTop: kpi.sub ? 0 : 6 }}>
+                  {kpi.label}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                  <span style={{ fontSize: 28, fontWeight: 800, color: '#111827' }}>{kpi.value}</span>
+                  <span style={{ fontSize: 13, color: '#94a3b8' }}>{kpi.unit}</span>
+                </div>
+              </div>
+            ))}
           </div>
-          <div className="section-card">
-            <h2>문의 유형 추이 <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}>반복 고객 기준 30일</span></h2>
-            <canvas ref={barCanvasRef} />
+
+          {/* 문의 유형 분포 차트 */}
+          <div className="section-card" style={{ marginBottom: 16 }}>
+            <h2>
+              반복 인입 학부모 문의 유형 분포
+              <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400, marginLeft: 8 }}>최근 30일</span>
+            </h2>
+            <div style={{ height: 180 }}>
+              <canvas ref={hbarCanvasRef} />
+            </div>
           </div>
-        </div>
+        </>
       )}
 
-      <div className="section-card" style={{ marginTop: 16 }}>
-        <h2>학부모 반복 인입</h2>
-        <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16 }}>
-          최근 30일 내 3회 이상 CS 인입한 학부모 — 미해결 이슈나 반복 불만 고객을 파악할 수 있습니다.
-        </p>
+      {/* 테이블 */}
+      <div className="section-card">
         <div className="insight-toolbar">
           <span style={{ fontSize: 12, color: '#94a3b8' }}>{updatedAt}</span>
           <button
@@ -211,7 +323,6 @@ export default function RepeatParents() {
 
         {!loading && data.length > 0 && (
           <div style={{ marginBottom: 16 }}>
-            {/* 대분류 버튼 행 */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
               {FILTER_TREE.map(({ main }) => (
                 <button
@@ -223,7 +334,6 @@ export default function RepeatParents() {
                 </button>
               ))}
             </div>
-            {/* 선택된 대분류의 소분류 버튼 행 */}
             {filter.main && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingLeft: 4 }}>
                 {FILTER_TREE.find(t => t.main === filter.main)?.subs.map(sub => (
@@ -252,62 +362,95 @@ export default function RepeatParents() {
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: 40 }}>#</th>
+                  <th style={{ width: 64 }}>우선순위</th>
                   <th style={{ width: 120 }}>학부모 번호</th>
-                  <th style={{ width: 80 }}>인입 횟수</th>
-                  <th>최근 메모</th>
+                  <th style={{ width: 190 }}>반복 위험 신호</th>
+                  <th style={{ width: 70 }}>인입 횟수</th>
+                  <th style={{ width: 58 }}>유형 수</th>
                   <th style={{ width: 130 }}>최근 접수</th>
-                  <th style={{ width: 130 }}>최초 접수</th>
+                  <th>최근 메모</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => {
-                  const isTop = i < 3
-                  const isOpen = expanded.has(i)
-                  const qualifyingMemos = r.memos.filter(m => {
-                    const main = m.category.split(' > ')[0]
-                    return ALLOWED_MAIN.has(main) || ALLOWED_SPECIFIC.has(m.category)
-                  })
-                  const visibleMemos = filter.main
+                  const level    = getPriorityLevel(r)
+                  const badge    = getPriorityBadge(level)
+                  const isOpen   = expanded.has(i)
+                  const qMemos   = filter.main
                     ? r.memos.filter(m => memoMatches(m.category, filter))
-                    : qualifyingMemos
-                  const latestMemo = visibleMemos[0]?.memo ?? ''
-                  const preview = latestMemo.replace(/\n/g, ' ').slice(0, 80)
-                  const displayCount = visibleMemos.length
+                    : getQualifyingMemos(r)
+                  const latestMemo    = qMemos[0]?.memo ?? ''
+                  const preview       = latestMemo.replace(/\n/g, ' ').slice(0, 50)
+                  const distinctMains = new Set(getQualifyingMemos(r).map(m => m.category.split(' > ')[0]))
+
+                  const tags: { label: string; color: string; bg: string }[] = []
+                  if (hasSameIssueRepeat(r)) tags.push({ label: '동일이슈반복', color: '#1d4ed8', bg: '#dbeafe' })
+                  if (isComplexIssue(r))     tags.push({ label: '복합이슈',     color: '#6d28d9', bg: '#ede9fe' })
+                  if (hasShortGap(r))        tags.push({ label: '단기재인입',   color: '#b91c1c', bg: '#fee2e2' })
 
                   return (
                     <Fragment key={i}>
                       <tr>
-                        <td><span className={`rank-badge${isTop ? ' top' : ''}`}>{i + 1}</span></td>
+                        <td>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '3px 8px',
+                            borderRadius: 6,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: badge.color,
+                            background: badge.bg,
+                          }}>
+                            {badge.text}
+                          </span>
+                        </td>
                         <td style={{ fontSize: 13, fontWeight: 600 }}>
                           {r.parent_id
                             ? <a href={adminParentUrl(r.parent_id)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{r.parent_id}</a>
                             : <span style={{ color: '#64748b' }}>—</span>}
                         </td>
-                        <td><span className="count-badge">{displayCount}건</span></td>
-                        <td style={{ color: '#374151', fontSize: 13 }}>
-                          {preview}{latestMemo.length > 80 ? '…' : ''}
-                          {visibleMemos.length > 0 && (
-                            <>
-                              <br />
-                              <button className="memo-toggle" onClick={() => toggleExpand(i)}>
-                                {isOpen ? '▼ 접기' : `▶ 전체 이력 보기 (${visibleMemos.length}건)`}
-                              </button>
-                            </>
+                        <td>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                            {tags.map(tag => (
+                              <span key={tag.label} style={{
+                                fontSize: 10, fontWeight: 600,
+                                padding: '2px 6px', borderRadius: 4,
+                                color: tag.color, background: tag.bg,
+                                whiteSpace: 'nowrap',
+                              }}>
+                                {tag.label}
+                              </span>
+                            ))}
+                            {tags.length === 0 && (
+                              <span style={{ fontSize: 11, color: '#cbd5e1' }}>—</span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <span className="count-badge">{getDisplayCount(r)}건</span>
+                        </td>
+                        <td style={{ fontSize: 13, color: '#374151', textAlign: 'center' }}>
+                          {distinctMains.size}
+                        </td>
+                        <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 12 }}>
+                          {qMemos[0]?.date ? qMemos[0].date.slice(0, 16) : '—'}
+                        </td>
+                        <td style={{ color: '#64748b', fontSize: 12, maxWidth: 0 }}>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {preview}{latestMemo.length > 50 ? '…' : ''}
+                          </div>
+                          {qMemos.length > 0 && (
+                            <button className="memo-toggle" onClick={() => toggleExpand(i)} style={{ marginTop: 2 }}>
+                              {isOpen ? '▼ 접기' : `▶ 전체 이력 (${qMemos.length}건)`}
+                            </button>
                           )}
-                        </td>
-                        <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 12 }}>
-                          {visibleMemos[0]?.date ? visibleMemos[0].date.slice(0, 16) : '—'}
-                        </td>
-                        <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 12 }}>
-                          {visibleMemos[visibleMemos.length - 1]?.date ? visibleMemos[visibleMemos.length - 1].date.slice(0, 16) : '—'}
                         </td>
                       </tr>
                       {isOpen && (
                         <tr>
-                          <td colSpan={6} style={{ padding: 0 }}>
+                          <td colSpan={7} style={{ padding: 0 }}>
                             <div className="memo-expand-inner">
-                              {visibleMemos.map((m, mi) => (
+                              {qMemos.map((m, mi) => (
                                 <div key={mi} className="memo-item">
                                   <div className="memo-item-date">{m.date ? m.date.slice(0, 16) : '—'} · {m.category || ''}</div>
                                   <div>{m.memo ? m.memo.split('\n').map((line, li) => <span key={li}>{li > 0 && <br />}{line}</span>) : ''}</div>

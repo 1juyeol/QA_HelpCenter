@@ -220,6 +220,13 @@ def _fetch_week_stats(week_start: str) -> dict:
 
     category_breakdown = [{"main": r["main"], "count": r["cnt"]} for r in cat_total]
 
+    # 전주 KPI (저장된 이전 보고서에서 읽음 — 없으면 None)
+    prev_week_start = str(d0 - timedelta(days=7))
+    prev_report = get_weekly_report(prev_week_start)
+    prev_total_weekday = prev_report["total_weekday"] if prev_report else None
+    prev_risk_total = prev_report["risk_total"] if prev_report else None
+    prev_daily_avg = prev_report["daily_avg"] if prev_report else None
+
     risk_memos: dict = defaultdict(list)
     for row in risk_memo_raw:
         if row["sub"] and _is_risk(row["main"], row["sub"]):
@@ -246,6 +253,9 @@ def _fetch_week_stats(week_start: str) -> dict:
         "total_weekday": total_weekday,
         "daily_avg": daily_avg,
         "risk_total": risk_total,
+        "prev_total_weekday": prev_total_weekday,
+        "prev_risk_total": prev_risk_total,
+        "prev_daily_avg": prev_daily_avg,
         "daily_counts": daily_counts,
         "sqi_daily": sqi_daily,
         "category_breakdown": category_breakdown,
@@ -376,6 +386,9 @@ def _build_weekly_content(stats: dict, weekly_summary: str) -> dict:
         "total_weekday": stats["total_weekday"],
         "daily_avg": stats["daily_avg"],
         "risk_total": stats["risk_total"],
+        "prev_total_weekday": stats.get("prev_total_weekday"),
+        "prev_risk_total": stats.get("prev_risk_total"),
+        "prev_daily_avg": stats.get("prev_daily_avg"),
         "daily_counts": stats["daily_counts"],
         "sqi_daily": stats["sqi_daily"],
         "category_breakdown": stats["category_breakdown"],
