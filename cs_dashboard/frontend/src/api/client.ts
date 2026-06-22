@@ -129,6 +129,8 @@ export interface DailyReport {
   generated_at: string
   total_count: number
   risk_total: number
+  prev_total_count?: number | null
+  prev_risk_total?: number | null
   risk_rows: RiskRow[]
   peak_bucket?: PeakBucket
   hourly: [number, number][]

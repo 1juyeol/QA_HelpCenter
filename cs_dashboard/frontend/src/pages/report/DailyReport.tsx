@@ -156,58 +156,93 @@ function CategoryTestPanel({
 
 // ── KPI 카드 ──────────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, unit, color }: { label: string; value: string; unit: string; color: string }) {
+function DeltaBadge({ delta, unit, invert }: { delta: number | null | undefined; unit: string; invert?: boolean }) {
+  if (delta == null) return null
+  if (delta === 0) return <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 5 }}>전일 동일</div>
+  const isPositive = delta > 0
+  const color = invert
+    ? (isPositive ? '#ef4444' : '#16a34a')
+    : (isPositive ? '#3b82f6' : '#f59e0b')
+  const arrow = isPositive ? '↑' : '↓'
+  return (
+    <div style={{ fontSize: 11, color, fontWeight: 600, marginTop: 5 }}>
+      {arrow} {isPositive ? '+' : ''}{delta}{unit}
+      <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: 4 }}>전일 대비</span>
+    </div>
+  )
+}
+
+function KpiCard({
+  label, value, unit, color, delta, deltaUnit, deltaInvert, isSecondary,
+}: {
+  label: string; value: string; unit: string; color: string
+  delta?: number | null; deltaUnit?: string; deltaInvert?: boolean; isSecondary?: boolean
+}) {
   return (
     <div style={{
-      background: '#fff',
-      borderRadius: 14,
-      padding: '20px 24px',
-      boxShadow: '0 1px 6px rgba(0,0,0,.07)',
-      borderTop: `4px solid ${color}`,
+      background: '#fff', borderRadius: 14,
+      padding: isSecondary ? '16px 20px' : '22px 26px',
+      boxShadow: isSecondary ? '0 1px 4px rgba(0,0,0,.06)' : '0 2px 10px rgba(0,0,0,.09)',
+      borderTop: `${isSecondary ? 3 : 5}px solid ${color}`,
     }}>
       <div style={{
         fontSize: 11, fontWeight: 700, color: '#94a3b8',
-        textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 10,
+        textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8,
       }}>
         {label}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-        <span style={{ fontSize: 32, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
-        <span style={{ fontSize: 14, color: '#94a3b8', fontWeight: 600 }}>{unit}</span>
+        <span style={{ fontSize: isSecondary ? 30 : 40, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
+        <span style={{ fontSize: isSecondary ? 14 : 18, color: '#64748b', fontWeight: 600 }}>{unit}</span>
       </div>
+      <DeltaBadge delta={delta} unit={deltaUnit ?? ''} invert={deltaInvert} />
     </div>
   )
 }
 
 // ── 리스크 바 차트 ────────────────────────────────────────────────────────────
 
+const RANK_COLORS = ['#ef4444', '#f97316', '#f59e0b']
+
 function RiskBarChart({ rows }: { rows: RiskRow[] }) {
-  const totals = rows.map(r => r.main_total ?? r.count)
-  const max = Math.max(...totals, 1)
+  const sorted = [...rows].sort((a, b) => (b.main_total ?? b.count) - (a.main_total ?? a.count))
+  const max = Math.max(...sorted.map(r => r.main_total ?? r.count), 1)
+  const topRow = sorted[0]
+
   return (
     <div>
-      {rows.map((row, i) => {
+      {topRow && (
+        <div style={{
+          background: '#fef2f2', borderRadius: 10,
+          padding: '10px 14px', marginBottom: 16,
+          borderLeft: '4px solid #ef4444',
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#991b1b' }}>오늘의 주요 리스크</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#ef4444' }}>{topRow.main}</span>
+          <span style={{ fontSize: 12, color: '#991b1b' }}>({(topRow.main_total ?? topRow.count).toLocaleString()}건)</span>
+        </div>
+      )}
+      {sorted.map((row, i) => {
         const total = row.main_total ?? row.count
-        const isTop = total === max
+        const barColor = RANK_COLORS[i] ?? '#94a3b8'
         return (
-          <div key={i} style={{ marginBottom: i < rows.length - 1 ? 18 : 0 }}>
+          <div key={i} style={{ marginBottom: i < sorted.length - 1 ? 18 : 0 }}>
             <div style={{
               display: 'flex', justifyContent: 'space-between',
               alignItems: 'center', marginBottom: 6,
             }}>
-              <span style={{ fontWeight: 600, fontSize: 13, color: isTop ? RISK_RED : '#1e293b' }}>
+              <span style={{ fontWeight: 600, fontSize: 13, color: i === 0 ? '#ef4444' : '#1e293b' }}>
                 {row.main}
               </span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: isTop ? RISK_RED : NAVY, flexShrink: 0, marginLeft: 12 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: barColor, flexShrink: 0, marginLeft: 12 }}>
                 {total.toLocaleString()}건
               </span>
             </div>
             <div style={{ background: '#e8eef6', borderRadius: 6, height: 10 }}>
               <div style={{
                 width: `${(total / max) * 100}%`,
-                background: isTop
-                  ? `linear-gradient(90deg, ${RISK_RED}, #f87171)`
-                  : `linear-gradient(90deg, ${NAVY}, ${NAVY2})`,
+                background: barColor,
                 height: '100%', borderRadius: 6,
                 minWidth: total > 0 ? 4 : 0,
               }} />
@@ -232,62 +267,65 @@ function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boo
   const pageMemos = memos.slice(page * MEMOS_PER_PAGE, (page + 1) * MEMOS_PER_PAGE)
 
   return (
-    <div style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: 14, marginBottom: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 14, color: '#94a3b8' }}>{row.main}</span>
-            <span style={{ fontSize: 13, color: '#cbd5e1' }}>›</span>
-            <span style={{ fontWeight: 700, fontSize: 18, color: '#1e293b' }}>{row.sub}</span>
-            <span style={{
-              fontSize: 12, fontWeight: 700, color: RISK_RED,
-              background: '#fef2f2', borderRadius: 6,
-              padding: '2px 8px', border: '1px solid #fecaca',
-            }}>
-              {row.count}건
-            </span>
-            {row.count > 0 && (
-              <span
-                onClick={() => { setOpen(o => !o); setPage(0) }}
-                style={{
-                  fontSize: 12, color: '#64748b',
-                  cursor: 'pointer', userSelect: 'none',
-                  textDecoration: 'underline', textDecorationStyle: 'dotted',
-                }}
-              >
-                {open ? '접기' : '펼치기'}
-              </span>
-            )}
+    <div style={{
+      background: '#fff', borderRadius: 12,
+      border: '1px solid #e2e8f0',
+      marginBottom: 12, overflow: 'hidden',
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '12px 16px', background: '#f8fafc',
+        borderBottom: '1px solid #e2e8f0',
+      }}>
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>{row.main}</span>
+        <span style={{ fontSize: 12, color: '#cbd5e1' }}>›</span>
+        <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', flex: 1 }}>{row.sub}</span>
+        <span style={{
+          fontSize: 12, fontWeight: 700, color: RISK_RED,
+          background: '#fef2f2', borderRadius: 6,
+          padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0,
+        }}>
+          {row.count}건
+        </span>
+        {memos.length > 0 && (
+          <span
+            onClick={() => { setOpen(o => !o); setPage(0) }}
+            style={{
+              fontSize: 12, color: '#64748b',
+              cursor: 'pointer', userSelect: 'none',
+              textDecoration: 'underline', textDecorationStyle: 'dotted', flexShrink: 0,
+            }}
+          >
+            메모 {open ? '접기' : '보기'}
+          </span>
+        )}
+      </div>
+
+      <div style={{ padding: '10px 16px' }}>
+        {row.summary ? (
+          <div style={{
+            fontSize: 13, color: '#374151', lineHeight: 1.7,
+            borderLeft: `3px solid ${NAVY}`, paddingLeft: 10,
+          }}>
+            {row.summary}
           </div>
-          {row.summary ? (
-            <div style={{
-              fontSize: 13, color: '#374151', lineHeight: 1.6,
-              background: '#f0f4fb', borderRadius: 6,
-              padding: '7px 12px', borderLeft: `3px solid ${NAVY}`,
-            }}>
-              {row.summary}
-            </div>
-          ) : aiLoading ? (
-            <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
-          ) : (
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>(AI 요약 없음)</div>
-          )}
-        </div>
+        ) : aiLoading ? (
+          <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
+        ) : (
+          <div style={{ fontSize: 12, color: '#94a3b8' }}>(AI 요약 없음)</div>
+        )}
       </div>
 
       {open && (
-        <div style={{
-          marginTop: 10, background: '#f8fafc',
-          borderRadius: 8, overflow: 'hidden',
-          border: '1px solid #e2e8f0',
-        }}>
+        <div style={{ borderTop: '1px solid #e2e8f0' }}>
           {pageMemos.map((m, i) => (
             <div
               key={m.id}
               style={{
-                padding: '8px 12px',
-                borderBottom: i < pageMemos.length - 1 ? '1px solid #e2e8f0' : undefined,
+                padding: '8px 16px',
+                borderBottom: i < pageMemos.length - 1 ? '1px solid #f1f5f9' : undefined,
                 fontSize: 13, color: '#374151', lineHeight: 1.6,
+                background: i % 2 === 0 ? '#fff' : '#fafafa',
               }}
             >
               {m.text
@@ -301,8 +339,8 @@ function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boo
           {pageCount > 1 && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8,
-              padding: '8px 12px', borderTop: '1px solid #e2e8f0',
-              fontSize: 12, color: '#64748b',
+              padding: '8px 16px', borderTop: '1px solid #e2e8f0',
+              fontSize: 12, color: '#64748b', background: '#f8fafc',
             }}>
               <button
                 onClick={() => setPage(p => Math.max(0, p - 1))}
@@ -455,14 +493,33 @@ export default function DailyReport() {
       setNotFound(false)
       setGenerating(false)
 
-      // 2단계: AI 분석 → 요약 채움
+      // 2단계: AI 분석 — 카테고리별 순차 호출, 완료되는 즉시 반영
       setAiGenerating(true)
-      const fullData = await api.generateDailyReport(date)
-      setReport(fullData)
+      for (const row of statsData.risk_rows) {
+        try {
+          const result = await api.analyzeDailyCategory(date, row.main)
+          setReport(prev => prev ? {
+            ...prev,
+            risk_rows: prev.risk_rows.map(r =>
+              r.main === row.main
+                ? { ...r, summary: result.summary, insufficient_data: result.insufficient_data }
+                : r
+            ),
+          } : prev)
+        } catch (e) {
+          console.error(`[AI] ${row.main} 분석 실패`, e)
+        }
+      }
+      try {
+        const peakResult = await api.analyzeDailyPeak(date)
+        setReport(prev => prev ? { ...prev, peak_bucket: peakResult } : prev)
+      } catch (e) {
+        console.error('[AI] 피크타임 분석 실패', e)
+      }
       const canNotify = await requestNotificationPermission()
       if (canNotify) {
-        const url = `${window.location.origin}/report/daily?date=${fullData.report_date}`
-        showReportNotification(fullData, url)
+        const url = `${window.location.origin}/report/daily?date=${date}`
+        showReportNotification(statsData, url)
       }
     } catch (e) {
       alert(`보고서 생성 실패: ${e}`)
@@ -475,6 +532,12 @@ export default function DailyReport() {
   const riskPct = report && report.total_count > 0
     ? (report.risk_total / report.total_count * 100).toFixed(1)
     : '0.0'
+
+  const totalDelta = report?.prev_total_count != null ? report.total_count - report.prev_total_count : null
+  const riskDelta = report?.prev_risk_total != null ? report.risk_total - report.prev_risk_total : null
+  const prevRiskPct = report?.prev_risk_total != null && report?.prev_total_count != null
+    ? report.prev_risk_total / Math.max(report.prev_total_count, 1) * 100 : null
+  const riskPctDelta = prevRiskPct != null ? Math.round((Number(riskPct) - prevRiskPct) * 10) / 10 : null
 
   return (
     <div className="container" style={{ fontFamily: "'Pretendard', 'Segoe UI', system-ui, sans-serif" }}>
@@ -553,10 +616,19 @@ export default function DailyReport() {
           </div>
 
           {/* KPI 카드 3개 */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 16 }}>
-            <KpiCard label="총 상담" value={report.total_count.toLocaleString()} unit="건" color={NAVY} />
-            <KpiCard label="리스크 이슈" value={report.risk_total.toLocaleString()} unit="건" color={RISK_RED} />
-            <KpiCard label="리스크 비율" value={riskPct} unit="%" color="#f59e0b" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.35fr 1.35fr', gap: 14, marginBottom: 16 }}>
+            <KpiCard
+              label="총 상담" value={report.total_count.toLocaleString()} unit="건" color={NAVY}
+              delta={totalDelta} deltaUnit="건" isSecondary
+            />
+            <KpiCard
+              label="리스크 이슈" value={report.risk_total.toLocaleString()} unit="건" color={RISK_RED}
+              delta={riskDelta} deltaUnit="건" deltaInvert
+            />
+            <KpiCard
+              label="리스크 비율" value={riskPct} unit="%" color="#f59e0b"
+              delta={riskPctDelta} deltaUnit="%" deltaInvert
+            />
           </div>
 
           {/* 리스크 카테고리 현황 — 바 차트 */}
@@ -607,34 +679,32 @@ export default function DailyReport() {
                 : <div style={{ fontSize: 13, color: '#94a3b8' }}>피크타임 데이터가 없습니다.</div>
             ) : (
               <div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
-                  <span style={{ fontSize: 17, fontWeight: 700, color: NAVY }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span style={{
+                    fontSize: 14, fontWeight: 700, color: '#fff',
+                    background: NAVY, borderRadius: 20, padding: '4px 14px',
+                  }}>
                     {report.peak_bucket.bucket_start}~{report.peak_bucket.bucket_end}
                   </span>
-                  <span style={{ fontSize: 13, color: '#374151' }}>
-                    {report.peak_bucket.bucket_count}건 집중
-                    <span style={{ color: '#94a3b8', marginLeft: 4 }}>(피크타임 평균 {report.peak_bucket.avg_count}건)</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }}>
+                    {report.peak_bucket.bucket_count}건
                   </span>
-                </div>
-                {report.peak_bucket.pattern && (
-                  <div style={{ marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, color: '#64748b' }}>
+                    집중 (피크타임 평균 {report.peak_bucket.avg_count}건)
+                  </span>
+                  {report.peak_bucket.pattern && (
                     <span style={{
-                      fontSize: 13, fontWeight: 700, color: NAVY,
-                      background: '#dbeafe', borderRadius: 4,
-                      padding: '3px 10px',
+                      fontSize: 12, fontWeight: 700, color: NAVY,
+                      background: '#dbeafe', borderRadius: 20, padding: '3px 10px',
                     }}>
                       {report.peak_bucket.pattern} 반복
                     </span>
-                  </div>
-                )}
-                {!report.peak_bucket.pattern && (
-                  <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>특이 패턴 없음</div>
-                )}
+                  )}
+                </div>
                 {report.peak_bucket.summary && (
                   <div style={{
-                    fontSize: 13, color: '#374151', lineHeight: 1.6,
-                    background: '#f0f4fb', borderRadius: 6,
-                    padding: '7px 12px', borderLeft: `3px solid ${NAVY}`,
+                    fontSize: 13, color: '#374151', lineHeight: 1.7,
+                    borderLeft: `3px solid ${NAVY}`, paddingLeft: 10,
                   }}>
                     {report.peak_bucket.summary}
                   </div>

@@ -16,6 +16,7 @@ type Segment =
   | { type: 'month'; month: string }
 
 interface CatGroup { total: number; subs: CategoryRow[] }
+interface KpiCard { label: string; value: string; sub: string; color: string }
 
 const CATEGORY_ORDER = ['네트워크·앱 오류', '기기·하드웨어 오류', '미납·결제', '해지·유지 상담', '교재·물류·배송', '체험 관련', '계정·서비스', '기타']
 const PAGE_SIZE = 100
@@ -92,15 +93,7 @@ export default function Dashboard() {
   const [endDate, setEndDate] = useState(today)
   const [segment, setSegment] = useState<Segment | null>(null)
 
-  const [cardLabel, setCardLabel] = useState('상담건수')
-  const [cardTotal, setCardTotal] = useState('—')
-  const [cardSub, setCardSub] = useState('')
-  const [cmpVisible, setCmpVisible] = useState(true)
-  const [cmpLabel, setCmpLabel] = useState('전일 대비')
-  const [cmpValue, setCmpValue] = useState('—')
-  const [cmpSub, setCmpSub] = useState('—')
-  const [peakBucket, setPeakBucket] = useState('—')
-  const [peakCnt, setPeakCnt] = useState('—')
+  const [kpiCards, setKpiCards] = useState<KpiCard[]>([])
   const [chartTitle, setChartTitle] = useState('시간대별 상담 건수')
 
   const [sorted, setSorted] = useState<[string, CatGroup][]>([])
@@ -143,27 +136,46 @@ export default function Dashboard() {
 
   // ── Chart ────────────────────────────────────────────────────
 
-  function buildChart(labels: string[], data: number[], p: Period, title: string) {
+  function buildChart(
+    labels: string[],
+    data: number[],
+    p: Period,
+    title: string,
+    opts: { avgData?: number[]; avgLabel?: string; highlightIdx?: number } = {}
+  ) {
     setChartTitle(title)
     if (!canvasRef.current) return
     if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null }
+
+    const { avgData, avgLabel = '평균', highlightIdx } = opts
+    const bgColors = data.map((_, i) => i === highlightIdx ? '#1e40af' : '#93c5fd')
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const datasets: any[] = [{
+      label: '건수',
+      data,
+      backgroundColor: bgColors,
+      borderRadius: 4,
+      barPercentage: 0.65,
+    }]
+
+    if (avgData) {
+      datasets.push({
+        type: 'line',
+        label: avgLabel,
+        data: avgData,
+        borderColor: '#94a3b8',
+        borderDash: [4, 4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0,
+        fill: false,
+      })
+    }
+
     chartRef.current = new Chart(canvasRef.current, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          label: '건수', data,
-          borderColor: '#1a56db',
-          backgroundColor: 'rgba(26,86,219,.07)',
-          pointBackgroundColor: '#1a56db',
-          pointBorderColor: '#fff',
-          pointBorderWidth: 2,
-          tension: 0.35,
-          fill: true,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-        }],
-      },
+      type: 'bar',
+      data: { labels, datasets },
       options: {
         responsive: true,
         onClick: (_ev, elements) => {
@@ -174,7 +186,11 @@ export default function Dashboard() {
           if (t) t.style.cursor = elements.length ? 'pointer' : 'default'
         },
         plugins: {
-          legend: { display: false },
+          legend: {
+            display: !!avgData,
+            position: 'top',
+            labels: { boxWidth: 16, font: { size: 12 }, color: '#64748b' },
+          },
           tooltip: {
             callbacks: {
               title: ctx => {
@@ -197,47 +213,33 @@ export default function Dashboard() {
   // ── Load functions ───────────────────────────────────────────
 
   async function doLoadChart(p: Period, d: string, mo: string, sd: string, ed: string) {
-    let labels: string[], data: number[], title: string
-
     if (p === 'hourly_range') {
       const rows = await api.fetchHourly(sd, ed)
-      chartRowsRef.current = rows; labels = rows.map(r => r.bucket); data = rows.map(r => r.count)
-      title = `시간대별 누적 건수 (${sd} ~ ${ed})`
-    } else if (p === 'day') {
-      const rows = await api.fetchDaily(d, 'week')
-      chartRowsRef.current = rows; labels = rows.map(r => r.date.slice(5)); data = rows.map(r => r.count)
-      title = `일별 상담 건수 (${rows.length ? rows[0].date : d} ~ ${d})`
-    } else if (p === 'week') {
-      const rows = await api.fetchWeekly(d)
-      chartRowsRef.current = rows; labels = rows.map(r => r.week_start.slice(5) + ' ~'); data = rows.map(r => r.count)
-      title = `주별 상담 건수 (${d} 기준 4주)`
-    } else {
-      const rows = await api.fetchMonthly(mo + '-01')
-      chartRowsRef.current = rows; labels = rows.map(r => r.month.slice(5) + '월'); data = rows.map(r => r.count)
-      title = `월별 상담 건수 (${mo} 기준 3개월)`
-    }
+      chartRowsRef.current = rows
+      const labels = rows.map(r => r.bucket)
+      const data = rows.map(r => r.count)
+      const total = data.reduce((s, v) => s + v, 0)
+      const multiDay = sd !== ed
+      const isToday = !multiDay && sd === todayStr()
 
-    buildChart(labels, data, p, title)
+      const peakRow = rows.length > 0
+        ? rows.reduce((max, r) => r.count > max.count ? r : max, rows[0])
+        : { count: 0, bucket: '—' }
+      const highlightIdx = rows.indexOf(peakRow as BucketRow)
+      const titleSuffix = multiDay ? ` (${sd} ~ ${ed} 누적)` : ` (${sd})`
+      buildChart(labels, data, p, `시간대별 상담 건수${titleSuffix}`, { highlightIdx })
 
-    const total = data.reduce((s, v) => s + v, 0)
-    const labelMap: Record<Period, string> = { hourly_range: '상담건수', day: '최근 7일 상담건수', week: '최근 1달 상담건수', month: '최근 3개월 상담건수' }
-    setCardLabel(labelMap[p])
-    setCardTotal(total.toLocaleString() + '건')
-    setCardSub(p === 'hourly_range' ? '' : '합계')
-    setCmpVisible(p !== 'month')
-
-    if (p === 'hourly_range') {
-      if (sd === ed && sd === todayStr()) {
+      let cmpCard: KpiCard
+      if (isToday) {
         const cb = getCurrentBucket()
         const yd = new Date(sd); yd.setUTCDate(yd.getUTCDate() - 1)
-        const ydStr = yd.toISOString().slice(0, 10)
-        const ydRows = await api.fetchHourly(ydStr, ydStr)
+        const ydRows = await api.fetchHourly(yd.toISOString().slice(0, 10), yd.toISOString().slice(0, 10))
         const cutoff = (chartRowsRef.current as BucketRow[]).findIndex(r => r.bucket === cb)
         const todayCut = cutoff >= 0 ? (chartRowsRef.current as BucketRow[]).slice(0, cutoff + 1).reduce((s, r) => s + r.count, 0) : total
         const prev = cutoff >= 0 ? ydRows.slice(0, cutoff + 1).reduce((s, r) => s + r.count, 0) : ydRows.reduce((s, r) => s + r.count, 0)
         const diff = todayCut - prev, sign = diff >= 0 ? '+' : ''
         const pct = prev > 0 ? ` (${sign}${Math.round(diff / prev * 100)}%)` : ''
-        setCmpLabel('동시간대 대비'); setCmpValue(sign + diff.toLocaleString() + '건'); setCmpSub(`어제 ~${cb} 기준${pct}`)
+        cmpCard = { label: '동시간대 대비', value: `${sign}${diff.toLocaleString()}건`, sub: `어제 ~${cb}${pct}`, color: diff >= 0 ? 'green' : 'red' }
       } else {
         const days = Math.max(1, Math.round((new Date(ed).getTime() - new Date(sd).getTime()) / 86400000) + 1)
         const pe = new Date(sd); pe.setUTCDate(pe.getUTCDate() - 1)
@@ -246,26 +248,130 @@ export default function Dashboard() {
         const prev = prevRows.reduce((s, r) => s + r.count, 0)
         const diff = total - prev, sign = diff >= 0 ? '+' : ''
         const pct = prev > 0 ? ` (${sign}${Math.round(diff / prev * 100)}%)` : ''
-        setCmpLabel(days === 1 ? '전일 대비' : `전${days}일 대비`)
-        setCmpValue(sign + diff.toLocaleString() + '건'); setCmpSub(`현재 ${total.toLocaleString()}건${pct}`)
+        cmpCard = {
+          label: days === 1 ? '전일 대비' : `전${days}일 대비`,
+          value: prev > 0 ? `${sign}${diff.toLocaleString()}건` : '비교 불가',
+          sub: prev > 0 ? `이전 기간 ${prev.toLocaleString()}건${pct}` : '이전 기간 데이터 없음',
+          color: prev > 0 ? (diff >= 0 ? 'green' : 'red') : 'neutral',
+        }
       }
-    } else if (p === 'day' && data.length >= 2) {
-      const isToday = d === todayStr()
-      const completeDays = isToday ? data.slice(0, -1) : data
-      const completeRows = (isToday ? chartRowsRef.current.slice(0, -1) : chartRowsRef.current) as DailyRow[]
-      const yesterday = completeDays[completeDays.length - 1]
-      const wd = completeRows.map((r, i) => ({ count: completeDays[i], dow: new Date(r.date).getDay() })).filter(x => x.dow !== 0 && x.dow !== 6)
-      const avgItems = wd.length > 0 ? wd : completeDays.map(count => ({ count }))
-      const avg = avgItems.reduce((s, x) => s + x.count, 0) / avgItems.length
-      const diff = yesterday - avg, sign = diff >= 0 ? '+' : ''
-      setCmpLabel('7일 평균 대비'); setCmpValue(sign + Math.round(diff).toLocaleString() + '건'); setCmpSub(`평균 ${Math.round(avg).toLocaleString()}건`)
-    } else if (p === 'week' && data.length >= 2) {
-      const cw = data.slice(0, -1)
-      const avg = cw.reduce((s, v) => s + v, 0) / cw.length
-      const diff = cw[cw.length - 1] - avg, sign = diff >= 0 ? '+' : ''
-      setCmpLabel('주간 평균 대비'); setCmpValue(sign + Math.round(diff).toLocaleString() + '건'); setCmpSub(`평균 ${Math.round(avg).toLocaleString()}건`)
-    } else if (p !== 'month') {
-      setCmpValue('—'); setCmpSub('—')
+
+      setKpiCards([
+        { label: '선택 기간 상담', value: `${total.toLocaleString()}건`, sub: multiDay ? '기간 누적 합계' : '일 합계', color: 'blue' },
+        cmpCard,
+        {
+          label: '피크 시간대',
+          value: peakRow.count > 0 ? bucketRangeLabel(peakRow.bucket) : '—',
+          sub: peakRow.count > 0 ? `${peakRow.count.toLocaleString()}건 집중` : '—',
+          color: 'amber',
+        },
+      ])
+
+    } else if (p === 'day') {
+      const rows = await api.fetchDaily(d, 'week') as DailyRow[]
+      chartRowsRef.current = rows
+      const labels = rows.map(r => r.date.slice(5))
+      const data = rows.map(r => r.count)
+
+      const weekdayRows = rows.filter(r => {
+        const dow = new Date(r.date + 'T00:00:00').getDay()
+        return dow !== 0 && dow !== 6
+      })
+      const avg = weekdayRows.length > 0
+        ? weekdayRows.reduce((s, r) => s + r.count, 0) / weekdayRows.length
+        : data.reduce((s, v) => s + v, 0) / Math.max(data.length, 1)
+      const avgRounded = Math.round(avg)
+      const avgLine = data.map(() => avgRounded)
+
+      const maxRow = rows.length > 0
+        ? rows.reduce((max, r) => r.count > max.count ? r : max, rows[0])
+        : null
+      const highlightIdx = maxRow ? rows.indexOf(maxRow) : undefined
+
+      buildChart(labels, data, p, `일별 상담 건수 (${rows[0]?.date ?? d} ~ ${d})`, {
+        avgData: avgLine,
+        avgLabel: '평일 평균',
+        highlightIdx,
+      })
+
+      const total = data.reduce((s, v) => s + v, 0)
+      setKpiCards([
+        { label: '기간 총 상담', value: `${total.toLocaleString()}건`, sub: `${rows.length}일 합계`, color: 'blue' },
+        { label: '평일 일평균', value: `${avgRounded.toLocaleString()}건`, sub: weekdayRows.length > 0 ? `평일 ${weekdayRows.length}일 기준` : '평일 데이터 없음', color: 'green' },
+        { label: '최대 상담일', value: maxRow?.date.slice(5) ?? '—', sub: maxRow ? `${maxRow.count.toLocaleString()}건` : '—', color: 'amber' },
+      ])
+
+    } else if (p === 'week') {
+      const rows = await api.fetchWeekly(d) as WeeklyRow[]
+      chartRowsRef.current = rows
+      const labels = rows.map(r => r.week_start.slice(5) + ' ~')
+      const data = rows.map(r => r.count)
+
+      const movingAvg = data.map((_, i) => {
+        const w = data.slice(Math.max(0, i - 3), i + 1)
+        return Math.round(w.reduce((s, v) => s + v, 0) / w.length)
+      })
+
+      const lastIdx = data.length - 1
+      buildChart(labels, data, p, `주별 상담 건수 (${d} 기준 4주)`, {
+        avgData: movingAvg,
+        avgLabel: '4주 이동평균',
+        highlightIdx: lastIdx >= 0 ? lastIdx : undefined,
+      })
+
+      const latest = data[lastIdx] ?? 0
+      const prev = lastIdx > 0 ? data[lastIdx - 1] : null
+      const avg4 = data.length > 0 ? Math.round(data.reduce((s, v) => s + v, 0) / data.length) : 0
+
+      const prevCard: KpiCard = prev != null
+        ? (() => {
+            const diff = latest - prev, sign = diff >= 0 ? '+' : ''
+            const pct = prev > 0 ? ` (${sign}${Math.round(diff / prev * 100)}%)` : ''
+            return { label: '전주 대비', value: `${sign}${diff.toLocaleString()}건`, sub: `전주 ${prev.toLocaleString()}건${pct}`, color: diff >= 0 ? 'green' : 'red' }
+          })()
+        : { label: '전주 대비', value: '비교 불가', sub: '이전 주 데이터 없음', color: 'neutral' }
+
+      setKpiCards([
+        { label: '이번 주 상담', value: `${latest.toLocaleString()}건`, sub: rows[lastIdx] ? `${rows[lastIdx].week_start} 주` : '', color: 'blue' },
+        prevCard,
+        { label: '4주 평균', value: `${avg4.toLocaleString()}건`, sub: `최근 ${data.length}주 기준`, color: 'neutral' },
+      ])
+
+    } else {
+      const rows = await api.fetchMonthly(mo + '-01') as MonthlyRow[]
+      chartRowsRef.current = rows
+      const labels = rows.map(r => r.month.slice(5) + '월')
+      const data = rows.map(r => r.count)
+
+      const movingAvg = data.map((_, i) => {
+        const w = data.slice(Math.max(0, i - 2), i + 1)
+        return Math.round(w.reduce((s, v) => s + v, 0) / w.length)
+      })
+
+      const lastIdx = data.length - 1
+      buildChart(labels, data, p, `월별 상담 건수 (${mo} 기준)`, {
+        avgData: movingAvg,
+        avgLabel: '3개월 이동평균',
+        highlightIdx: lastIdx >= 0 ? lastIdx : undefined,
+      })
+
+      const latest = data[lastIdx] ?? 0
+      const prev = lastIdx > 0 ? data[lastIdx - 1] : null
+      const avg = data.length > 0 ? Math.round(data.reduce((s, v) => s + v, 0) / data.length) : 0
+
+      const prevCard: KpiCard = prev != null
+        ? (() => {
+            const diff = latest - prev, sign = diff >= 0 ? '+' : ''
+            const pct = prev > 0 ? ` (${sign}${Math.round(diff / prev * 100)}%)` : ''
+            return { label: '전월 대비', value: `${sign}${diff.toLocaleString()}건`, sub: `전월 ${prev.toLocaleString()}건${pct}`, color: diff >= 0 ? 'green' : 'red' }
+          })()
+        : { label: '전월 대비', value: '비교 불가', sub: '이전 달 데이터 없음', color: 'neutral' }
+
+      setKpiCards([
+        { label: '이번 달 상담', value: `${latest.toLocaleString()}건`, sub: rows[lastIdx]?.month ?? mo, color: 'blue' },
+        prevCard,
+        { label: '기간 평균', value: `${avg.toLocaleString()}건`, sub: `최근 ${data.length}개월 기준`, color: 'neutral' },
+      ])
     }
   }
 
@@ -292,14 +398,6 @@ export default function Dashboard() {
     } finally {
       setCatLoading(false)
     }
-  }
-
-  async function doLoadPeak(p: Period, sd: string, ed: string) {
-    const { start, end } = getPeriodRange(p, sd, ed)
-    const rows = await api.fetchHourly(start, end)
-    const peak = rows.reduce((max, r) => r.count > max.count ? r : max, { count: 0, bucket: '—' } as BucketRow)
-    setPeakBucket(peak.bucket)
-    setPeakCnt(peak.count > 0 ? peak.count.toLocaleString() + '건' : '—')
   }
 
   async function loadMemos(main: string, sub: string, page: number) {
@@ -333,7 +431,6 @@ export default function Dashboard() {
     Promise.all([
       doLoadChart(period, date, month, startDate, endDate),
       doLoadCategory(period, startDate, endDate, null),
-      doLoadPeak(period, startDate, endDate),
     ]).catch(console.error)
   }, [period, date, month, startDate, endDate, reloadCount])
 
@@ -424,23 +521,13 @@ export default function Dashboard() {
 
       {/* KPI Cards */}
       <div className="cards">
-        <div className="card blue">
-          <div className="label">{cardLabel}</div>
-          <div className="value">{cardTotal}</div>
-          <div className="sub">{cardSub}</div>
-        </div>
-        {cmpVisible && (
-          <div className="card green">
-            <div className="label">{cmpLabel}</div>
-            <div className="value">{cmpValue}</div>
-            <div className="sub">{cmpSub}</div>
+        {kpiCards.map((card, i) => (
+          <div key={i} className={`card ${card.color}`}>
+            <div className="label">{card.label}</div>
+            <div className="value" style={card.value.length > 9 ? { fontSize: 20 } : undefined}>{card.value}</div>
+            <div className="sub">{card.sub}</div>
           </div>
-        )}
-        <div className="card amber">
-          <div className="label">최다 문의 시간대</div>
-          <div className="value" style={{ fontSize: 22 }}>{peakBucket}</div>
-          <div className="sub">{peakCnt}</div>
-        </div>
+        ))}
       </div>
 
       {/* Chart */}

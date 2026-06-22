@@ -112,9 +112,11 @@ input[type=date], input[type=month] {
   box-shadow: 0 1px 4px rgba(0,0,0,.07);
   border-left: 4px solid transparent;
 }
-.card.blue  { border-left-color: #1a56db; }
-.card.green { border-left-color: #10b981; }
-.card.amber { border-left-color: #f59e0b; }
+.card.blue    { border-left-color: #1a56db; }
+.card.green   { border-left-color: #10b981; }
+.card.amber   { border-left-color: #f59e0b; }
+.card.red     { border-left-color: #ef4444; }
+.card.neutral { border-left-color: #94a3b8; }
 .card .label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 8px; }
 .card .value { font-size: 30px; font-weight: 800; color: #0f172a; line-height: 1; }
 .card .sub   { font-size: 12px; color: #94a3b8; margin-top: 6px; }
