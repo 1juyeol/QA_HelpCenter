@@ -384,10 +384,15 @@ async def _call_ollama_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dic
 
 
 def _build_content(date_str: str, stats: dict, peak_bucket: dict) -> dict:
+    from datetime import date as _date, timedelta as _td
+    prev_date = str(_date.fromisoformat(date_str) - _td(days=1))
+    prev = get_report(prev_date)
     return {
         "report_date": date_str,
         "total_count": stats["total_count"],
         "risk_total": stats["risk_total"],
+        "prev_total_count": prev["total_count"] if prev else None,
+        "prev_risk_total": prev["risk_total"] if prev else None,
         "risk_rows": [
             {
                 "main": r["main"],

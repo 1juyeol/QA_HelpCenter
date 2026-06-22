@@ -1,7 +1,7 @@
-// 반복 Wings 티켓 인사이트 페이지. 동일 Wings 티켓 번호가 여러 CS 건에서 언급된 목록을 테이블로 표시한다.
+// 장기 미해결 Wings 티켓 모니터링 페이지. 동일 Wings 티켓 번호가 여러 CS 건에서 언급된 목록을 표시한다.
 // 마운트 시 /api/insights/wings_tickets를 fetch하고, 새로고침 버튼은 POST /api/insights/refresh → 재조회 순서로 동작한다.
-// 최초 접수일부터 7일 이상 경과한 티켓은 '처리 지연' 배지를 표시하며, 각 행을 클릭하면 CS 메모 이력을 펼쳐 볼 수 있다.
-// 차트 영역: Treemap(CSS) + Scatter(경과일×CS건수) + Timeline(경과일 가로바) 3종을 다크 배경으로 표시한다.
+// 처리 지연(7일+)·장기 미해결(30일+) KPI, 버블 차트(X=경과일, Y=재언급수, 크기=전체CS건수),
+// 상세 테이블(재언급수·경과일·관리상태·마지막CS언급 포함)로 구성된다.
 // 이 컴포넌트 내부에서만 상태를 관리하며 다른 페이지와 상태를 공유하지 않는다 (정책 8).
 import { Fragment, useEffect, useRef, useState } from 'react'
 import Chart from 'chart.js/auto'
@@ -60,13 +60,15 @@ export default function WingsTickets() {
     if (scatterCanvasRef.current) {
       scatterChartRef.current?.destroy()
       scatterChartRef.current = new Chart(scatterCanvasRef.current, {
-        type: 'scatter',
+        type: 'bubble',
         data: {
           datasets: [{
-            data: rows.map(r => ({ x: getDiffDays(r), y: r.cs_count })),
+            data: rows.map(r => ({
+              x: getDiffDays(r),
+              y: Math.max(0, r.cs_count - 1),
+              r: Math.max(5, r.cs_count * 4),
+            })),
             backgroundColor: rows.map(r => isDelayedTicket(r) ? '#ef4444cc' : '#3b82f6cc'),
-            pointRadius: rows.map(r => Math.max(6, r.cs_count * 5)),
-            pointHoverRadius: rows.map(r => Math.max(8, r.cs_count * 5 + 2)),
           }],
         },
         options: {
@@ -77,7 +79,7 @@ export default function WingsTickets() {
               callbacks: {
                 label: ctx => {
                   const r = rows[ctx.dataIndex]
-                  return `#${r.ticket_id} · CS ${r.cs_count}건 · ${getDiffDays(r)}일 경과`
+                  return `#${r.ticket_id} · 전체 ${r.cs_count}건 · 재언급 ${r.cs_count - 1}건 · ${getDiffDays(r)}일 경과`
                 },
               },
             },
@@ -90,9 +92,9 @@ export default function WingsTickets() {
               min: 0,
             },
             y: {
-              title: { display: true, text: 'CS 건수', color: '#374151' },
+              title: { display: true, text: '재언급 수', color: '#374151' },
               grid: { color: 'rgba(0,0,0,0.06)' },
-              ticks: { color: '#374151', font: { size: 11 }, stepSize: 2 },
+              ticks: { color: '#374151', font: { size: 11 }, stepSize: 1 },
               min: 0,
             },
           },
@@ -136,6 +138,10 @@ export default function WingsTickets() {
   }
 
   const delayedCount = rows.filter(isDelayedTicket).length
+  const longUnresolvedCount = rows.filter(r => {
+    const closed = r.state === '해결' || r.state === '요청취소' || r.state === 'merged'
+    return getDiffDays(r) >= 30 && !closed
+  }).length
 
   return (
     <div className="container">
@@ -161,8 +167,8 @@ export default function WingsTickets() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
               {[
                 { label: '전체 티켓', value: rows.length, alert: false },
-                { label: '처리 지연', value: delayedCount, alert: delayedCount > 0 },
-                { label: '총 CS 건수', value: rows.reduce((a, r) => a + r.cs_count, 0), alert: false },
+                { label: '처리 지연 (7일+)', value: delayedCount, alert: delayedCount > 0 },
+                { label: '장기 미해결 (30일+)', value: longUnresolvedCount, alert: longUnresolvedCount > 0 },
               ].map(kpi => (
                 <div key={kpi.label} style={{ background: '#fff', borderRadius: 12, padding: '16px 20px', border: `1px solid ${kpi.alert ? '#fca5a5' : '#e2e8f0'}` }}>
                   <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>{kpi.label}</div>
@@ -173,8 +179,8 @@ export default function WingsTickets() {
 
             {/* Scatter */}
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>경과일 × CS 건수</div>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>점 크기 = CS 건수 · 빨강 = 처리 지연 (7일+)</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>경과일 × 재언급 수</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>버블 크기 = 전체 CS 건수 · 빨강 = 처리 지연 (7일+)</div>
               <div style={{ height: 240 }}>
                 <canvas ref={scatterCanvasRef} />
               </div>
@@ -192,12 +198,14 @@ export default function WingsTickets() {
               <thead>
                 <tr>
                   <th style={{ width: 40 }}>#</th>
-                  <th style={{ width: 120 }}>티켓 번호</th>
-                  <th style={{ width: 80 }}>CS 건수</th>
-                  <th style={{ width: 90 }}>상태</th>
+                  <th style={{ width: 110 }}>티켓 번호</th>
+                  <th style={{ width: 70 }}>CS 건수</th>
+                  <th style={{ width: 70 }}>재언급</th>
+                  <th style={{ width: 65 }}>경과일</th>
+                  <th style={{ width: 90 }}>관리상태</th>
                   <th>최근 메모</th>
-                  <th style={{ width: 130 }}>최초 접수</th>
-                  <th style={{ width: 130 }}>최근 접수</th>
+                  <th style={{ width: 120 }}>최초 접수</th>
+                  <th style={{ width: 120 }}>마지막 CS</th>
                 </tr>
               </thead>
               <tbody>
@@ -219,6 +227,8 @@ export default function WingsTickets() {
                           </a>
                         </td>
                         <td><span className="count-badge">{r.cs_count}건</span></td>
+                        <td style={{ color: '#374151', fontSize: 13, fontWeight: 600 }}>{r.cs_count - 1}건</td>
+                        <td style={{ color: delayed ? '#dc2626' : '#374151', fontSize: 13, fontWeight: delayed ? 700 : 400 }}>{diffDays}일</td>
                         <td>
                           <StateBadge state={r.state} delayed={delayed} diffDays={diffDays} />
                         </td>
@@ -238,7 +248,7 @@ export default function WingsTickets() {
                       </tr>
                       {isOpen && (
                         <tr>
-                          <td colSpan={7} style={{ padding: 0 }}>
+                          <td colSpan={9} style={{ padding: 0 }}>
                             <div className="memo-expand-inner">
                               {r.memos.map((m, mi) => (
                                 <div key={mi} className="memo-item">
