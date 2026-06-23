@@ -5,7 +5,7 @@
 from datetime import date
 from fastapi import APIRouter, Query
 from core.db import get_conn
-from core.date_bucket_utils import _bucket_where, _period_where
+from core.date_bucket_utils import _buckets_where, _period_where
 
 router = APIRouter()
 
@@ -31,9 +31,11 @@ def list_issues(
             target_date = str(date.today())
         where, params = _period_where(target_date, period)
     if bucket:
-        bw, bp = _bucket_where(bucket)
-        where += f" AND {bw}"
-        params.extend(bp)
+        buckets_list = [b.strip() for b in bucket.split(',') if b.strip()]
+        if buckets_list:
+            bw, bp = _buckets_where(buckets_list)
+            where += f" AND {bw}"
+            params.extend(bp)
     if unclassified:
         where += " AND new_category_main IS NULL"
     elif category_main:

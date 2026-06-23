@@ -3,9 +3,10 @@
 # ★ 스케줄 약속은 _register_jobs()에만 등록한다. 시간 변경·신규 작업 추가 시 그 함수만 수정.
 #
 # 핸들러 목록 (실제 로직):
-#   _generate_yesterday_report() : 전날 일별 보고서 자동 생성
-#   _generate_last_week_report() : 직전 주 주간 보고서 자동 생성
-#   collect_today()              : Help-Desk 증분 수집 + 자정 보정·캐시 갱신
+#   _generate_yesterday_report()    : 전날 일별 보고서 자동 생성
+#   _generate_last_week_report()    : 직전 주 주간 보고서 자동 생성
+#   _cache_keyword_trend_today()    : 오늘 keyword_trend 미리 계산해 캐시 저장 (탐지 이력 누락 방지)
+#   collect_today()                 : Help-Desk 증분 수집 + 자정 보정·캐시 갱신
 #
 # 자격증명(_username, _password)은 서버 시작 시 prompt_credentials()로 입력받아 전역 변수에 보관한다.
 # _wings_token: Wings(Zammad) API 토큰. 인사이트 캐시 갱신 시 티켓 상태를 실시간으로 조회하는 데 사용한다.
@@ -177,6 +178,18 @@ async def update_insights_cache():
     print(f"[{now}] insights cache updated")
 
 
+async def _cache_keyword_trend_today():
+    """오늘 날짜의 keyword_trend를 미리 계산해 캐시에 저장한다. COLLECTION_ENABLED 무관하게 실행."""
+    from features.stats.stats_endpoints import stats_keyword_trend
+    today = str(date.today())
+    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        await asyncio.to_thread(stats_keyword_trend, today)
+        print(f"[{now}] keyword_trend 캐시 저장 완료: {today}")
+    except Exception as e:
+        print(f"[{now}] keyword_trend 캐시 저장 실패: {e}")
+
+
 async def _generate_yesterday_report():
     """전날 일별 보고서를 자동 생성한다. COLLECTION_ENABLED 무관하게 실행."""
     from features.report.report_daily import generate_report
@@ -209,6 +222,9 @@ async def _generate_last_week_report():
 def _register_jobs(scheduler: AsyncIOScheduler) -> None:
     # 일별 보고서: 매일 00:30 KST (전날 데이터 기준)
     scheduler.add_job(_generate_yesterday_report, "cron", hour=0, minute=30)
+
+    # keyword_trend 캐시: 매일 08:00 KST (탐지 이력 누락 방지 — 접속 여부와 무관하게 저장)
+    scheduler.add_job(_cache_keyword_trend_today, "cron", hour=8, minute=0)
 
     # 주간 보고서: 매주 월요일 00:30 KST (직전 주 월~금 기준)
     scheduler.add_job(_generate_last_week_report, "cron", day_of_week="mon", hour=0, minute=30)

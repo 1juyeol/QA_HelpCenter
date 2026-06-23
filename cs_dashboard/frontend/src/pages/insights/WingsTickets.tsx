@@ -145,11 +145,13 @@ export default function WingsTickets() {
 
   return (
     <div className="container">
-      <div className="section-card">
-        <h2>반복 Wings 티켓</h2>
-        <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16 }}>
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ margin: 0, marginBottom: 4, fontSize: 18, fontWeight: 700, color: '#1e293b' }}>반복 Wings 티켓</h2>
+        <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>
           여러 CS 건에서 동일하게 언급된 Wings 티켓 — 다수 고객에게 영향을 준 이슈를 확인할 수 있습니다.
         </p>
+      </div>
+      <div className="section-card">
         <div className="insight-toolbar">
           <span style={{ fontSize: 12, color: '#94a3b8' }}>{updatedAt}</span>
           <button

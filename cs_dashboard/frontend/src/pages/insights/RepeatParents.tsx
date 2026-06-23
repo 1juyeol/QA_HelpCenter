@@ -407,7 +407,7 @@ export default function RepeatParents() {
                         <td style={{ fontSize: 13, fontWeight: 600 }}>
                           {r.parent_id
                             ? <a href={adminParentUrl(r.parent_id)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{r.parent_id}</a>
-                            : <span style={{ color: '#64748b' }}>—</span>}
+                            : <span style={{ color: '#94a3b8' }}>비회원</span>}
                         </td>
                         <td>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>

@@ -92,7 +92,7 @@ export default function Sidebar() {
           to="/insights/keywords"
           className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
         >
-          키워드 급등 탐지
+          이슈 후보 탐지
         </NavLink>
         <div className="nav-sub-item" style={{ color: '#cbd5e1', cursor: 'default' }}>
           월별 보고서
