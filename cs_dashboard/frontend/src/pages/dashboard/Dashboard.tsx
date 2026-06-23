@@ -92,6 +92,7 @@ export default function Dashboard() {
   const [startDate, setStartDate] = useState(today)
   const [endDate, setEndDate] = useState(today)
   const [segment, setSegment] = useState<Segment | null>(null)
+  const [selectedBuckets, setSelectedBuckets] = useState<string[]>([])
 
   const [kpiCards, setKpiCards] = useState<KpiCard[]>([])
   const [chartTitle, setChartTitle] = useState('시간대별 상담 건수')
@@ -120,12 +121,21 @@ export default function Dashboard() {
   onChartClickRef.current = (idx: number) => {
     const row = chartRowsRef.current[idx]
     if (!row) return
+    if (period === 'hourly_range') {
+      const bucket = (row as BucketRow).bucket
+      const next = selectedBuckets.includes(bucket)
+        ? selectedBuckets.filter(b => b !== bucket)
+        : [...selectedBuckets, bucket]
+      setSelectedBuckets(next)
+      clearMemoState()
+      doLoadCategory(period, startDate, endDate, null, next).catch(console.error)
+      return
+    }
     let seg: Segment
     switch (period) {
-      case 'hourly_range': seg = { type: 'bucket', bucket: (row as BucketRow).bucket }; break
-      case 'day':          seg = { type: 'date', date: (row as DailyRow).date }; break
-      case 'week':         seg = { type: 'week', weekStart: (row as WeeklyRow).week_start }; break
-      default:             seg = { type: 'month', month: (row as MonthlyRow).month }
+      case 'day':   seg = { type: 'date', date: (row as DailyRow).date }; break
+      case 'week':  seg = { type: 'week', weekStart: (row as WeeklyRow).week_start }; break
+      default:      seg = { type: 'month', month: (row as MonthlyRow).month }
     }
     setSegment(seg)
     clearMemoState()
@@ -240,19 +250,33 @@ export default function Dashboard() {
         const diff = todayCut - prev, sign = diff >= 0 ? '+' : ''
         const pct = prev > 0 ? ` (${sign}${Math.round(diff / prev * 100)}%)` : ''
         cmpCard = { label: '동시간대 대비', value: `${sign}${diff.toLocaleString()}건`, sub: `어제 ~${cb}${pct}`, color: diff >= 0 ? 'green' : 'red' }
-      } else {
-        const days = Math.max(1, Math.round((new Date(ed).getTime() - new Date(sd).getTime()) / 86400000) + 1)
+      } else if (sd === ed) {
         const pe = new Date(sd); pe.setUTCDate(pe.getUTCDate() - 1)
-        const ps = new Date(pe); ps.setUTCDate(ps.getUTCDate() - days + 1)
-        const prevRows = await api.fetchHourly(ps.toISOString().slice(0, 10), pe.toISOString().slice(0, 10))
+        const prevRows = await api.fetchHourly(pe.toISOString().slice(0, 10), pe.toISOString().slice(0, 10))
         const prev = prevRows.reduce((s, r) => s + r.count, 0)
         const diff = total - prev, sign = diff >= 0 ? '+' : ''
         const pct = prev > 0 ? ` (${sign}${Math.round(diff / prev * 100)}%)` : ''
         cmpCard = {
-          label: days === 1 ? '전일 대비' : `전${days}일 대비`,
+          label: '전일 대비',
           value: prev > 0 ? `${sign}${diff.toLocaleString()}건` : '비교 불가',
-          sub: prev > 0 ? `이전 기간 ${prev.toLocaleString()}건${pct}` : '이전 기간 데이터 없음',
+          sub: prev > 0 ? `전일 ${prev.toLocaleString()}건${pct}` : '전일 데이터 없음',
           color: prev > 0 ? (diff >= 0 ? 'green' : 'red') : 'neutral',
+        }
+      } else {
+        let weekdays = 0
+        const cur = new Date(sd + 'T00:00:00')
+        const endD = new Date(ed + 'T00:00:00')
+        while (cur <= endD) {
+          const dow = cur.getDay()
+          if (dow !== 0 && dow !== 6) weekdays++
+          cur.setDate(cur.getDate() + 1)
+        }
+        const avg = weekdays > 0 ? Math.round(total / weekdays) : 0
+        cmpCard = {
+          label: '평일 일평균',
+          value: weekdays > 0 ? `${avg.toLocaleString()}건/일` : '—',
+          sub: `평일 ${weekdays}일 기준`,
+          color: 'blue',
         }
       }
 
@@ -375,11 +399,11 @@ export default function Dashboard() {
     }
   }
 
-  async function doLoadCategory(p: Period, sd: string, ed: string, seg: Segment | null) {
+  async function doLoadCategory(p: Period, sd: string, ed: string, seg: Segment | null, buckets: string[] = []) {
     setCatLoading(true)
     try {
-      const { start, end, bucket } = getActiveFilter(p, sd, ed, seg)
-      const rows = await api.fetchCategory({ startDate: start, endDate: end, bucket: bucket ?? undefined })
+      const { start, end } = getActiveFilter(p, sd, ed, seg)
+      const rows = await api.fetchCategory({ startDate: start, endDate: end, buckets: buckets.length ? buckets : undefined })
       if (!rows.length) { setCatEmpty(true); setSorted([]); return }
       setCatEmpty(false)
       const grouped: Record<string, CatGroup> = {}
@@ -403,11 +427,11 @@ export default function Dashboard() {
   async function loadMemos(main: string, sub: string, page: number) {
     setMemoLoading(true)
     try {
-      const { start, end, bucket } = getActiveFilter(period, startDate, endDate, segment)
+      const { start, end } = getActiveFilter(period, startDate, endDate, segment)
       const isUnclassified = !main || main === 'null'
       const result = await api.fetchIssues({
         startDate: start, endDate: end,
-        bucket: bucket ?? undefined,
+        buckets: period === 'hourly_range' && selectedBuckets.length ? selectedBuckets : undefined,
         ...(isUnclassified ? { unclassified: true } : { categoryMain: main, categorySub: sub }),
         limit: PAGE_SIZE, offset: page * PAGE_SIZE,
       })
@@ -427,10 +451,11 @@ export default function Dashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setSegment(null)
+    setSelectedBuckets([])
     clearMemoState()
     Promise.all([
       doLoadChart(period, date, month, startDate, endDate),
-      doLoadCategory(period, startDate, endDate, null),
+      doLoadCategory(period, startDate, endDate, null, []),
     ]).catch(console.error)
   }, [period, date, month, startDate, endDate, reloadCount])
 
@@ -448,6 +473,21 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null } }, [])
+
+  // 버킷 선택 변경 시 차트 색상만 업데이트 (데이터 재조회 없음)
+  useEffect(() => {
+    if (period !== 'hourly_range' || !chartRef.current) return
+    const rows = chartRowsRef.current as BucketRow[]
+    if (!rows.length) return
+    const peakBucket = rows.reduce((max, r) => r.count > max.count ? r : max, rows[0]).bucket
+    const labels = (chartRef.current.data.labels ?? []) as string[]
+    const ds = chartRef.current.data.datasets[0]
+    ds.backgroundColor = labels.map(l => {
+      if (selectedBuckets.length > 0) return selectedBuckets.includes(l) ? '#1e40af' : '#e2e8f0'
+      return l === peakBucket ? '#1e40af' : '#93c5fd'
+    })
+    chartRef.current.update('none')
+  }, [selectedBuckets, period])
 
   // ── Handlers ─────────────────────────────────────────────────
 
@@ -474,8 +514,9 @@ export default function Dashboard() {
 
   function clearFilter() {
     setSegment(null)
+    setSelectedBuckets([])
     clearMemoState()
-    doLoadCategory(period, startDate, endDate, null).catch(console.error)
+    doLoadCategory(period, startDate, endDate, null, []).catch(console.error)
   }
 
   // ── Derived ──────────────────────────────────────────────────
@@ -539,7 +580,27 @@ export default function Dashboard() {
       {/* Category + Memos */}
       <div className="section-card">
         <h2>카테고리별 건수</h2>
-        {segment && (
+        {period === 'hourly_range' && selectedBuckets.length > 0 && (
+          <div style={{ display: 'flex', marginBottom: 12, padding: '6px 12px', background: '#eff6ff', borderRadius: 6, fontSize: 12, color: '#1a56db', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600, marginRight: 2 }}>시간대 필터</span>
+            {selectedBuckets.map(b => (
+              <span key={b} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#dbeafe', borderRadius: 999, padding: '2px 10px', fontWeight: 500 }}>
+                {bucketRangeLabel(b)}
+                <button
+                  onClick={() => {
+                    const next = selectedBuckets.filter(x => x !== b)
+                    setSelectedBuckets(next)
+                    clearMemoState()
+                    doLoadCategory(period, startDate, endDate, null, next).catch(console.error)
+                  }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1a56db', fontSize: 14, lineHeight: 1, padding: 0, marginLeft: 2 }}
+                >×</button>
+              </span>
+            ))}
+            <button onClick={clearFilter} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 11, marginLeft: 'auto' }}>전체 해제</button>
+          </div>
+        )}
+        {period !== 'hourly_range' && segment && (
           <div id="cat-filter-indicator" style={{ display: 'flex', marginBottom: 12, padding: '6px 12px', background: '#eff6ff', borderRadius: 6, fontSize: 12, color: '#1a56db', alignItems: 'center', justifyContent: 'space-between' }}>
             <span>{segLabel}</span>
             <button onClick={clearFilter} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1a56db', fontSize: 16, lineHeight: '1', padding: '0 0 0 8px' }}>×</button>
@@ -615,7 +676,7 @@ export default function Dashboard() {
                             <td style={{ fontSize: 12 }}>
                               {r.parent_id
                                 ? <a href={adminParentUrl(r.parent_id!)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{r.parent_id}</a>
-                                : <span style={{ color: '#64748b' }}>—</span>}
+                                : <span style={{ color: '#94a3b8' }}>비회원</span>}
                             </td>
                             <td style={{ color: '#374151', fontSize: 13 }}>
                               {r.call_memo

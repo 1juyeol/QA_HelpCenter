@@ -68,6 +68,28 @@ export interface KeywordMemoRow {
   date: string
 }
 
+export interface KeywordHistoryRow {
+  word: string
+  first_detected: string
+  last_detected: string
+  peak_date: string
+  peak_count: number
+  peak_growth: number
+  latest_count: number
+  latest_growth: number
+  detection_days: number
+  recent_detection_days: number
+  auto_status: '지속 탐지' | '재탐지' | '신규 탐지' | '일회성 탐지' | '감소 추세' | '최근 미탐지'
+}
+
+export interface KeywordTrendDateRow {
+  date: string
+  this_week: number
+  avg_per_week: number
+  growth_rate: number
+  is_new: boolean
+}
+
 export interface CollectionLatest {
   collected_at: string
   target_date: string
@@ -229,14 +251,14 @@ export const api = {
     endDate?: string
     targetDate?: string
     period?: string
-    bucket?: string
+    buckets?: string[]
   }) {
     const p = new URLSearchParams()
     if (params.startDate) p.set('start_date', params.startDate)
     if (params.endDate)   p.set('end_date',   params.endDate)
     if (params.targetDate) p.set('target_date', params.targetDate)
     if (params.period)    p.set('period',      params.period)
-    if (params.bucket)    p.set('bucket',      params.bucket)
+    if (params.buckets?.length) p.set('bucket', params.buckets.join(','))
     return get<CategoryRow[]>(`/api/stats/category?${p}`)
   },
 
@@ -245,7 +267,7 @@ export const api = {
     endDate?: string
     targetDate?: string
     period?: string
-    bucket?: string
+    buckets?: string[]
     categoryMain?: string
     categorySub?: string
     unclassified?: boolean
@@ -257,7 +279,7 @@ export const api = {
     if (params.endDate)      p.set('end_date',       params.endDate)
     if (params.targetDate)   p.set('target_date',    params.targetDate)
     if (params.period)       p.set('period',         params.period)
-    if (params.bucket)       p.set('bucket',         params.bucket)
+    if (params.buckets?.length) p.set('bucket',      params.buckets.join(','))
     if (params.categoryMain) p.set('category_main',  params.categoryMain)
     if (params.categorySub)  p.set('category_sub',   params.categorySub)
     if (params.unclassified) p.set('unclassified',   '1')
@@ -292,6 +314,14 @@ export const api = {
 
   fetchKeywordMemos(keyword: string, targetDate: string) {
     return get<KeywordMemoRow[]>(`/api/stats/keyword_memos?keyword=${encodeURIComponent(keyword)}&target_date=${targetDate}`)
+  },
+
+  fetchKeywordHistory(days = 30) {
+    return get<KeywordHistoryRow[]>(`/api/stats/keyword_history?days=${days}`)
+  },
+
+  fetchKeywordTrendDates(keyword: string, days = 30) {
+    return get<KeywordTrendDateRow[]>(`/api/stats/keyword_trend_dates?keyword=${encodeURIComponent(keyword)}&days=${days}`)
   },
 
   fetchJiraBugs() {

@@ -1,7 +1,8 @@
 # 30분 단위 시간 버킷 정의와 날짜 필터 생성 유틸. stats·issues 라우터가 공통으로 사용한다.
 # BUCKET_SQL  : SQL SELECT에 삽입할 시간 버킷 라벨 계산식 (~09:00 / 09:00~09:30 / ... / 21:00~). KST 변환 포함.
 # BUCKETS     : 버킷 라벨 순서 목록 — 차트 X축 기준이 되며, DB 결과와 병합 시 0 패딩에 사용한다.
-# _bucket_where  : 특정 버킷에 해당하는 WHERE SQL 조건 반환 (카테고리 드릴다운에서 버킷 필터링 시 사용).
+# _bucket_where  : 특정 버킷 하나에 해당하는 WHERE SQL 조건 반환.
+# _buckets_where : 복수 버킷에 대한 OR 조건 반환 (다중 시간대 필터 시 사용).
 # _period_where  : day/week/month 키워드를 날짜 범위 WHERE SQL 조건으로 변환.
 from datetime import date, timedelta
 
@@ -30,6 +31,17 @@ def _bucket_where(bucket: str):
     if mm == '00':
         return f"({h} = {hh} AND {m} < 30)", []
     return f"({h} = {hh} AND {m} >= 30)", []
+
+
+def _buckets_where(buckets: list):
+    if len(buckets) == 1:
+        return _bucket_where(buckets[0])
+    conditions, params = [], []
+    for b in buckets:
+        cond, p = _bucket_where(b)
+        conditions.append(f"({cond})")
+        params.extend(p)
+    return "(" + " OR ".join(conditions) + ")", params
 
 
 def _period_where(target_date: str, period: str):
