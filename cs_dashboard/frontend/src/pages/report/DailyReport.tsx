@@ -312,7 +312,7 @@ function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boo
         ) : aiLoading ? (
           <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
         ) : (
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>(AI 요약 없음)</div>
+          <div style={{ fontSize: 12, color: '#94a3b8' }}>AI 분석 없음</div>
         )}
       </div>
 
@@ -332,7 +332,7 @@ function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boo
                 ? m.text.split('\n').map((line, li) => (
                     <Fragment key={li}>{li > 0 && <br />}{line}</Fragment>
                   ))
-                : <span style={{ color: '#94a3b8' }}>(메모 없음)</span>
+                : <span style={{ color: '#94a3b8' }}>메모 없음</span>
               }
             </div>
           ))}
@@ -571,7 +571,7 @@ export default function DailyReport() {
       {/* 로딩 */}
       {loading && (
         <div className="section-card">
-          <div className="loading">불러오는 중...</div>
+          <div className="loading">조회 중...</div>
         </div>
       )}
 
@@ -676,7 +676,7 @@ export default function DailyReport() {
             {!report.peak_bucket ? (
               aiGenerating
                 ? <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
-                : <div style={{ fontSize: 13, color: '#94a3b8' }}>피크타임 데이터가 없습니다.</div>
+                : <div style={{ fontSize: 13, color: '#94a3b8' }}>데이터 없음</div>
             ) : (
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>

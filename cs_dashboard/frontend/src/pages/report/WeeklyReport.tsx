@@ -53,9 +53,11 @@ const PALETTE = [
   '#ec4899', '#06b6d4', '#f97316', '#64748b',
 ]
 
-// category_breakdown (내림차순 정렬 기준)에서 카테고리 위치를 찾아 팔레트 색 반환
-function getCatColor(main: string, breakdown: { main: string }[]): string {
-  const idx = breakdown.findIndex(c => c.main === main)
+// category_breakdown을 count 내림차순 정렬한 뒤 인덱스를 찾아 팔레트 색 반환
+// — 도넛 차트도 동일한 정렬 기준을 사용하므로 두 차트의 색이 일치한다
+function getCatColor(main: string, breakdown: { main: string; count: number }[]): string {
+  const sorted = [...breakdown].sort((a, b) => b.count - a.count)
+  const idx = sorted.findIndex(c => c.main === main)
   return PALETTE[idx >= 0 ? idx % PALETTE.length : PALETTE.length - 1]
 }
 
@@ -561,7 +563,7 @@ export default function WeeklyReport() {
       {/* 로딩 */}
       {loading && (
         <div className="section-card">
-          <div className="loading">불러오는 중...</div>
+          <div className="loading">조회 중...</div>
         </div>
       )}
 
@@ -780,7 +782,7 @@ export default function WeeklyReport() {
                         : <p style={{ margin: '0 0 8px', fontSize: 13 }}>
                             {aiGenerating
                               ? <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</span>
-                              : <span style={{ color: '#94a3b8' }}>(분석 없음)</span>
+                              : <span style={{ color: '#94a3b8' }}>분석 없음</span>
                             }
                           </p>
                       }
@@ -798,7 +800,7 @@ export default function WeeklyReport() {
                       {ms?.open && (
                         <div style={{ marginTop: 10 }}>
                           {ms.loading
-                            ? <div style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0' }}>불러오는 중...</div>
+                            ? <div style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0' }}>조회 중...</div>
                             : ms.data && ms.data.memos.length > 0
                               ? <>
                                   {ms.data.memos.map((m, mi) => (
@@ -865,7 +867,7 @@ export default function WeeklyReport() {
               )
               : aiGenerating
                 ? <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
-                : <div style={{ fontSize: 13, color: '#94a3b8' }}>(분석 없음)</div>
+                : <div style={{ fontSize: 13, color: '#94a3b8' }}>분석 없음</div>
             }
           </div>
 

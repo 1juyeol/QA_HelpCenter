@@ -48,7 +48,7 @@ export default function ServiceQualityIndex() {
       </div>
 
       {loading ? (
-        <div className="loading">불러오는 중...</div>
+        <div className="loading">조회 중...</div>
       ) : !points.length || baseline == null || !latest ? (
         <div className="empty">데이터 없음</div>
       ) : (

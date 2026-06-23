@@ -81,6 +81,22 @@ function segmentLabel(seg: Segment, filter: { start: string; end: string }): str
   return `월 필터: ${seg.month}`
 }
 
+function highlight(text: string | number | null | undefined, q: string): React.ReactNode {
+  const t = text != null ? String(text) : ''
+  if (!q || !t) return t
+  const parts: React.ReactNode[] = []
+  const lower = t.toLowerCase(), lq = q.toLowerCase()
+  let last = 0, i = lower.indexOf(lq, last)
+  while (i !== -1) {
+    if (i > last) parts.push(t.slice(last, i))
+    parts.push(<mark key={i} style={{ background: '#fef08a', color: 'inherit', borderRadius: 2, padding: '0 1px' }}>{t.slice(i, i + q.length)}</mark>)
+    last = i + q.length
+    i = lower.indexOf(lq, last)
+  }
+  if (last < t.length) parts.push(t.slice(last))
+  return <>{parts}</>
+}
+
 // ── Component ────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -93,6 +109,8 @@ export default function Dashboard() {
   const [endDate, setEndDate] = useState(today)
   const [segment, setSegment] = useState<Segment | null>(null)
   const [selectedBuckets, setSelectedBuckets] = useState<string[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [activeQuery, setActiveQuery] = useState('')
 
   const [kpiCards, setKpiCards] = useState<KpiCard[]>([])
   const [chartTitle, setChartTitle] = useState('시간대별 상담 건수')
@@ -128,7 +146,7 @@ export default function Dashboard() {
         : [...selectedBuckets, bucket]
       setSelectedBuckets(next)
       clearMemoState()
-      doLoadCategory(period, startDate, endDate, null, next).catch(console.error)
+      doLoadCategory(period, startDate, endDate, null, next, activeQuery).catch(console.error)
       return
     }
     let seg: Segment
@@ -139,7 +157,7 @@ export default function Dashboard() {
     }
     setSegment(seg)
     clearMemoState()
-    doLoadCategory(period, startDate, endDate, seg).catch(console.error)
+    doLoadCategory(period, startDate, endDate, seg, [], activeQuery).catch(console.error)
   }
 
   useEffect(() => { periodRef.current = period }, [period])
@@ -331,21 +349,18 @@ export default function Dashboard() {
       const labels = rows.map(r => r.week_start.slice(5) + ' ~')
       const data = rows.map(r => r.count)
 
-      const movingAvg = data.map((_, i) => {
-        const w = data.slice(Math.max(0, i - 3), i + 1)
-        return Math.round(w.reduce((s, v) => s + v, 0) / w.length)
-      })
+      const avg4 = data.length > 0 ? Math.round(data.reduce((s, v) => s + v, 0) / data.length) : 0
+      const avgLine4 = data.map(() => avg4)
 
       const lastIdx = data.length - 1
       buildChart(labels, data, p, `주별 상담 건수 (${d} 기준 4주)`, {
-        avgData: movingAvg,
-        avgLabel: '4주 이동평균',
+        avgData: avgLine4,
+        avgLabel: '기간 평균',
         highlightIdx: lastIdx >= 0 ? lastIdx : undefined,
       })
 
       const latest = data[lastIdx] ?? 0
       const prev = lastIdx > 0 ? data[lastIdx - 1] : null
-      const avg4 = data.length > 0 ? Math.round(data.reduce((s, v) => s + v, 0) / data.length) : 0
 
       const prevCard: KpiCard = prev != null
         ? (() => {
@@ -367,21 +382,18 @@ export default function Dashboard() {
       const labels = rows.map(r => r.month.slice(5) + '월')
       const data = rows.map(r => r.count)
 
-      const movingAvg = data.map((_, i) => {
-        const w = data.slice(Math.max(0, i - 2), i + 1)
-        return Math.round(w.reduce((s, v) => s + v, 0) / w.length)
-      })
+      const avgMo = data.length > 0 ? Math.round(data.reduce((s, v) => s + v, 0) / data.length) : 0
+      const avgLineMo = data.map(() => avgMo)
 
       const lastIdx = data.length - 1
       buildChart(labels, data, p, `월별 상담 건수 (${mo} 기준)`, {
-        avgData: movingAvg,
-        avgLabel: '3개월 이동평균',
+        avgData: avgLineMo,
+        avgLabel: '기간 평균',
         highlightIdx: lastIdx >= 0 ? lastIdx : undefined,
       })
 
       const latest = data[lastIdx] ?? 0
       const prev = lastIdx > 0 ? data[lastIdx - 1] : null
-      const avg = data.length > 0 ? Math.round(data.reduce((s, v) => s + v, 0) / data.length) : 0
 
       const prevCard: KpiCard = prev != null
         ? (() => {
@@ -394,16 +406,16 @@ export default function Dashboard() {
       setKpiCards([
         { label: '이번 달 상담', value: `${latest.toLocaleString()}건`, sub: rows[lastIdx]?.month ?? mo, color: 'blue' },
         prevCard,
-        { label: '기간 평균', value: `${avg.toLocaleString()}건`, sub: `최근 ${data.length}개월 기준`, color: 'neutral' },
+        { label: '기간 평균', value: `${avgMo.toLocaleString()}건`, sub: `최근 ${data.length}개월 기준`, color: 'neutral' },
       ])
     }
   }
 
-  async function doLoadCategory(p: Period, sd: string, ed: string, seg: Segment | null, buckets: string[] = []) {
+  async function doLoadCategory(p: Period, sd: string, ed: string, seg: Segment | null, buckets: string[] = [], q = '') {
     setCatLoading(true)
     try {
       const { start, end } = getActiveFilter(p, sd, ed, seg)
-      const rows = await api.fetchCategory({ startDate: start, endDate: end, buckets: buckets.length ? buckets : undefined })
+      const rows = await api.fetchCategory({ startDate: start, endDate: end, buckets: buckets.length ? buckets : undefined, q: q || undefined })
       if (!rows.length) { setCatEmpty(true); setSorted([]); return }
       setCatEmpty(false)
       const grouped: Record<string, CatGroup> = {}
@@ -432,6 +444,7 @@ export default function Dashboard() {
       const result = await api.fetchIssues({
         startDate: start, endDate: end,
         buckets: period === 'hourly_range' && selectedBuckets.length ? selectedBuckets : undefined,
+        q: activeQuery || undefined,
         ...(isUnclassified ? { unclassified: true } : { categoryMain: main, categorySub: sub }),
         limit: PAGE_SIZE, offset: page * PAGE_SIZE,
       })
@@ -455,7 +468,7 @@ export default function Dashboard() {
     clearMemoState()
     Promise.all([
       doLoadChart(period, date, month, startDate, endDate),
-      doLoadCategory(period, startDate, endDate, null, []),
+      doLoadCategory(period, startDate, endDate, null, [], activeQuery),
     ]).catch(console.error)
   }, [period, date, month, startDate, endDate, reloadCount])
 
@@ -516,7 +529,20 @@ export default function Dashboard() {
     setSegment(null)
     setSelectedBuckets([])
     clearMemoState()
-    doLoadCategory(period, startDate, endDate, null, []).catch(console.error)
+    doLoadCategory(period, startDate, endDate, null, [], activeQuery).catch(console.error)
+  }
+
+  function applySearch(q: string) {
+    setActiveQuery(q)
+    clearMemoState()
+    doLoadCategory(period, startDate, endDate, segment, selectedBuckets, q).catch(console.error)
+  }
+
+  function clearSearch() {
+    setSearchQuery('')
+    setActiveQuery('')
+    clearMemoState()
+    doLoadCategory(period, startDate, endDate, segment, selectedBuckets, '').catch(console.error)
   }
 
   // ── Derived ──────────────────────────────────────────────────
@@ -580,39 +606,67 @@ export default function Dashboard() {
       {/* Category + Memos */}
       <div className="section-card">
         <h2>카테고리별 건수</h2>
-        {period === 'hourly_range' && selectedBuckets.length > 0 && (
-          <div style={{ display: 'flex', marginBottom: 12, padding: '6px 12px', background: '#eff6ff', borderRadius: 6, fontSize: 12, color: '#1a56db', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 600, marginRight: 2 }}>시간대 필터</span>
-            {selectedBuckets.map(b => (
-              <span key={b} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#dbeafe', borderRadius: 999, padding: '2px 10px', fontWeight: 500 }}>
+        {/* Search bar — full width */}
+        <form onSubmit={e => { e.preventDefault(); applySearch(searchQuery.trim()) }}
+          style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none', fontSize: 13 }}>🔍</span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="학부모번호 · 학생번호 · 메모 내용으로 검색"
+              style={{ width: '100%', padding: '9px 32px 9px 32px', border: `1px solid ${activeQuery ? '#3b82f6' : '#e2e8f0'}`, borderRadius: 8, fontSize: 13, color: '#374151', outline: 'none', boxSizing: 'border-box' }}
+            />
+            {searchQuery && (
+              <button type="button" onClick={clearSearch}
+                style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
+            )}
+          </div>
+          <button type="submit"
+            style={{ padding: '9px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>검색</button>
+        </form>
+
+        {/* Unified active filter chips — search + time slot in one row */}
+        {(activeQuery || (period === 'hourly_range' && selectedBuckets.length > 0) || (period !== 'hourly_range' && segment)) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, padding: '6px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, flexWrap: 'wrap' }}>
+            <span style={{ color: '#94a3b8', fontWeight: 600, fontSize: 11, marginRight: 2 }}>적용된 필터</span>
+            {activeQuery && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#fef9c3', color: '#854d0e', borderRadius: 999, padding: '2px 10px', fontWeight: 500 }}>
+                "{activeQuery}"
+                <button onClick={clearSearch} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#854d0e', fontSize: 14, lineHeight: 1, padding: 0, marginLeft: 1 }}>×</button>
+              </span>
+            )}
+            {period === 'hourly_range' && selectedBuckets.map(b => (
+              <span key={b} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#dbeafe', color: '#1a56db', borderRadius: 999, padding: '2px 10px', fontWeight: 500 }}>
                 {bucketRangeLabel(b)}
                 <button
                   onClick={() => {
                     const next = selectedBuckets.filter(x => x !== b)
                     setSelectedBuckets(next)
                     clearMemoState()
-                    doLoadCategory(period, startDate, endDate, null, next).catch(console.error)
+                    doLoadCategory(period, startDate, endDate, null, next, activeQuery).catch(console.error)
                   }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1a56db', fontSize: 14, lineHeight: 1, padding: 0, marginLeft: 2 }}
-                >×</button>
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1a56db', fontSize: 14, lineHeight: 1, padding: 0, marginLeft: 1 }}>×</button>
               </span>
             ))}
-            <button onClick={clearFilter} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 11, marginLeft: 'auto' }}>전체 해제</button>
-          </div>
-        )}
-        {period !== 'hourly_range' && segment && (
-          <div id="cat-filter-indicator" style={{ display: 'flex', marginBottom: 12, padding: '6px 12px', background: '#eff6ff', borderRadius: 6, fontSize: 12, color: '#1a56db', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>{segLabel}</span>
-            <button onClick={clearFilter} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1a56db', fontSize: 16, lineHeight: '1', padding: '0 0 0 8px' }}>×</button>
+            {period !== 'hourly_range' && segment && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#dbeafe', color: '#1a56db', borderRadius: 999, padding: '2px 10px', fontWeight: 500 }}>
+                {segLabel}
+                <button onClick={clearFilter} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1a56db', fontSize: 14, lineHeight: 1, padding: 0, marginLeft: 1 }}>×</button>
+              </span>
+            )}
+            <button onClick={() => { clearSearch(); clearFilter() }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 11, marginLeft: 'auto' }}>전체 해제</button>
           </div>
         )}
 
         <div className="cat-layout">
-          {/* Category tree */}
-          <div className="cat-tree">
-            {catLoading ? (
-              <div className="loading">불러오는 중...</div>
-            ) : catEmpty ? (
+          {/* Category tree — keep stale data dimmed while reloading to prevent height jump */}
+          <div className="cat-tree" style={{ opacity: catLoading ? 0.55 : 1, transition: 'opacity 0.15s', pointerEvents: catLoading ? 'none' : 'auto' }}>
+            {catLoading && !sorted.length ? (
+              <div className="loading">조회 중...</div>
+            ) : !catLoading && catEmpty ? (
               <div className="empty">데이터 없음</div>
             ) : sorted.map(([main, g]) => (
               <div key={main || '__null__'}>
@@ -643,7 +697,7 @@ export default function Dashboard() {
             {!memoSubKey ? (
               <div className="memo-placeholder">소분류를 선택하면 상담 메모가 표시됩니다</div>
             ) : memoLoading ? (
-              <div className="loading">불러오는 중...</div>
+              <div className="loading">조회 중...</div>
             ) : (
               <>
                 <div className="memo-header">
@@ -670,17 +724,17 @@ export default function Dashboard() {
                           <tr key={r.id}>
                             <td style={{ fontSize: 12 }}>
                               {r.student_id
-                                ? <a href={adminStudentUrl(r.student_id)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{r.student_id}</a>
+                                ? <a href={adminStudentUrl(r.student_id)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{activeQuery ? highlight(r.student_id, activeQuery) : r.student_id}</a>
                                 : <span style={{ color: '#64748b' }}>—</span>}
                             </td>
                             <td style={{ fontSize: 12 }}>
                               {r.parent_id
-                                ? <a href={adminParentUrl(r.parent_id!)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{r.parent_id}</a>
+                                ? <a href={adminParentUrl(r.parent_id!)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{activeQuery ? highlight(r.parent_id, activeQuery) : r.parent_id}</a>
                                 : <span style={{ color: '#94a3b8' }}>비회원</span>}
                             </td>
                             <td style={{ color: '#374151', fontSize: 13 }}>
                               {r.call_memo
-                                ? r.call_memo.split('\n').map((line, i) => <span key={i}>{i > 0 && <br />}{line}</span>)
+                                ? r.call_memo.split('\n').map((line, i) => <span key={i}>{i > 0 && <br />}{activeQuery ? highlight(line, activeQuery) : line}</span>)
                                 : <span style={{ color: '#cbd5e1' }}>없음</span>}
                             </td>
                             <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 12 }}>{r.created_date ? r.created_date.slice(0, 16) : '—'}</td>

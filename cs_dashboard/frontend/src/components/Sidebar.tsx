@@ -60,7 +60,7 @@ export default function Sidebar() {
         onClick={() => setInsightsOpen(o => !o)}
       >
         <span className="nav-icon">💡</span> 인사이트
-        <span className="nav-arrow">&#9658;</span>
+        <span className="nav-arrow" />
       </div>
 
       <div className={`nav-sub${insightsOpen ? ' open' : ''}`}>

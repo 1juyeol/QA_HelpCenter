@@ -211,7 +211,7 @@ function KeywordDetailPanel({
         <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>건수는 해당 날짜 기준 그 주 월요일부터의 누적입니다</span>
       </div>
       {dateLoading ? (
-        <div className="loading">불러오는 중...</div>
+        <div className="loading">조회 중...</div>
       ) : !dateRows.length ? (
         <div className="empty">탐지 이력 없음</div>
       ) : (
@@ -243,7 +243,7 @@ function KeywordDetailPanel({
               {expandedDate === r.date && (
                 <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 8px 8px', padding: '8px 12px' }}>
                   {memoLoadingDate === r.date ? (
-                    <div style={{ fontSize: 13, color: '#94a3b8', padding: '8px 0' }}>불러오는 중...</div>
+                    <div style={{ fontSize: 13, color: '#94a3b8', padding: '8px 0' }}>조회 중...</div>
                   ) : !memoMap[r.date]?.length ? (
                     <div style={{ fontSize: 13, color: '#94a3b8', padding: '8px 0' }}>메모 없음</div>
                   ) : (
@@ -440,7 +440,7 @@ export default function KeywordTrend() {
               최근 7일 내 탐지 조건을 2일 이상 충족한 키워드입니다. 반복 탐지된 표현으로, 원문 메모 확인이 필요할 수 있습니다. (지속 탐지는 실제 장애가 지속된다는 의미가 아니라, 탐지 조건이 여러 날 충족되었음을 뜻합니다.)
             </p>
             {historyLoading ? (
-              <div className="loading">불러오는 중...</div>
+              <div className="loading">조회 중...</div>
             ) : !persistentRows.length ? (
               <div className="empty">최근 7일 내 지속 탐지된 키워드 없음</div>
             ) : (
@@ -460,7 +460,7 @@ export default function KeywordTrend() {
         {activeTab === 'history' && (
           <>
             {historyLoading ? (
-              <div className="loading">불러오는 중...</div>
+              <div className="loading">조회 중...</div>
             ) : !historyRows.length ? (
               <div className="empty">탐지 이력 없음 (스케줄러 실행 후 이력이 쌓입니다)</div>
             ) : (

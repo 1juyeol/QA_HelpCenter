@@ -179,7 +179,7 @@ export default function JiraBugs() {
 
         <div className="insight-table-wrap">
           {loading ? (
-            <div className="loading">불러오는 중...</div>
+            <div className="loading">조회 중...</div>
           ) : !bugs.length ? (
             <div className="empty">JIRA 이슈 없음 (자격증명을 확인하세요)</div>
           ) : (
@@ -248,7 +248,7 @@ export default function JiraBugs() {
                           <td colSpan={6} style={{ padding: 0 }}>
                             <div className="memo-expand-inner">
                               {memosLoading ? (
-                                <div style={{ padding: 16, color: '#94a3b8', fontSize: 13 }}>불러오는 중...</div>
+                                <div style={{ padding: 16, color: '#94a3b8', fontSize: 13 }}>조회 중...</div>
                               ) : !memos.length ? (
                                 <div style={{ padding: 16, color: '#94a3b8', fontSize: 13 }}>매칭된 CS 메모 없음</div>
                               ) : (
