@@ -252,6 +252,7 @@ export const api = {
     targetDate?: string
     period?: string
     buckets?: string[]
+    q?: string
   }) {
     const p = new URLSearchParams()
     if (params.startDate) p.set('start_date', params.startDate)
@@ -259,6 +260,7 @@ export const api = {
     if (params.targetDate) p.set('target_date', params.targetDate)
     if (params.period)    p.set('period',      params.period)
     if (params.buckets?.length) p.set('bucket', params.buckets.join(','))
+    if (params.q)         p.set('q',           params.q)
     return get<CategoryRow[]>(`/api/stats/category?${p}`)
   },
 
@@ -268,6 +270,7 @@ export const api = {
     targetDate?: string
     period?: string
     buckets?: string[]
+    q?: string
     categoryMain?: string
     categorySub?: string
     unclassified?: boolean
@@ -280,6 +283,7 @@ export const api = {
     if (params.targetDate)   p.set('target_date',    params.targetDate)
     if (params.period)       p.set('period',         params.period)
     if (params.buckets?.length) p.set('bucket',      params.buckets.join(','))
+    if (params.q)            p.set('q',              params.q)
     if (params.categoryMain) p.set('category_main',  params.categoryMain)
     if (params.categorySub)  p.set('category_sub',   params.categorySub)
     if (params.unclassified) p.set('unclassified',   '1')

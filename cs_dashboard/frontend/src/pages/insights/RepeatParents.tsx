@@ -231,7 +231,7 @@ export default function RepeatParents() {
       <div style={{ marginBottom: 20 }}>
         <h2 style={{ margin: 0, marginBottom: 4, fontSize: 18, fontWeight: 700, color: '#1e293b' }}>학부모 반복 인입</h2>
         <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>
-          위험도 순 정렬 — 긴급(동일이슈+단기재인입) · 주의(동일이슈 또는 7일내 재인입) · 관찰(그 외)
+          위험도 순 정렬 — 긴급(동일이슈 + 2일 내 재인입) · 주의(동일이슈 또는 최근 7일 내 재인입) · 관찰(그 외)
         </p>
       </div>
 
@@ -353,7 +353,7 @@ export default function RepeatParents() {
 
         <div className="insight-table-wrap">
           {loading ? (
-            <div className="loading">불러오는 중...</div>
+            <div className="loading">조회 중...</div>
           ) : !data.length ? (
             <div className="empty">해당 기간에 반복 인입 없음</div>
           ) : !rows.length ? (

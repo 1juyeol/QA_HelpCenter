@@ -22,6 +22,7 @@ def list_issues(
     limit: int = 200,
     offset: int = 0,
     bucket: str = Query(default=None),
+    q: str = Query(default=None),
 ):
     if start_date and end_date:
         col = "date(datetime(created_date, '+9 hours'))"
@@ -36,6 +37,10 @@ def list_issues(
             bw, bp = _buckets_where(buckets_list)
             where += f" AND {bw}"
             params.extend(bp)
+    if q:
+        where += " AND (call_memo LIKE ? OR student_id LIKE ? OR CAST(parent_id AS TEXT) LIKE ?)"
+        like = f"%{q}%"
+        params.extend([like, like, like])
     if unclassified:
         where += " AND new_category_main IS NULL"
     elif category_main:

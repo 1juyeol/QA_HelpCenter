@@ -246,7 +246,7 @@ export default function StrategicDashboard() {
               {weekStart} ~ {today}
             </div>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
-              {loading ? '불러오는 중...' : `업데이트 ${today}`}
+              {loading ? '조회 중...' : `업데이트 ${today}`}
             </div>
           </div>
         </div>
@@ -270,7 +270,7 @@ export default function StrategicDashboard() {
 
         {/* 비대칭 KPI */}
         {loading ? (
-          <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, padding: '12px 0' }}>불러오는 중...</div>
+          <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, padding: '12px 0' }}>조회 중...</div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1.5fr', gap: 14 }}>
 

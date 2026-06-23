@@ -164,6 +164,7 @@ canvas { max-height: 300px; }
 .cat-sub-item {
   display: flex;
   align-items: center;
+  cursor: pointer;
   gap: 8px;
   padding: 7px 10px 7px 18px;
   border-radius: 6px;
@@ -243,8 +244,18 @@ tr:last-child td { border-bottom: none; }
 }
 .nav-group-label:hover { background: #f8fafc; color: #1e293b; }
 .nav-group-label .nav-icon { font-size: 16px; width: 20px; text-align: center; }
-.nav-group-label .nav-arrow { margin-left: auto; font-size: 10px; transition: transform .15s; }
-.nav-group-label.open .nav-arrow { transform: rotate(90deg); }
+.nav-group-label .nav-arrow {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid #94a3b8;
+  border-bottom: 2px solid #94a3b8;
+  transform: rotate(-45deg);
+  transition: transform .2s, border-color .15s;
+}
+.nav-group-label:hover .nav-arrow { border-color: #475569; }
+.nav-group-label.open .nav-arrow { transform: rotate(45deg); }
 .nav-sub { display: none; }
 .nav-sub.open { display: block; }
 .nav-sub-item {

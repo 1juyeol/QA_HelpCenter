@@ -30,7 +30,7 @@ function StateBadge({ state, delayed, diffDays }: { state?: string; delayed: boo
   if (delayed) {
     return (
       <>
-        <span style={{ display: 'inline-block', background: '#fee2e2', color: '#dc2626', borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>처리 지연</span>
+        <span style={{ display: 'inline-block', background: '#fee2e2', color: '#ef4444', borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>처리 지연</span>
         <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>{diffDays}일 경과</div>
       </>
     )
@@ -181,8 +181,8 @@ export default function WingsTickets() {
 
             {/* Scatter */}
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>경과일 × 재언급 수</div>
-              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>버블 크기 = 전체 CS 건수 · 빨강 = 처리 지연 (7일+)</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>오래될수록 오른쪽 · 재언급 많을수록 위쪽 · 버블 클수록 CS 건수 많음</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 12 }}>빨강 = 접수 후 7일 이상 미해결</div>
               <div style={{ height: 240 }}>
                 <canvas ref={scatterCanvasRef} />
               </div>
@@ -192,7 +192,7 @@ export default function WingsTickets() {
 
         <div className="insight-table-wrap">
           {loading ? (
-            <div className="loading">불러오는 중...</div>
+            <div className="loading">조회 중...</div>
           ) : !rows.length ? (
             <div className="empty">해당 기간에 Wings 티켓 언급 없음</div>
           ) : (
