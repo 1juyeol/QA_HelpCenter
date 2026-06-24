@@ -5,7 +5,7 @@
  * 색상 팔레트는 Tailwind slate 계열을 기준으로 한다 (#f1f5f9, #e2e8f0, #94a3b8, #374151 등).
  */
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f1f5f9; color: #1e293b; display: flex; flex-direction: column; height: 100vh; }
+body { font-family: 'Pretendard', 'Segoe UI', system-ui, sans-serif; background: #f1f5f9; color: #1e293b; display: flex; flex-direction: column; height: 100vh; }
 
 header {
   background: linear-gradient(135deg, #1e40af 0%, #1a56db 100%);

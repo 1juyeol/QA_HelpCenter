@@ -178,9 +178,6 @@ export default function Sidebar() {
         <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.9 }}>
           <div>• 네트워크·앱 오류 (전체)</div>
           <div>• 기기·하드웨어 오류 (전체)</div>
-          <div>• 미납·결제 › 미납 관리</div>
-          <div>• 해지·유지 상담 › 해지 확정</div>
-          <div>• 해지·유지 상담 › 해지금·위약금</div>
           <div>• 교재·물류 › 기기 장기미회수</div>
           <div>• 교재·물류 › 누락·오배송</div>
         </div>
