@@ -242,11 +242,8 @@ export default function StrategicDashboard() {
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginBottom: 4 }}>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)' }}>
               {weekStart} ~ {today}
-            </div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
-              {loading ? '조회 중...' : `업데이트 ${today}`}
             </div>
           </div>
         </div>

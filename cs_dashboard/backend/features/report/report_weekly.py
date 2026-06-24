@@ -218,6 +218,29 @@ def _fetch_week_stats(week_start: str) -> dict:
         for day, _ in week_days if not is_off_day(day)
     ]
 
+    # 소분류 일별 추이: { main → [{date, sub1: N, ...}, ...] } (평일만)
+    risk_sub_day: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+    for row in cat_daily:
+        if row["sub"] and _is_risk(row["main"], row["sub"]):
+            risk_sub_day[row["main"]][row["day"]][row["sub"]] += row["cnt"]
+
+    risk_sub_stack: dict = {}
+    for main in _MAIN_ORDER:
+        if main not in risk_sub_day:
+            continue
+        all_subs: set = set()
+        for day_data in risk_sub_day[main].values():
+            all_subs.update(day_data.keys())
+        entries = []
+        for day, _ in week_days:
+            if is_off_day(day):
+                continue
+            entry: dict = {"date": day}
+            for sub in all_subs:
+                entry[sub] = risk_sub_day[main].get(day, {}).get(sub, 0)
+            entries.append(entry)
+        risk_sub_stack[main] = entries
+
     category_breakdown = [{"main": r["main"], "count": r["cnt"]} for r in cat_total]
 
     # 전주 KPI (저장된 이전 보고서에서 읽음 — 없으면 None)
@@ -262,6 +285,7 @@ def _fetch_week_stats(week_start: str) -> dict:
         "risk_stack": risk_stack,
         "peak_daily": peak_daily,
         "risk_rows": risk_rows,
+        "risk_sub_stack": risk_sub_stack,
     }
 
 
@@ -393,6 +417,7 @@ def _build_weekly_content(stats: dict, weekly_summary: str) -> dict:
         "sqi_daily": stats["sqi_daily"],
         "category_breakdown": stats["category_breakdown"],
         "risk_stack": stats["risk_stack"],
+        "risk_sub_stack": stats.get("risk_sub_stack", {}),
         "peak_daily": stats["peak_daily"],
         "risk_rows": [
             {"main": r["main"], "count": r["count"], "summary": r.get("summary", "")}
@@ -436,9 +461,9 @@ async def generate_weekly_report(week_start: str) -> dict:
 
 
 def get_weekly_risk_memos(
-    week_start: str, main: str, page: int = 1, page_size: int = 20,
+    week_start: str, main: str, page: int = 1, page_size: int = 10, sub: str = "",
 ) -> dict:
-    """주간 리스크 카테고리 메모 페이지네이션 조회. 리스크 소분류만 포함."""
+    """주간 리스크 카테고리 메모 페이지네이션 조회. 리스크 소분류만 포함. sub 지정 시 해당 소분류만."""
     d0 = date.fromisoformat(week_start)
     week_end = str(d0 + timedelta(days=6))
     kst = "datetime(created_date, '+9 hours')"
@@ -456,20 +481,23 @@ def get_weekly_risk_memos(
         sub_clause = f"AND new_category_sub IN ({placeholders})"
         sub_params = risk_subs
 
-    base = [week_start, week_end, main] + sub_params
+    extra_sub_clause = "AND new_category_sub = ?" if sub else ""
+    extra_sub_params: list = [sub] if sub else []
+
+    base = [week_start, week_end, main] + sub_params + extra_sub_params
 
     with get_conn() as conn:
         total = conn.execute(
             f"SELECT COUNT(*) FROM issues "
-            f"WHERE {col} BETWEEN ? AND ? AND new_category_main = ? {sub_clause}",
+            f"WHERE {col} BETWEEN ? AND ? AND new_category_main = ? {sub_clause} {extra_sub_clause}",
             base,
         ).fetchone()[0]
 
         rows = conn.execute(
             f"SELECT {col} AS day, new_category_sub AS sub, call_memo "
             f"FROM issues "
-            f"WHERE {col} BETWEEN ? AND ? AND new_category_main = ? {sub_clause} "
-            f"ORDER BY created_date LIMIT ? OFFSET ?",
+            f"WHERE {col} BETWEEN ? AND ? AND new_category_main = ? {sub_clause} {extra_sub_clause} "
+            f"ORDER BY created_date DESC LIMIT ? OFFSET ?",
             base + [page_size, offset],
         ).fetchall()
 

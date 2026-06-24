@@ -156,13 +156,15 @@ function CategoryTestPanel({
 
 // ── KPI 카드 ──────────────────────────────────────────────────────────────────
 
-function DeltaBadge({ delta, unit, invert }: { delta: number | null | undefined; unit: string; invert?: boolean }) {
+function DeltaBadge({ delta, unit, invert, neutral }: { delta: number | null | undefined; unit: string; invert?: boolean; neutral?: boolean }) {
   if (delta == null) return null
   if (delta === 0) return <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 5 }}>전일 동일</div>
   const isPositive = delta > 0
-  const color = invert
-    ? (isPositive ? '#ef4444' : '#16a34a')
-    : (isPositive ? '#3b82f6' : '#f59e0b')
+  const color = neutral
+    ? '#64748b'
+    : invert
+      ? (isPositive ? '#ef4444' : '#16a34a')
+      : (isPositive ? '#3b82f6' : '#f59e0b')
   const arrow = isPositive ? '↑' : '↓'
   return (
     <div style={{ fontSize: 13, color, fontWeight: 600, marginTop: 5 }}>
@@ -173,10 +175,10 @@ function DeltaBadge({ delta, unit, invert }: { delta: number | null | undefined;
 }
 
 function KpiCard({
-  label, value, unit, color, delta, deltaUnit, deltaInvert, isSecondary,
+  label, value, unit, color, delta, deltaUnit, deltaInvert, deltaNeutral, isSecondary,
 }: {
   label: string; value: string; unit: string; color: string
-  delta?: number | null; deltaUnit?: string; deltaInvert?: boolean; isSecondary?: boolean
+  delta?: number | null; deltaUnit?: string; deltaInvert?: boolean; deltaNeutral?: boolean; isSecondary?: boolean
 }) {
   return (
     <div style={{
@@ -195,7 +197,7 @@ function KpiCard({
         <span style={{ fontSize: isSecondary ? 36 : 48, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
         <span style={{ fontSize: isSecondary ? 17 : 22, color: '#64748b', fontWeight: 600 }}>{unit}</span>
       </div>
-      <DeltaBadge delta={delta} unit={deltaUnit ?? ''} invert={deltaInvert} />
+      <DeltaBadge delta={delta} unit={deltaUnit ?? ''} invert={deltaInvert} neutral={deltaNeutral} />
     </div>
   )
 }
@@ -302,7 +304,7 @@ function RiskBarChart({ rows }: { rows: RiskRow[] }) {
 
 // ── 리스크 행 ─────────────────────────────────────────────────────────────────
 
-const MEMOS_PER_PAGE = 20
+const MEMOS_PER_PAGE = 10
 
 function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boolean }) {
   return (
@@ -421,6 +423,7 @@ export default function DailyReport() {
   const [generating, setGenerating] = useState(false)
   const [aiGenerating, setAiGenerating] = useState(false)
   const [notFound, setNotFound] = useState(false)
+  const [aiPanelOpen, setAiPanelOpen] = useState(false)
 
   useEffect(() => {
     setSearchParams({ date }, { replace: true })
@@ -576,16 +579,21 @@ export default function DailyReport() {
             <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.5px', marginBottom: 6 }}>
               일별 CS 보고서
             </div>
-            <div style={{ fontSize: 15, opacity: 0.8 }}>
-              {report.report_date}
+            <div style={{ fontSize: 15, opacity: 0.85 }}>
+              보고서 기준일 {report.report_date}
             </div>
+            {report.generated_at && (
+              <div style={{ fontSize: 12, opacity: 0.55, marginTop: 4 }}>
+                스냅샷 생성 {report.generated_at.slice(0, 16).replace('T', ' ')}
+              </div>
+            )}
           </div>
 
           {/* KPI 카드 3개 */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.35fr 1.35fr', gap: 14, marginBottom: 16 }}>
             <KpiCard
               label="총 상담" value={report.total_count.toLocaleString()} unit="건" color={NAVY}
-              delta={totalDelta} deltaUnit="건" isSecondary
+              delta={totalDelta} deltaUnit="건" deltaNeutral isSecondary
             />
             <KpiCard
               label="리스크 이슈" value={report.risk_total.toLocaleString()} unit="건" color={RISK_RED}
@@ -593,7 +601,7 @@ export default function DailyReport() {
             />
             <KpiCard
               label="리스크 비율" value={riskPct} unit="%" color="#f59e0b"
-              delta={riskPctDelta} deltaUnit="%" deltaInvert
+              delta={riskPctDelta} deltaUnit="%p" deltaInvert
             />
           </div>
 
@@ -656,7 +664,7 @@ export default function DailyReport() {
                     {report.peak_bucket.bucket_count}건
                   </span>
                   <span style={{ fontSize: 13, color: '#64748b' }}>
-                    집중 (피크타임 평균 {report.peak_bucket.avg_count}건)
+                    집중 (당일 피크타임 30분 구간 평균 {report.peak_bucket.avg_count}건)
                   </span>
                   {report.peak_bucket.pattern && (
                     <span style={{
@@ -679,18 +687,34 @@ export default function DailyReport() {
             )}
           </div>
 
-          <CategoryTestPanel
-            date={date}
-            onCategoryResult={(main, summary) => {
-              setReport(prev => prev ? {
-                ...prev,
-                risk_rows: prev.risk_rows.map(r => r.main === main ? { ...r, summary } : r),
-              } : prev)
-            }}
-            onPeakResult={(peak) => {
-              setReport(prev => prev ? { ...prev, peak_bucket: peak } : prev)
-            }}
-          />
+          <div style={{ marginTop: 8 }}>
+            <button
+              onClick={() => setAiPanelOpen(v => !v)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: 'none', border: '1px solid #e2e8f0', borderRadius: 8,
+                padding: '6px 14px', fontSize: 12, color: '#64748b',
+                cursor: 'pointer', marginBottom: aiPanelOpen ? 8 : 0,
+              }}
+            >
+              <span>AI 분석 설정</span>
+              <span>{aiPanelOpen ? '▴' : '▾'}</span>
+            </button>
+            {aiPanelOpen && (
+              <CategoryTestPanel
+                date={date}
+                onCategoryResult={(main, summary) => {
+                  setReport(prev => prev ? {
+                    ...prev,
+                    risk_rows: prev.risk_rows.map(r => r.main === main ? { ...r, summary } : r),
+                  } : prev)
+                }}
+                onPeakResult={(peak) => {
+                  setReport(prev => prev ? { ...prev, peak_bucket: peak } : prev)
+                }}
+              />
+            )}
+          </div>
 
         </>
       )}
