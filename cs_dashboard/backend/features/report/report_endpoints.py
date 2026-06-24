@@ -86,5 +86,6 @@ def get_weekly_memos_endpoint(
     week_start: str = Query(..., description="YYYY-MM-DD (월요일)"),
     main: str = Query(..., description="대분류 이름"),
     page: int = Query(1, ge=1),
+    sub: str = Query("", description="소분류 필터 (빈 문자열이면 전체)"),
 ):
-    return get_weekly_risk_memos(week_start, main, page)
+    return get_weekly_risk_memos(week_start, main, page, sub=sub)

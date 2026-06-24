@@ -2,7 +2,6 @@
 // URL 경로에 따라 Dashboard / WingsTickets / RepeatParents / JiraBugs / KeywordTrend / 보고서 페이지를 교체한다 (정책 7).
 // 마지막 수집 시각 표시를 위해 /api/collection/latest를 60초 간격으로 폴링하는 것만 여기서 담당하며,
 // 그 외 기능 로직은 모두 각 페이지 컴포넌트 안에 있다.
-import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
 import StrategicDashboard from './pages/dashboard/StrategicDashboard'
@@ -15,7 +14,6 @@ import JiraBugs from './pages/insights/JiraBugs'
 import KeywordTrend from './pages/insights/KeywordTrend'
 import DailyReport from './pages/report/DailyReport'
 import WeeklyReport from './pages/report/WeeklyReport'
-import { api } from './api/client'
 
 function headerDate() {
   const d = new Date()
@@ -24,22 +22,6 @@ function headerDate() {
 }
 
 export default function App() {
-  const [lastCollected, setLastCollected] = useState('마지막 수집: —')
-
-  useEffect(() => {
-    const load = () => {
-      api.fetchLatestCollection()
-        .then(r => {
-          if (r?.collected_at) {
-            setLastCollected(`마지막 수집: ${r.collected_at.slice(0, 16).replace('T', ' ')}`)
-          }
-        })
-        .catch(() => {})
-    }
-    load()
-    const t = setInterval(load, 60_000)
-    return () => clearInterval(t)
-  }, [])
 
   return (
     <BrowserRouter>
@@ -50,7 +32,6 @@ export default function App() {
           </Link>
           <p>{headerDate()}</p>
         </div>
-        <span id="last-collected">{lastCollected}</span>
       </header>
       <div className="layout">
         <Sidebar />

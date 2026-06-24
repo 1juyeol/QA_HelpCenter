@@ -32,34 +32,22 @@ const RISK_RED = '#ef4444'
 const RISK_MAINS = [
   '네트워크·앱 오류',
   '기기·하드웨어 오류',
-  '미납·결제',
-  '해지·유지 상담',
   '교재·물류·배송',
 ]
 
-// 스택 바 범례에 어떤 소분류만 집계됐는지 표시
-// 보고서 수신자 눈높이 범례 — 대분류/소분류 용어 대신 실제 내용으로 표기
+// 선 차트 범례 표기 — 대분류 명칭 그대로 사용
 const RISK_DISPLAY_LABEL: Record<string, string> = {
-  '네트워크·앱 오류':   '네트워크·앱 오류',
-  '기기·하드웨어 오류':  '기기·하드웨어 오류',
-  '미납·결제':        '미납 관리',
-  '해지·유지 상담':    '해지 확정 · 해지금·위약금 문의',
-  '교재·물류·배송':    '기기 장기미회수 · 누락·오배송',
+  '네트워크·앱 오류':  '네트워크·앱 오류',
+  '기기·하드웨어 오류': '기기·하드웨어 오류',
+  '교재·물류·배송':   '교재·물류·배송',
 }
 
 // 카테고리 공유 팔레트 — 도넛과 리스크 스택 바가 같은 색 사용
 const PALETTE = [
   '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6',
-  '#ec4899', '#06b6d4', '#f97316', '#64748b',
+  '#ec4899', '#ef4444', '#84cc16', '#64748b',
 ]
 
-// category_breakdown을 count 내림차순 정렬한 뒤 인덱스를 찾아 팔레트 색 반환
-// — 도넛 차트도 동일한 정렬 기준을 사용하므로 두 차트의 색이 일치한다
-function getCatColor(main: string, breakdown: { main: string; count: number }[]): string {
-  const sorted = [...breakdown].sort((a, b) => b.count - a.count)
-  const idx = sorted.findIndex(c => c.main === main)
-  return PALETTE[idx >= 0 ? idx % PALETTE.length : PALETTE.length - 1]
-}
 
 const DAYS_KO = ['월', '화', '수', '목', '금', '토', '일']
 
@@ -109,18 +97,67 @@ function addDays(dateStr: string, days: number): string {
 
 function DeltaBadge({ delta, unit, invert }: { delta: number | null | undefined; unit: string; invert?: boolean }) {
   if (delta == null) return null
-  if (delta === 0) return <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 5 }}>전주 동일</div>
+  if (delta === 0) return <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 5 }}>전주 동일</div>
   const isPositive = delta > 0
   const color = invert
     ? (isPositive ? '#ef4444' : '#16a34a')
     : (isPositive ? '#3b82f6' : '#f59e0b')
   const arrow = isPositive ? '↑' : '↓'
   return (
-    <div style={{ fontSize: 11, color, fontWeight: 600, marginTop: 5 }}>
+    <div style={{ fontSize: 13, color, fontWeight: 600, marginTop: 5 }}>
       {arrow} {isPositive ? '+' : ''}{delta}{unit}
       <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: 4 }}>전주 대비</span>
     </div>
   )
+}
+
+const SUB_RANK_COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#ec4899', '#64748b', '#0d9488']
+
+function SubLineChart({ data }: { data: Array<{ date: string } & Record<string, number>> }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const chartRef = useRef<Chart | null>(null)
+
+  useEffect(() => {
+    if (!canvasRef.current || data.length === 0) return
+    chartRef.current?.destroy()
+    const subs = Object.keys(data[0])
+      .filter(k => k !== 'date')
+      .sort((a, b) => {
+        const sumA = data.reduce((s, d) => s + ((d[a] as number) ?? 0), 0)
+        const sumB = data.reduce((s, d) => s + ((d[b] as number) ?? 0), 0)
+        return sumB - sumA
+      })
+    chartRef.current = new Chart(canvasRef.current, {
+      type: 'line',
+      data: {
+        labels: data.map(d => fmtDate(d.date)),
+        datasets: subs.map((sub, i) => ({
+          label: sub,
+          data: data.map(d => (d[sub] as number) ?? 0),
+          borderColor: SUB_RANK_COLORS[i % SUB_RANK_COLORS.length],
+          backgroundColor: 'transparent',
+          tension: 0.3,
+          pointRadius: 3,
+          pointHoverRadius: 5,
+          borderWidth: 3,
+        })),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'top', labels: { boxWidth: 10, font: { size: 12 }, padding: 14 } },
+        },
+        scales: {
+          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 } } },
+          x: { grid: { display: false }, ticks: { font: { size: 12 } } },
+        },
+      },
+    })
+    return () => { chartRef.current?.destroy() }
+  }, [data])
+
+  return <canvas ref={canvasRef} />
 }
 
 function KpiCard({
@@ -143,8 +180,8 @@ function KpiCard({
         {label}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-        <span style={{ fontSize: isSecondary ? 30 : 40, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
-        <span style={{ fontSize: isSecondary ? 14 : 18, color: '#64748b', fontWeight: 600 }}>{unit}</span>
+        <span style={{ fontSize: isSecondary ? 42 : 54, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
+        <span style={{ fontSize: isSecondary ? 19 : 24, color: '#64748b', fontWeight: 600 }}>{unit}</span>
       </div>
       {sub && <div style={{ fontSize: 12, color: '#64748b', marginTop: 5, fontWeight: 500 }}>{sub}</div>}
       <DeltaBadge delta={delta} unit={deltaUnit ?? ''} invert={deltaInvert} />
@@ -152,44 +189,73 @@ function KpiCard({
   )
 }
 
-// ── 일별 건수 바 (HTML) ────────────────────────────────────────────────────────
+// ── 일별 건수 바 (Chart.js) ───────────────────────────────────────────────────
 
 function DailyBar({ dailyCounts }: { dailyCounts: WeeklyDayCount[] }) {
-  const weekdays = dailyCounts.filter(d => !d.is_weekend)
-  const max = Math.max(...weekdays.map(d => d.count), 1)
-  const BAR_MAX_H = 144
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const chartRef = useRef<Chart | null>(null)
 
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: BAR_MAX_H + 48 }}>
-        {dailyCounts.map((d) => {
-          if (d.is_weekend) {
-            return (
-              <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}>
-                <div style={{ height: BAR_MAX_H }} />
-                <div style={{ fontSize: 11, color: '#cbd5e1', fontWeight: 400, marginTop: 3 }}>
-                  {fmtDate(d.date)}
-                </div>
-              </div>
-            )
-          }
-          const h = Math.max(Math.round((d.count / max) * BAR_MAX_H), d.count > 0 ? 3 : 0)
-          return (
-            <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}>
-              <span style={{ fontSize: 12, color: '#3b82f6', fontWeight: 700, marginBottom: 2 }}>{d.count}</span>
-              <div style={{
-                width: '100%', height: h, borderRadius: '3px 3px 0 0',
-                background: 'linear-gradient(180deg, #60a5fa, #3b82f6)',
-              }} />
-              <div style={{ fontSize: 12, color: '#475569', fontWeight: 500, marginTop: 3 }}>
-                {fmtDate(d.date)}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
+  useEffect(() => {
+    if (!canvasRef.current || dailyCounts.length === 0) return
+    chartRef.current?.destroy()
+
+    const maxCount = Math.max(...dailyCounts.filter(d => !d.is_weekend).map(d => d.count), 1)
+    const bgColors = dailyCounts.map(d => {
+      if (d.is_weekend) return '#e2e8f0'
+      return d.count === maxCount ? '#ef4444' : '#3b82f6'
+    })
+
+    const datalabels = {
+      id: 'datalabels',
+      afterDatasetsDraw(chart: Chart) {
+        const { ctx } = chart
+        chart.data.datasets.forEach((_ds, di) => {
+          chart.getDatasetMeta(di).data.forEach((bar, idx) => {
+            const val = (chart.data.datasets[di].data[idx] as number)
+            if (!val) return
+            ctx.save()
+            ctx.font = 'bold 11px Pretendard, sans-serif'
+            ctx.fillStyle = '#374151'
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'bottom'
+            ctx.fillText(val.toLocaleString(), bar.x, bar.y - 3)
+            ctx.restore()
+          })
+        })
+      },
+    }
+
+    chartRef.current = new Chart(canvasRef.current, {
+      type: 'bar',
+      data: {
+        labels: dailyCounts.map(d => fmtDate(d.date)),
+        datasets: [{
+          data: dailyCounts.map(d => d.count),
+          backgroundColor: bgColors,
+          borderRadius: 4,
+          borderSkipped: false,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 20 } },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => `${(ctx.raw as number).toLocaleString()}건` } },
+        },
+        scales: {
+          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 11 } } },
+          x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+        },
+      },
+      plugins: [datalabels],
+    })
+
+    return () => { chartRef.current?.destroy() }
+  }, [dailyCounts])
+
+  return <canvas ref={canvasRef} />
 }
 
 // ── 카테고리 AI 분석 패널 ──────────────────────────────────────────────────────
@@ -283,9 +349,10 @@ export default function WeeklyReport() {
   const [aiGenerating, setAiGenerating] = useState(false)
   const [notFound, setNotFound] = useState(false)
 
-  type MemoState = { open: boolean; page: number; data: WeeklyMemosPage | null; loading: boolean }
+  type MemoState = { open: boolean; page: number; sub: string; data: WeeklyMemosPage | null; loading: boolean }
   const [memoStates, setMemoStates] = useState<Record<string, MemoState>>({})
   const [analysisExpanded, setAnalysisExpanded] = useState<Set<string>>(new Set())
+  const [hiddenDonutItems, setHiddenDonutItems] = useState<Set<number>>(new Set())
 
   function toggleAnalysis(main: string) {
     setAnalysisExpanded(prev => {
@@ -298,10 +365,8 @@ export default function WeeklyReport() {
   // Chart.js 캔버스 및 인스턴스
   const sqiRef      = useRef<HTMLCanvasElement>(null)
   const donutRef    = useRef<HTMLCanvasElement>(null)
-  const stackRef    = useRef<HTMLCanvasElement>(null)
   const sqiChart    = useRef<Chart | null>(null)
   const donutChart  = useRef<Chart | null>(null)
-  const stackChart  = useRef<Chart | null>(null)
 
   useEffect(() => {
     loadReport()
@@ -311,7 +376,6 @@ export default function WeeklyReport() {
   useEffect(() => () => {
     sqiChart.current?.destroy()
     donutChart.current?.destroy()
-    stackChart.current?.destroy()
   }, [])
 
   // 보고서 변경 시 차트 재생성
@@ -319,18 +383,28 @@ export default function WeeklyReport() {
     if (!report) {
       sqiChart.current?.destroy()
       donutChart.current?.destroy()
-      stackChart.current?.destroy()
       return
     }
     renderSqiChart(report)
     renderDonutChart(report)
-    renderStackChart(report)
+    setHiddenDonutItems(new Set())
   }, [report])
 
-  async function loadMemos(main: string, page: number) {
-    setMemoStates(s => ({ ...s, [main]: { ...(s[main] ?? { open: true, data: null }), open: true, page, loading: true } }))
+  function toggleDonutItem(i: number) {
+    donutChart.current?.toggleDataVisibility(i)
+    donutChart.current?.update()
+    setHiddenDonutItems(prev => {
+      const next = new Set(prev)
+      next.has(i) ? next.delete(i) : next.add(i)
+      return next
+    })
+  }
+
+  async function loadMemos(main: string, page: number, sub?: string) {
+    const curSub = sub ?? memoStates[main]?.sub ?? ''
+    setMemoStates(s => ({ ...s, [main]: { ...(s[main] ?? { open: true, data: null }), open: true, page, sub: curSub, loading: true } }))
     try {
-      const data = await api.fetchWeeklyMemos(weekStart, main, page)
+      const data = await api.fetchWeeklyMemos(weekStart, main, page, curSub)
       setMemoStates(s => ({ ...s, [main]: { ...s[main], data, loading: false } }))
     } catch {
       setMemoStates(s => ({ ...s, [main]: { ...s[main], loading: false } }))
@@ -342,7 +416,7 @@ export default function WeeklyReport() {
     if (cur?.open) {
       setMemoStates(s => ({ ...s, [main]: { ...s[main], open: false } }))
     } else {
-      loadMemos(main, cur?.page ?? 1)
+      loadMemos(main, cur?.page ?? 1, cur?.sub ?? '')
     }
   }
 
@@ -375,7 +449,7 @@ export default function WeeklyReport() {
       const fullData = await api.generateWeeklyReport(weekStart)
       setReport(fullData)
     } catch (e) {
-      alert(`보고서 생성 실패: ${e}`)
+      console.error('보고서 생성 실패:', e)
       setGenerating(false)
     } finally {
       setAiGenerating(false)
@@ -473,36 +547,6 @@ export default function WeeklyReport() {
     })
   }
 
-  function renderStackChart(r: WeeklyReportType) {
-    if (!stackRef.current || r.risk_stack.length === 0) return
-    stackChart.current?.destroy()
-    const presentMains = RISK_MAINS.filter(main =>
-      r.risk_stack.some(d => (d[main] as number | undefined ?? 0) > 0)
-    )
-    stackChart.current = new Chart(stackRef.current, {
-      type: 'bar',
-      data: {
-        labels: r.risk_stack.map(d => fmtDate(d.date)),
-        datasets: presentMains.map(main => ({
-          label: RISK_DISPLAY_LABEL[main] ?? main,
-          data: r.risk_stack.map(d => (d[main] as number | undefined) ?? 0),
-          backgroundColor: getCatColor(main, r.category_breakdown),
-          borderRadius: 2,
-        })),
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
-        },
-        scales: {
-          y: { stacked: true, beginAtZero: true },
-          x: { stacked: true, grid: { display: false } },
-        },
-      },
-    })
-  }
 
   const weekEnd = addDays(weekStart, 6)
   const riskPct = report && report.total_weekday > 0
@@ -636,15 +680,18 @@ export default function WeeklyReport() {
           {/* 일별 건수 + SQI */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
             <div className="section-card">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                <div style={{ fontSize: 21, fontWeight: 700, color: NAVY }}>일별 CS 건수</div>
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>평일은 파란색, 주말은 회색으로 표시합니다</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
+                <h2 style={{ margin: 0, fontSize: 22, color: NAVY }}>일별 CS 건수</h2>
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>최다 요일은 빨간색, 주말은 회색으로 표시합니다</span>
               </div>
-              <DailyBar dailyCounts={report.daily_counts} />
+              <div style={{ height: 200, position: 'relative' }}>
+                <DailyBar dailyCounts={report.daily_counts} />
+              </div>
             </div>
             <div className="section-card">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                <div style={{ fontSize: 21, fontWeight: 700, color: NAVY }}>리스크율 추이</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
+                <h2 style={{ margin: 0, fontSize: 22, color: NAVY }}>리스크율 추이</h2>
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>일별 리스크율 변화를 주 평균 기준으로 표시합니다</span>
               </div>
               <div style={{ display: 'flex', gap: 14, marginBottom: 12, fontSize: 11, color: '#64748b' }}>
                 <span><span style={{ color: NAVY, fontWeight: 700 }}>●</span> 주 평균 이하</span>
@@ -662,7 +709,10 @@ export default function WeeklyReport() {
 
           {/* 도넛 — 좌: 차트+범례, 우: 상위 유형 요약 */}
           <div className="section-card" style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 21, fontWeight: 700, color: NAVY, marginBottom: 16 }}>이번 주 CS 유형 분포</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
+              <h2 style={{ margin: 0, fontSize: 22, color: NAVY }}>이번 주 CS 유형 분포</h2>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>전체 상담을 카테고리별로 분류한 비율입니다</span>
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, alignItems: 'start' }}>
               {/* 차트 */}
               <div>
@@ -671,27 +721,39 @@ export default function WeeklyReport() {
                 </div>
                 {/* 커스텀 범례 */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', marginTop: 12 }}>
-                  {sortedBreakdown.map((cat, i) => (
-                    <div key={cat.main} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#374151' }}>
-                      <div style={{ width: 9, height: 9, borderRadius: 2, background: PALETTE[i % PALETTE.length], flexShrink: 0 }} />
-                      {cat.main} {cat.count.toLocaleString()}건
-                    </div>
-                  ))}
+                  {sortedBreakdown.map((cat, i) => {
+                    const hidden = hiddenDonutItems.has(i)
+                    return (
+                      <div
+                        key={cat.main}
+                        onClick={() => toggleDonutItem(i)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 5, fontSize: 11,
+                          color: hidden ? '#cbd5e1' : '#374151',
+                          cursor: 'pointer', userSelect: 'none',
+                          textDecoration: hidden ? 'line-through' : 'none',
+                        }}
+                      >
+                        <div style={{ width: 9, height: 9, borderRadius: 2, background: hidden ? '#e2e8f0' : PALETTE[i % PALETTE.length], flexShrink: 0 }} />
+                        {cat.main} {cat.count.toLocaleString()}건
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
               {/* 상위 유형 요약 */}
               <div style={{ paddingLeft: 8, borderLeft: '1px solid #f1f5f9' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>이번 주 주요 유형</div>
+                <h3 style={{ margin: '0 0 14px', fontSize: 20, fontWeight: 700, color: '#1e293b' }}>이번 주 주요 유형</h3>
                 {sortedBreakdown.filter(c => c.main !== '기타').slice(0, 3).map((cat, i) => {
                   const pct = totalCatCount > 0 ? Math.round(cat.count / totalCatCount * 100) : 0
                   return (
                     <div key={cat.main} style={{ marginBottom: 14 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                        <span style={{ fontSize: 13, color: '#374151' }}>
+                        <span style={{ fontSize: 15, color: '#374151' }}>
                           <span style={{ color: '#94a3b8', fontWeight: 700, marginRight: 6 }}>{i + 1}</span>
                           {cat.main}
                         </span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: PALETTE[i % PALETTE.length] }}>{pct}%</span>
+                        <span style={{ fontSize: 15, fontWeight: 700, color: PALETTE[i % PALETTE.length] }}>{pct}%</span>
                       </div>
                       <div style={{ height: 4, background: '#f1f5f9', borderRadius: 2, overflow: 'hidden' }}>
                         <div style={{ height: '100%', width: `${pct}%`, background: PALETTE[i % PALETTE.length], borderRadius: 2 }} />
@@ -703,8 +765,8 @@ export default function WeeklyReport() {
                   const meaningful = sortedBreakdown.filter(c => c.main !== '기타')
                   const top2Pct = Math.round(meaningful.slice(0, 2).reduce((s, c) => s + c.count, 0) / totalCatCount * 100)
                   return (
-                    <div style={{ marginTop: 4, padding: '10px 12px', background: '#f8fafc', borderRadius: 8, fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
-                      상위 2개 유형이 전체의 <strong>{top2Pct}%</strong>를 차지합니다.
+                    <div style={{ marginTop: 4, padding: '10px 12px', background: '#f8fafc', borderRadius: 8, fontSize: 14, color: '#64748b', lineHeight: 1.6 }}>
+                      상위 2개 유형이 전체의 <strong style={{ color: '#ef4444' }}>{top2Pct}%</strong>를 차지합니다.
                     </div>
                   )
                 })()}
@@ -712,31 +774,15 @@ export default function WeeklyReport() {
             </div>
           </div>
 
-          {/* 리스크 카테고리 일별 추이 + AI 분석 */}
+          {/* 리스크 카테고리별 AI 분석 */}
+          {report.risk_rows.length > 0 && (
           <div className="section-card" style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 21, fontWeight: 700, color: NAVY, marginBottom: 12 }}>리스크 카테고리 일별 추이</div>
-            {/* 이번 주 집중 영역 요약 */}
-            {report.risk_rows.length > 0 && (() => {
-              const top = [...report.risk_rows].sort((a, b) => b.count - a.count).slice(0, 2)
-              return (
-                <div style={{ marginBottom: 14, padding: '8px 14px', background: '#fef2f2', borderRadius: 8, fontSize: 12, color: '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontWeight: 700, color: RISK_RED, marginRight: 2 }}>이번 주 리스크 집중</span>
-                  {top.map((r, i) => (
-                    <span key={r.main}>{i > 0 ? ' · ' : ''}<strong>{RISK_DISPLAY_LABEL[r.main] ?? r.main}</strong> ({r.count}건)</span>
-                  ))}
-                </div>
-              )
-            })()}
-            <div style={{ height: 264, position: 'relative' }}>
-              {report.risk_stack.length === 0
-                ? <div style={{ fontSize: 13, color: '#94a3b8', paddingTop: 80, textAlign: 'center' }}>데이터 없음</div>
-                : <canvas ref={stackRef} />
-              }
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
+              <h2 style={{ margin: 0, fontSize: 22, color: NAVY }}>리스크 카테고리별 AI 분석</h2>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>리스크 카테고리의 소분류 추이와 AI 요약을 함께 확인합니다</span>
             </div>
-            {report.risk_rows.length > 0 && (
-              <div style={{ marginTop: 24, borderTop: '1px solid #f1f5f9', paddingTop: 20 }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: NAVY, marginBottom: 16 }}>리스크 카테고리별 AI 분석</div>
-                {report.risk_rows.map((row, i) => {
+            <div>
+              {[...report.risk_rows].sort((a, b) => b.count - a.count).map((row) => {
                   const ms = memoStates[row.main]
                   const totalPages = ms?.data ? Math.ceil(ms.data.total / ms.data.page_size) : 1
                   const isExpanded = analysisExpanded.has(row.main)
@@ -745,21 +791,27 @@ export default function WeeklyReport() {
                     : row.summary
                   return (
                     <div key={row.main} style={{
-                      borderBottom: i < report.risk_rows.length - 1 ? '1px solid #f1f5f9' : 'none',
-                      paddingBottom: 16, marginBottom: 16,
+                      background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
+                      marginBottom: 12, overflow: 'hidden',
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                        <span style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <span style={{ fontWeight: 700, fontSize: 20, color: '#1e293b', flex: 1 }}>
                           {RISK_DISPLAY_LABEL[row.main] ?? row.main}
                         </span>
                         <span style={{
-                          fontSize: 11, fontWeight: 700, color: RISK_RED,
+                          fontSize: 12, fontWeight: 700, color: RISK_RED,
                           background: '#fef2f2', borderRadius: 6,
-                          padding: '2px 8px', border: '1px solid #fecaca',
+                          padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0,
                         }}>
                           {row.count}건
                         </span>
                       </div>
+                      <div style={{ padding: '14px 16px' }}>
+                      {report.risk_sub_stack?.[row.main] && (
+                        <div style={{ height: 200, position: 'relative', marginBottom: 14 }}>
+                          <SubLineChart data={report.risk_sub_stack[row.main]} />
+                        </div>
+                      )}
                       {row.summary
                         ? <>
                             <div style={{
@@ -799,6 +851,26 @@ export default function WeeklyReport() {
                       </button>
                       {ms?.open && (
                         <div style={{ marginTop: 10 }}>
+                          {(() => {
+                            const subOptions = report.risk_sub_stack?.[row.main]?.length
+                              ? Object.keys(report.risk_sub_stack[row.main][0]).filter(k => k !== 'date')
+                              : []
+                            return subOptions.length > 0 ? (
+                              <div style={{ marginBottom: 8 }}>
+                                <select
+                                  value={ms.sub ?? ''}
+                                  onChange={e => loadMemos(row.main, 1, e.target.value)}
+                                  style={{
+                                    padding: '4px 10px', fontSize: 12, border: '1px solid #e2e8f0',
+                                    borderRadius: 6, background: '#fff', color: '#374151', cursor: 'pointer',
+                                  }}
+                                >
+                                  <option value="">전체 소분류</option>
+                                  {subOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                              </div>
+                            ) : null
+                          })()}
                           {ms.loading
                             ? <div style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0' }}>조회 중...</div>
                             : ms.data && ms.data.memos.length > 0
@@ -815,8 +887,8 @@ export default function WeeklyReport() {
                                         borderRadius: 4, padding: '1px 6px',
                                         whiteSpace: 'nowrap', fontSize: 11,
                                       }}>{m.sub}</span>
-                                      <span style={{ color: '#374151', lineHeight: 1.5 }}>
-                                        {m.text.length > 120 ? m.text.slice(0, 120) + '…' : m.text}
+                                      <span style={{ color: '#374151', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
+                                        {m.text}
                                       </span>
                                     </div>
                                   ))}
@@ -838,12 +910,13 @@ export default function WeeklyReport() {
                           }
                         </div>
                       )}
+                      </div>
                     </div>
                   )
                 })}
-              </div>
-            )}
+            </div>
           </div>
+          )}
 
           {/* 주간 종합 분석 (전체 폭) */}
           <div className="section-card">
@@ -851,7 +924,7 @@ export default function WeeklyReport() {
               display: 'flex', alignItems: 'center', gap: 10,
               marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
             }}>
-              <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>이번 주 CS 종합 브리핑</h3>
+              <h2 style={{ margin: 0, color: NAVY, fontSize: 22 }}>이번 주 CS 종합 브리핑</h2>
               <span style={{ fontSize: 12, color: '#94a3b8' }}>이번 주 CS 전반을 AI가 핵심 패턴 중심으로 종합 분석합니다</span>
             </div>
             {report.weekly_summary

@@ -189,6 +189,7 @@ export interface WeeklyReport {
   sqi_daily: WeeklySqiDay[]
   category_breakdown: WeeklyCatItem[]
   risk_stack: WeeklyRiskStackDay[]
+  risk_sub_stack?: Record<string, Array<{ date: string } & Record<string, number>>>
   peak_daily: WeeklyPeakDay[]
   risk_rows: WeeklyRiskRow[]
   weekly_summary: string
@@ -385,8 +386,10 @@ export const api = {
     )
   },
 
-  fetchWeeklyMemos(weekStart: string, main: string, page: number) {
-    return get<WeeklyMemosPage>(`/api/report/weekly/memos?week_start=${weekStart}&main=${encodeURIComponent(main)}&page=${page}`)
+  fetchWeeklyMemos(weekStart: string, main: string, page: number, sub = '') {
+    const p = new URLSearchParams({ week_start: weekStart, main, page: String(page) })
+    if (sub) p.set('sub', sub)
+    return get<WeeklyMemosPage>(`/api/report/weekly/memos?${p}`)
   },
 
   fetchOllamaSettings() {
