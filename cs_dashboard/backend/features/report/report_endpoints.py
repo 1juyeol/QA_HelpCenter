@@ -2,9 +2,9 @@
 # 보고서 API 라우터. 일별·주간 보고서 조회/생성 엔드포인트를 제공한다.
 #
 # GET  /api/report/daily?date=YYYY-MM-DD                     : 저장된 일별 보고서 반환. 없으면 404.
-# POST /api/report/daily/generate-stats?date=YYYY-MM-DD      : 통계만 생성 (Ollama 없음, 1단계).
-# POST /api/report/daily/analyze-category?date=&main=        : 특정 대분류 Ollama 분석 후 DB 저장.
-# POST /api/report/daily/analyze-peak?date=                  : 피크타임 최다 버킷 Ollama 분석 후 DB 저장.
+# POST /api/report/daily/generate-stats?date=YYYY-MM-DD      : 통계만 생성 (Gemma 없음, 1단계).
+# POST /api/report/daily/analyze-category?date=&main=        : 특정 대분류 Gemma 분석 후 DB 저장.
+# POST /api/report/daily/analyze-peak?date=                  : 피크타임 최다 버킷 Gemma 분석 후 DB 저장.
 # GET  /api/report/weekly?week_start=YYYY-MM-DD              : 저장된 주간 보고서 반환. 없으면 404.
 # POST /api/report/weekly/generate-stats?week_start=YYYY-MM-DD : 통계만 생성 (1단계).
 # POST /api/report/weekly/generate?week_start=YYYY-MM-DD     : 통계 + AI 분석 전체 생성 (2단계).
@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Query
 from features.report.report_daily import generate_report_stats, get_report, analyze_single_category, analyze_peak_bucket
 from features.report.report_weekly import (
     generate_weekly_report, generate_weekly_report_stats,
-    get_weekly_report, get_weekly_risk_memos,
+    get_weekly_report, get_latest_weekly_report, get_weekly_risk_memos,
     analyze_weekly_category, analyze_weekly_summary,
 )
 
@@ -48,6 +48,14 @@ async def analyze_daily_category(
 @router.post("/api/report/daily/analyze-peak")
 async def analyze_daily_peak(date: str = Query(..., description="YYYY-MM-DD")):
     return await analyze_peak_bucket(date)
+
+
+@router.get("/api/report/weekly/latest")
+def get_latest_weekly_report_endpoint():
+    report = get_latest_weekly_report()
+    if report is None:
+        raise HTTPException(status_code=404, detail="보고서 없음")
+    return report
 
 
 @router.get("/api/report/weekly")

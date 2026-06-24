@@ -1,5 +1,5 @@
 // 일별 CS 보고서 페이지.
-// 날짜를 선택하면 저장된 보고서를 불러오고, 없으면 생성 버튼으로 Ollama 기반 보고서를 생성한다.
+// 날짜를 선택하면 저장된 보고서를 불러오고, 없으면 생성 버튼으로 Gemma 기반 보고서를 생성한다.
 //
 // 리디자인 구성 (Pretendard 폰트, 네이비 브랜드 컬러 #1e3c72):
 //   1. 그라디언트 헤더 배너 — 날짜 표시
@@ -10,11 +10,12 @@
 //
 // 데이터 흐름:
 //   GET  /api/report/daily?date=YYYY-MM-DD  → 저장된 보고서 반환 (없으면 404)
-//   POST /api/report/daily/generate?date=YYYY-MM-DD → 보고서 생성 (Ollama 호출)
+//   POST /api/report/daily/generate?date=YYYY-MM-DD → 보고서 생성 (Gemma 호출)
 //
 // 의존: api/client.ts (DailyReport, RiskRow, PeakBucket 타입, fetchDailyReport, generateDailyReport)
-import { Fragment, useState, useEffect } from 'react'
+import { Fragment, useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import Chart from 'chart.js/auto'
 import { api, type DailyReport, type RiskRow, type BucketRow } from '../../api/client'
 
 const NAVY = '#1e3c72'
@@ -312,8 +313,8 @@ function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boo
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
         <span style={{ fontSize: 12, color: '#94a3b8' }}>{row.main}</span>
         <span style={{ fontSize: 12, color: '#cbd5e1' }}>›</span>
-        <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', flex: 1 }}>{row.sub}</span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: RISK_RED, background: '#fef2f2', borderRadius: 6, padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0 }}>
+        <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{row.sub}</span>
+        <span style={{ fontSize: 15, fontWeight: 700, color: RISK_RED, background: '#fef2f2', borderRadius: 6, padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0 }}>
           {row.count}건
         </span>
       </div>
@@ -330,6 +331,47 @@ function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boo
       </div>
     </div>
   )
+}
+
+// ── 시간대별 전체 흐름 차트 ──────────────────────────────────────────────────
+
+function HourlyTrendChart({ hourly }: { hourly: [number, number][] }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const chartRef = useRef<Chart | null>(null)
+
+  useEffect(() => {
+    if (!canvasRef.current) return
+    chartRef.current?.destroy()
+
+    const filtered = hourly
+    const counts = filtered.map(([, c]) => c)
+    const maxVal = Math.max(...counts, 1)
+    const bgColors = filtered.map(([h, c]) => {
+      if (c === maxVal) return '#ef4444'
+      if (h >= 17 && h <= 20) return '#3b82f6'
+      return '#e2e8f0'
+    })
+
+    chartRef.current = new Chart(canvasRef.current, {
+      type: 'bar',
+      data: {
+        labels: filtered.map(([h]) => `${h}시`),
+        datasets: [{ data: counts, backgroundColor: bgColors, borderRadius: 3, borderSkipped: false }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${(ctx.raw as number).toLocaleString()}건` } } },
+        scales: {
+          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 } } },
+          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+        },
+      },
+    })
+    return () => { chartRef.current?.destroy() }
+  }, [hourly])
+
+  return <canvas ref={canvasRef} />
 }
 
 // ── 피크타임 30분 버킷 차트 ───────────────────────────────────────────────────
@@ -551,7 +593,7 @@ export default function DailyReport() {
             <div style={{ fontSize: 40, marginBottom: 12 }}>📄</div>
             <div style={{ fontSize: 14, marginBottom: 8, color: '#475569' }}>{date} 보고서가 없습니다.</div>
             <div style={{ fontSize: 13, color: '#cbd5e1' }}>
-              "보고서 생성" 버튼을 클릭해 Ollama 분석을 시작하세요.
+              "보고서 생성" 버튼을 클릭해 Gemma 분석을 시작하세요.
             </div>
           </div>
         </div>
@@ -646,6 +688,18 @@ export default function DailyReport() {
               <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>피크타임 패턴 분석</h3>
               <span style={{ fontSize: 12, color: '#94a3b8' }}>17시~20시 30분 구간에서 상담이 집중된 시간대를 찾아 AI가 패턴을 분석합니다</span>
             </div>
+            {report.hourly.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', gap: 14, fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
+                  <span><span style={{ color: '#ef4444', fontWeight: 700 }}>■</span> 최다 시간대</span>
+                  <span><span style={{ color: '#3b82f6', fontWeight: 700 }}>■</span> 피크타임 구간 (17~20시)</span>
+                  <span><span style={{ color: '#e2e8f0', fontWeight: 700 }}>■</span> 기타</span>
+                </div>
+                <div style={{ height: 140, position: 'relative' }}>
+                  <HourlyTrendChart hourly={report.hourly} />
+                </div>
+              </div>
+            )}
             <PeakBucketChart buckets={peakBuckets} />
             {!report.peak_bucket ? (
               aiGenerating

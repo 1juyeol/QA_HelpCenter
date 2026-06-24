@@ -11,7 +11,7 @@
 //
 // 데이터 흐름:
 //   GET  /api/report/weekly?week_start=YYYY-MM-DD  → 저장된 보고서 (없으면 404)
-//   POST /api/report/weekly/generate?week_start=YYYY-MM-DD → Ollama 기반 보고서 생성
+//   POST /api/report/weekly/generate?week_start=YYYY-MM-DD → Gemma 기반 보고서 생성
 //
 // 의존: api/client.ts (WeeklyReport 타입, fetchWeeklyReport, generateWeeklyReport)
 //       Chart.js (SQI 라인, 도넛, 리스크 스택 바)
@@ -95,7 +95,7 @@ function addDays(dateStr: string, days: number): string {
 
 // ── KPI 카드 ──────────────────────────────────────────────────────────────────
 
-function DeltaBadge({ delta, unit, invert }: { delta: number | null | undefined; unit: string; invert?: boolean }) {
+function DeltaBadge({ delta, unit, invert, deltaPct }: { delta: number | null | undefined; unit: string; invert?: boolean; deltaPct?: number | null }) {
   if (delta == null) return null
   if (delta === 0) return <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 5 }}>전주 동일</div>
   const isPositive = delta > 0
@@ -106,6 +106,7 @@ function DeltaBadge({ delta, unit, invert }: { delta: number | null | undefined;
   return (
     <div style={{ fontSize: 13, color, fontWeight: 600, marginTop: 5 }}>
       {arrow} {isPositive ? '+' : ''}{delta}{unit}
+      {deltaPct != null && <span style={{ fontWeight: 500, marginLeft: 3 }}>({isPositive ? '+' : ''}{deltaPct}%)</span>}
       <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: 4 }}>전주 대비</span>
     </div>
   )
@@ -113,13 +114,24 @@ function DeltaBadge({ delta, unit, invert }: { delta: number | null | undefined;
 
 const SUB_RANK_COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#ec4899', '#64748b', '#0d9488']
 
-function SubLineChart({ data }: { data: Array<{ date: string } & Record<string, number>> }) {
+
+function TwoWeekSubLineChart({
+  data,
+  prevData,
+}: {
+  data: Array<{ date: string } & Record<string, number>>
+  prevData: Array<{ date: string } & Record<string, number>>
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const chartRef = useRef<Chart | null>(null)
 
   useEffect(() => {
-    if (!canvasRef.current || data.length === 0) return
+    if (!canvasRef.current || data.length === 0 || prevData.length === 0) return
     chartRef.current?.destroy()
+
+    const PREV_LEN = prevData.length
+    const labels = [...prevData.map(d => fmtDate(d.date)), ...data.map(d => fmtDate(d.date))]
+
     const subs = Object.keys(data[0])
       .filter(k => k !== 'date')
       .sort((a, b) => {
@@ -127,21 +139,34 @@ function SubLineChart({ data }: { data: Array<{ date: string } & Record<string, 
         const sumB = data.reduce((s, d) => s + ((d[b] as number) ?? 0), 0)
         return sumB - sumA
       })
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const datasets: any[] = subs.map((sub, i) => {
+      const color = SUB_RANK_COLORS[i % SUB_RANK_COLORS.length]
+      const combined = [
+        ...prevData.map(d => (d[sub] as number) ?? 0),
+        ...data.map(d => (d[sub] as number) ?? 0),
+      ]
+      return {
+        label: sub,
+        data: combined,
+        tension: 0.3,
+        borderColor: color,
+        backgroundColor: 'transparent',
+        pointRadius: combined.map((_, idx) => idx >= PREV_LEN ? 4 : 2),
+        pointBackgroundColor: combined.map((_, idx) => idx >= PREV_LEN ? color : color + '55'),
+        segment: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          borderWidth: () => 3.5,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          borderColor: (ctx: any) => ctx.p0DataIndex >= PREV_LEN ? color : color + '55',
+        },
+      }
+    })
+
     chartRef.current = new Chart(canvasRef.current, {
       type: 'line',
-      data: {
-        labels: data.map(d => fmtDate(d.date)),
-        datasets: subs.map((sub, i) => ({
-          label: sub,
-          data: data.map(d => (d[sub] as number) ?? 0),
-          borderColor: SUB_RANK_COLORS[i % SUB_RANK_COLORS.length],
-          backgroundColor: 'transparent',
-          tension: 0.3,
-          pointRadius: 3,
-          pointHoverRadius: 5,
-          borderWidth: 3,
-        })),
-      },
+      data: { labels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -149,22 +174,22 @@ function SubLineChart({ data }: { data: Array<{ date: string } & Record<string, 
           legend: { position: 'top', labels: { boxWidth: 10, font: { size: 12 }, padding: 14 } },
         },
         scales: {
-          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 12 } } },
-          x: { grid: { display: false }, ticks: { font: { size: 12 } } },
+          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 13 } } },
+          x: { grid: { display: false }, ticks: { font: { size: 13 } } },
         },
       },
     })
     return () => { chartRef.current?.destroy() }
-  }, [data])
+  }, [data, prevData])
 
   return <canvas ref={canvasRef} />
 }
 
 function KpiCard({
-  label, value, unit, color, sub, delta, deltaUnit, deltaInvert, isSecondary,
+  label, value, unit, color, sub, delta, deltaUnit, deltaInvert, deltaPct, isSecondary,
 }: {
   label: string; value: string; unit: string; color: string; sub?: string
-  delta?: number | null; deltaUnit?: string; deltaInvert?: boolean; isSecondary?: boolean
+  delta?: number | null; deltaUnit?: string; deltaInvert?: boolean; deltaPct?: number | null; isSecondary?: boolean
 }) {
   return (
     <div style={{
@@ -184,7 +209,7 @@ function KpiCard({
         <span style={{ fontSize: isSecondary ? 19 : 24, color: '#64748b', fontWeight: 600 }}>{unit}</span>
       </div>
       {sub && <div style={{ fontSize: 12, color: '#64748b', marginTop: 5, fontWeight: 500 }}>{sub}</div>}
-      <DeltaBadge delta={delta} unit={deltaUnit ?? ''} invert={deltaInvert} />
+      <DeltaBadge delta={delta} unit={deltaUnit ?? ''} invert={deltaInvert} deltaPct={deltaPct} />
     </div>
   )
 }
@@ -353,6 +378,7 @@ export default function WeeklyReport() {
   const [memoStates, setMemoStates] = useState<Record<string, MemoState>>({})
   const [analysisExpanded, setAnalysisExpanded] = useState<Set<string>>(new Set())
   const [hiddenDonutItems, setHiddenDonutItems] = useState<Set<number>>(new Set())
+  const [testPanelOpen, setTestPanelOpen] = useState(false)
 
   function toggleAnalysis(main: string) {
     setAnalysisExpanded(prev => {
@@ -569,6 +595,13 @@ export default function WeeklyReport() {
     ? Math.round((Number(riskPct) - prevRiskPct) * 10) / 10
     : null
 
+  const totalDeltaPct = report?.prev_total_weekday && report.prev_total_weekday > 0
+    ? Math.round((report.total_weekday - report.prev_total_weekday) / report.prev_total_weekday * 100)
+    : null
+  const collectedWeekdays = report
+    ? report.daily_counts.filter(d => !d.is_weekend && d.count > 0).length
+    : 0
+
   const sortedBreakdown = report ? [...report.category_breakdown].sort((a, b) => b.count - a.count) : []
   const totalCatCount = sortedBreakdown.reduce((s, c) => s + c.count, 0)
 
@@ -630,7 +663,7 @@ export default function WeeklyReport() {
               {weekStart} ~ {weekEnd} 보고서가 없습니다.
             </div>
             <div style={{ fontSize: 13, color: '#cbd5e1' }}>
-              "보고서 생성" 버튼을 클릭해 Ollama 분석을 시작하세요.
+              "보고서 생성" 버튼을 클릭해 Gemma 분석을 시작하세요.
             </div>
           </div>
         </div>
@@ -658,11 +691,12 @@ export default function WeeklyReport() {
             <KpiCard
               label="총 상담" value={report.total_weekday.toLocaleString()} unit="건"
               color={NAVY} sub="평일 기준"
-              delta={totalDelta} deltaUnit="건" isSecondary
+              delta={totalDelta} deltaUnit="건" deltaPct={totalDeltaPct} isSecondary
             />
             <KpiCard
               label="일 평균" value={report.daily_avg.toLocaleString()} unit="건/일"
               color={NAVY2}
+              sub={collectedWeekdays > 0 ? `집계 완료 ${collectedWeekdays}일 기준` : undefined}
               delta={dailyAvgDelta} deltaUnit="건/일" isSecondary
             />
             <KpiCard
@@ -696,7 +730,7 @@ export default function WeeklyReport() {
               <div style={{ display: 'flex', gap: 14, marginBottom: 12, fontSize: 11, color: '#64748b' }}>
                 <span><span style={{ color: NAVY, fontWeight: 700 }}>●</span> 주 평균 이하</span>
                 <span><span style={{ color: RISK_RED, fontWeight: 700 }}>●</span> 주 평균 초과</span>
-                <span style={{ color: '#94a3b8' }}>- - 주 평균선</span>
+                <span style={{ color: '#94a3b8' }}>- - 주 평균선 ({riskPct}%)</span>
               </div>
               <div style={{ height: 200, position: 'relative' }}>
                 {report.sqi_daily.length === 0
@@ -789,27 +823,48 @@ export default function WeeklyReport() {
                   const preview = row.summary && row.summary.length > 100
                     ? row.summary.slice(0, 100) + '…'
                     : row.summary
+                  const cardTopSub = (() => {
+                    const days = report.risk_sub_stack?.[row.main]
+                    if (!days) return null
+                    const totals = days.reduce((acc, day) => {
+                      Object.entries(day).forEach(([k, v]) => { if (k !== 'date') acc[k] = (acc[k] ?? 0) + (v as number) })
+                      return acc
+                    }, {} as Record<string, number>)
+                    return Object.entries(totals).sort(([, a], [, b]) => b - a)[0]?.[0] ?? null
+                  })()
                   return (
                     <div key={row.main} style={{
                       background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
                       marginBottom: 12, overflow: 'hidden',
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        <span style={{ fontWeight: 700, fontSize: 20, color: '#1e293b', flex: 1 }}>
-                          {RISK_DISPLAY_LABEL[row.main] ?? row.main}
-                        </span>
-                        <span style={{
-                          fontSize: 12, fontWeight: 700, color: RISK_RED,
-                          background: '#fef2f2', borderRadius: 6,
-                          padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0,
-                        }}>
-                          {row.count}건
-                        </span>
+                      <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontWeight: 700, fontSize: 20, color: '#1e293b' }}>
+                            {RISK_DISPLAY_LABEL[row.main] ?? row.main}
+                          </span>
+                          <span style={{
+                            fontSize: 16, fontWeight: 700, color: RISK_RED,
+                            background: '#fef2f2', borderRadius: 6,
+                            padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0,
+                          }}>
+                            {row.count}건
+                          </span>
+                        </div>
+                        {cardTopSub && (
+                          <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                            이번 주 주요 세부 유형: <strong style={{ color: '#475569' }}>{cardTopSub}</strong>
+                          </div>
+                        )}
                       </div>
                       <div style={{ padding: '14px 16px' }}>
-                      {report.risk_sub_stack?.[row.main] && (
-                        <div style={{ height: 200, position: 'relative', marginBottom: 14 }}>
-                          <SubLineChart data={report.risk_sub_stack[row.main]} />
+                      {report.risk_sub_stack?.[row.main] && report.risk_sub_stack_prev?.[row.main] && (
+                        <div style={{ marginBottom: 14, padding: '12px 0', borderTop: '1px dashed #e2e8f0' }}>
+                          <div style={{ height: 220, position: 'relative' }}>
+                            <TwoWeekSubLineChart
+                              data={report.risk_sub_stack[row.main]}
+                              prevData={report.risk_sub_stack_prev[row.main]}
+                            />
+                          </div>
                         </div>
                       )}
                       {row.summary
@@ -944,18 +999,32 @@ export default function WeeklyReport() {
             }
           </div>
 
-          <WeeklyTestPanel
-            weekStart={weekStart}
-            onCategoryResult={(main, summary) => {
-              setReport(prev => prev ? {
-                ...prev,
-                risk_rows: prev.risk_rows.map(r => r.main === main ? { ...r, summary } : r),
-              } : prev)
-            }}
-            onSummaryResult={(summary) => {
-              setReport(prev => prev ? { ...prev, weekly_summary: summary } : prev)
-            }}
-          />
+          <div style={{ marginTop: 8 }}>
+            <button
+              onClick={() => setTestPanelOpen(o => !o)}
+              style={{
+                fontSize: 12, color: '#94a3b8', background: 'none',
+                border: '1px solid #e2e8f0', borderRadius: 6,
+                padding: '4px 12px', cursor: 'pointer',
+              }}
+            >
+              분석 기준 설정 {testPanelOpen ? '▴' : '▾'}
+            </button>
+            {testPanelOpen && (
+              <WeeklyTestPanel
+                weekStart={weekStart}
+                onCategoryResult={(main, summary) => {
+                  setReport(prev => prev ? {
+                    ...prev,
+                    risk_rows: prev.risk_rows.map(r => r.main === main ? { ...r, summary } : r),
+                  } : prev)
+                }}
+                onSummaryResult={(summary) => {
+                  setReport(prev => prev ? { ...prev, weekly_summary: summary } : prev)
+                }}
+              />
+            )}
+          </div>
         </>
       )}
     </div>

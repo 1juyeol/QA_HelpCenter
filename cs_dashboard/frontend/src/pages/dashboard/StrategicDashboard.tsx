@@ -19,7 +19,7 @@
 // 의존: api/client.ts, api/categories.ts (isAllowed)
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, type InsightWings, type InsightParent } from '../../api/client'
+import { api, type InsightWings, type InsightParent, type DailyReport, type WeeklyReport as WeeklyReportType } from '../../api/client'
 import { isAllowed } from '../../api/categories'
 
 // ── 날짜 유틸 ────────────────────────────────────────────────────────────────
@@ -169,9 +169,11 @@ export default function StrategicDashboard() {
   const [prevWeekTotal, setPrevWeekTotal] = useState<number | null>(null)
   const [riskRate,      setRiskRate]      = useState<number | null>(null)
   const [prevRiskRate,  setPrevRiskRate]  = useState<number | null>(null)
-  const [wings,   setWings]   = useState<InsightWings[]>([])
-  const [parents, setParents] = useState<InsightParent[]>([])
-  const [loading, setLoading] = useState(true)
+  const [wings,        setWings]        = useState<InsightWings[]>([])
+  const [parents,      setParents]      = useState<InsightParent[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [dailyReport,  setDailyReport]  = useState<DailyReport | null>(null)
+  const [weeklyReport, setWeeklyReport] = useState<WeeklyReportType | null>(null)
 
   useEffect(() => {
     const today    = todayStr()
@@ -183,13 +185,17 @@ export default function StrategicDashboard() {
       api.fetchCategory({ targetDate: prevWeek, period: 'week' }),
       api.fetchWingsTickets(),
       api.fetchRepeatParents(),
-    ]).then(([daily, prevDaily, cats, prevCats, w, p]) => {
+      api.fetchDailyReport(daysAgoStr(1)).catch(() => null),
+      api.fetchWeeklyReportLatest().catch(() => null),
+    ]).then(([daily, prevDaily, cats, prevCats, w, p, dailyRep, weeklyRep]) => {
       setWeekTotal(daily.reduce((s, r) => s + r.count, 0))
       setPrevWeekTotal(prevDaily.reduce((s, r) => s + r.count, 0))
       setRiskRate(calcRiskRate(cats))
       setPrevRiskRate(calcRiskRate(prevCats))
       setWings(w.data || [])
       setParents((p.data || []).filter(isQualified))
+      setDailyReport(dailyRep as DailyReport | null)
+      setWeeklyReport(weeklyRep as WeeklyReportType | null)
     }).finally(() => setLoading(false))
   }, [])
 
@@ -438,27 +444,95 @@ export default function StrategicDashboard() {
       {/* ── Section 3: 보고서 진입 ── */}
       {!loading && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          {[
-            { label: '주간 보고서', desc: '주간 CS 트렌드 및 AI 분석', to: '/report/weekly' },
-            { label: '일별 보고서', desc: '일별 카테고리 분석 및 피크타임', to: '/report/daily' },
-          ].map(r => (
-            <Link
-              key={r.to}
-              to={r.to}
-              style={{
-                ...CARD,
-                padding: '18px 24px',
-                textDecoration: 'none',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#111827', marginBottom: 4 }}>{r.label}</div>
-                <div style={{ fontSize: 12, color: '#94a3b8' }}>{r.desc}</div>
-              </div>
-              <span style={{ fontSize: 20, color: '#d1d5db' }}>›</span>
-            </Link>
-          ))}
+
+          {/* 일별 보고서 */}
+          <Link to="/report/daily" style={{ ...CARD, padding: '18px 24px', textDecoration: 'none', display: 'block' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>일별 보고서</span>
+              {dailyReport
+                ? <span style={{ fontSize: 12, color: '#94a3b8' }}>{dailyReport.report_date}</span>
+                : <span style={{ fontSize: 11, fontWeight: 600, color: '#f59e0b', background: '#fef3c7', borderRadius: 4, padding: '2px 8px' }}>미생성</span>
+              }
+            </div>
+            {dailyReport ? (
+              <>
+                <div style={{ display: 'flex', gap: 20, marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: '#111827', lineHeight: 1 }}>
+                      {dailyReport.total_count.toLocaleString()}<span style={{ fontSize: 13, fontWeight: 500, color: '#64748b', marginLeft: 3 }}>건</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>총 상담</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: '#ef4444', lineHeight: 1 }}>
+                      {dailyReport.risk_total.toLocaleString()}<span style={{ fontSize: 13, fontWeight: 500, color: '#64748b', marginLeft: 3 }}>건</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>
+                      리스크 ({dailyReport.total_count > 0 ? (dailyReport.risk_total / dailyReport.total_count * 100).toFixed(1) : '0.0'}%)
+                    </div>
+                  </div>
+                </div>
+                {dailyReport.risk_rows.length > 0 && (
+                  <div style={{ fontSize: 12, color: '#475569', background: '#f8fafc', borderRadius: 6, padding: '5px 10px' }}>
+                    상위 리스크: {dailyReport.risk_rows[0].main} &nbsp;
+                    <strong>{(dailyReport.risk_rows[0].main_total ?? dailyReport.risk_rows[0].count).toLocaleString()}건</strong>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 8 }}>어제 보고서가 아직 생성되지 않았습니다</div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+              <span style={{ fontSize: 12, color: '#9ca3af' }}>상세 보기 ›</span>
+            </div>
+          </Link>
+
+          {/* 주간 보고서 */}
+          <Link to="/report/weekly" style={{ ...CARD, padding: '18px 24px', textDecoration: 'none', display: 'block' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>주간 보고서</span>
+              {weeklyReport
+                ? <span style={{ fontSize: 12, color: '#94a3b8' }}>{weeklyReport.week_start} ~ {weeklyReport.week_end}</span>
+                : <span style={{ fontSize: 11, fontWeight: 600, color: '#f59e0b', background: '#fef3c7', borderRadius: 4, padding: '2px 8px' }}>미생성</span>
+              }
+            </div>
+            {weeklyReport ? (
+              <>
+                <div style={{ display: 'flex', gap: 20, marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: '#111827', lineHeight: 1 }}>
+                      {weeklyReport.total_weekday.toLocaleString()}<span style={{ fontSize: 13, fontWeight: 500, color: '#64748b', marginLeft: 3 }}>건</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>총 상담 (평일)</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: '#111827', lineHeight: 1 }}>
+                      {weeklyReport.daily_avg.toLocaleString()}<span style={{ fontSize: 13, fontWeight: 500, color: '#64748b', marginLeft: 3 }}>건/일</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>일 평균</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: '#ef4444', lineHeight: 1 }}>
+                      {weeklyReport.total_weekday > 0 ? (weeklyReport.risk_total / weeklyReport.total_weekday * 100).toFixed(1) : '0.0'}<span style={{ fontSize: 13, fontWeight: 500, color: '#64748b', marginLeft: 3 }}>%</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>리스크율</div>
+                  </div>
+                </div>
+                {weeklyReport.risk_rows.length > 0 && (
+                  <div style={{ fontSize: 12, color: '#475569', background: '#f8fafc', borderRadius: 6, padding: '5px 10px' }}>
+                    상위 리스크: {weeklyReport.risk_rows[0].main} &nbsp;
+                    <strong>{weeklyReport.risk_rows[0].count.toLocaleString()}건</strong>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 8 }}>주간 보고서가 아직 생성되지 않았습니다</div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+              <span style={{ fontSize: 12, color: '#9ca3af' }}>상세 보기 ›</span>
+            </div>
+          </Link>
+
         </div>
       )}
 

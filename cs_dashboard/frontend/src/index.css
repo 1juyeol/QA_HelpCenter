@@ -29,20 +29,22 @@ header {
 .layout { display: flex; flex: 1; overflow: hidden; }
 
 .sidebar {
-  width: 200px;
+  width: 220px;
   flex-shrink: 0;
   background: #fff;
   border-right: 1px solid #e2e8f0;
   padding: 16px 0;
   overflow-y: auto;
+  font-family: 'Pretendard', 'Segoe UI', system-ui, sans-serif;
 }
 .nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 20px;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
   color: #64748b;
   cursor: pointer;
   border-left: 3px solid transparent;
@@ -234,8 +236,9 @@ tr:last-child td { border-bottom: none; }
   align-items: center;
   gap: 10px;
   padding: 10px 20px;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
   color: #64748b;
   cursor: pointer;
   border-left: 3px solid transparent;
@@ -262,7 +265,9 @@ tr:last-child td { border-bottom: none; }
   display: flex;
   align-items: center;
   padding: 8px 20px 8px 40px;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
   color: #64748b;
   cursor: pointer;
   border-left: 3px solid transparent;

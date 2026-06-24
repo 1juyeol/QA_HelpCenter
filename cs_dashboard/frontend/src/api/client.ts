@@ -132,7 +132,7 @@ export interface RiskRow {
   insufficient_data: boolean
 }
 
-export interface OllamaSettings {
+export interface GemmaSettings {
   url: string
   presets: string[]
 }
@@ -190,6 +190,7 @@ export interface WeeklyReport {
   category_breakdown: WeeklyCatItem[]
   risk_stack: WeeklyRiskStackDay[]
   risk_sub_stack?: Record<string, Array<{ date: string } & Record<string, number>>>
+  risk_sub_stack_prev?: Record<string, Array<{ date: string } & Record<string, number>>>
   peak_daily: WeeklyPeakDay[]
   risk_rows: WeeklyRiskRow[]
   weekly_summary: string
@@ -366,6 +367,10 @@ export const api = {
     return get<WeeklyReport>(`/api/report/weekly?week_start=${weekStart}`)
   },
 
+  fetchWeeklyReportLatest() {
+    return get<WeeklyReport>('/api/report/weekly/latest')
+  },
+
   generateWeeklyReportStats(weekStart: string) {
     return post<WeeklyReport>(`/api/report/weekly/generate-stats?week_start=${weekStart}`)
   },
@@ -392,11 +397,11 @@ export const api = {
     return get<WeeklyMemosPage>(`/api/report/weekly/memos?${p}`)
   },
 
-  fetchOllamaSettings() {
-    return get<OllamaSettings>('/api/settings/ollama')
+  fetchGemmaSettings() {
+    return get<GemmaSettings>('/api/settings/gemma')
   },
 
-  setOllamaUrl(url: string) {
-    return postJson<{ url: string }>('/api/settings/ollama', { url })
+  setGemmaUrl(url: string) {
+    return postJson<{ url: string }>('/api/settings/gemma', { url })
   },
 }
