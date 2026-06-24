@@ -125,6 +125,7 @@ export interface RiskRow {
   sub: string
   count: number
   main_total?: number
+  subs?: { sub: string; count: number; memos?: { id: number; text: string }[] }[]
   summary: string
   memos: { id: number; text: string }[]
   analysis_groups: AnalysisGroup[]

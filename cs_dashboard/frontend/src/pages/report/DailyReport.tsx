@@ -21,7 +21,7 @@ const NAVY = '#1e3c72'
 const NAVY2 = '#2a5298'
 const RISK_RED = '#ef4444'
 
-const RISK_MAINS = ['네트워크·앱 오류', '기기·하드웨어 오류', '미납·결제', '해지·유지 상담', '교재·물류·배송']
+const RISK_MAINS = ['네트워크·앱 오류', '기기·하드웨어 오류', '교재·물류·배송']
 
 // ── 카테고리 AI 분석 패널 ──────────────────────────────────────────────────────
 
@@ -158,14 +158,14 @@ function CategoryTestPanel({
 
 function DeltaBadge({ delta, unit, invert }: { delta: number | null | undefined; unit: string; invert?: boolean }) {
   if (delta == null) return null
-  if (delta === 0) return <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 5 }}>전일 동일</div>
+  if (delta === 0) return <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 5 }}>전일 동일</div>
   const isPositive = delta > 0
   const color = invert
     ? (isPositive ? '#ef4444' : '#16a34a')
     : (isPositive ? '#3b82f6' : '#f59e0b')
   const arrow = isPositive ? '↑' : '↓'
   return (
-    <div style={{ fontSize: 11, color, fontWeight: 600, marginTop: 5 }}>
+    <div style={{ fontSize: 13, color, fontWeight: 600, marginTop: 5 }}>
       {arrow} {isPositive ? '+' : ''}{delta}{unit}
       <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: 4 }}>전일 대비</span>
     </div>
@@ -192,8 +192,8 @@ function KpiCard({
         {label}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-        <span style={{ fontSize: isSecondary ? 30 : 40, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
-        <span style={{ fontSize: isSecondary ? 14 : 18, color: '#64748b', fontWeight: 600 }}>{unit}</span>
+        <span style={{ fontSize: isSecondary ? 36 : 48, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
+        <span style={{ fontSize: isSecondary ? 17 : 22, color: '#64748b', fontWeight: 600 }}>{unit}</span>
       </div>
       <DeltaBadge delta={delta} unit={deltaUnit ?? ''} invert={deltaInvert} />
     </div>
@@ -202,12 +202,22 @@ function KpiCard({
 
 // ── 리스크 바 차트 ────────────────────────────────────────────────────────────
 
-const RANK_COLORS = ['#ef4444', '#f97316', '#f59e0b']
 
 function RiskBarChart({ rows }: { rows: RiskRow[] }) {
+  const [expandedKey, setExpandedKey] = useState<string | null>(null)
+  const [pages, setPages] = useState<Record<string, number>>({})
+
   const sorted = [...rows].sort((a, b) => (b.main_total ?? b.count) - (a.main_total ?? a.count))
-  const max = Math.max(...sorted.map(r => r.main_total ?? r.count), 1)
+  const allSubCounts = sorted.flatMap(r => (r.subs?.length ? r.subs.map(s => s.count) : [r.count]))
+  const max = Math.max(...allSubCounts, 1)
   const topRow = sorted[0]
+
+  function toggleKey(key: string) {
+    setExpandedKey(prev => prev === key ? null : key)
+    setPages(prev => ({ ...prev, [key]: 0 }))
+  }
+  function getPage(key: string) { return pages[key] ?? 0 }
+  function setPage(key: string, p: number) { setPages(prev => ({ ...prev, [key]: p })) }
 
   return (
     <div>
@@ -218,35 +228,71 @@ function RiskBarChart({ rows }: { rows: RiskRow[] }) {
           borderLeft: '4px solid #ef4444',
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#991b1b' }}>오늘의 주요 리스크</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#ef4444' }}>{topRow.main}</span>
-          <span style={{ fontSize: 12, color: '#991b1b' }}>({(topRow.main_total ?? topRow.count).toLocaleString()}건)</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>오늘의 주요 리스크</span>
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#ef4444' }}>{topRow.main} › {topRow.sub}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#ef4444' }}>({(topRow.main_total ?? topRow.count).toLocaleString()}건)</span>
         </div>
       )}
       {sorted.map((row, i) => {
-        const total = row.main_total ?? row.count
-        const barColor = RANK_COLORS[i] ?? '#94a3b8'
+        const subs = row.subs?.length ? row.subs : [{ sub: row.sub, count: row.count, memos: row.memos }]
         return (
-          <div key={i} style={{ marginBottom: i < sorted.length - 1 ? 18 : 0 }}>
-            <div style={{
-              display: 'flex', justifyContent: 'space-between',
-              alignItems: 'center', marginBottom: 6,
-            }}>
-              <span style={{ fontWeight: 600, fontSize: 13, color: i === 0 ? '#ef4444' : '#1e293b' }}>
-                {row.main}
-              </span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: barColor, flexShrink: 0, marginLeft: 12 }}>
-                {total.toLocaleString()}건
-              </span>
+          <div key={i} style={{ marginBottom: i < sorted.length - 1 ? 22 : 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{row.main}</span>
+              <span style={{ fontSize: 14, color: '#94a3b8' }}>총 {(row.main_total ?? row.count).toLocaleString()}건</span>
             </div>
-            <div style={{ background: '#e8eef6', borderRadius: 6, height: 10 }}>
-              <div style={{
-                width: `${(total / max) * 100}%`,
-                background: barColor,
-                height: '100%', borderRadius: 6,
-                minWidth: total > 0 ? 4 : 0,
-              }} />
-            </div>
+            {subs.map((s, si) => {
+              const isTop = si === 0
+              const key = `${row.main}:${s.sub}`
+              const memos = s.memos ?? []
+              const isExpanded = expandedKey === key
+              const curPage = getPage(key)
+              const pageCount = Math.ceil(memos.length / MEMOS_PER_PAGE)
+              const pageMemos = memos.slice(curPage * MEMOS_PER_PAGE, (curPage + 1) * MEMOS_PER_PAGE)
+              return (
+                <div key={si} style={{ paddingLeft: 12, marginBottom: si < subs.length - 1 ? 10 : 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontSize: 16, fontWeight: isTop ? 700 : 400, color: isTop ? '#ef4444' : '#374151' }}>
+                      {s.sub}
+                    </span>
+                    <span
+                      onClick={memos.length > 0 ? () => toggleKey(key) : undefined}
+                      style={{
+                        fontSize: 17, fontWeight: isTop ? 700 : 500,
+                        color: isTop ? '#ef4444' : '#64748b',
+                        cursor: memos.length > 0 ? 'pointer' : 'default',
+                        userSelect: 'none', flexShrink: 0, marginLeft: 8,
+                      }}
+                    >
+                      {s.count.toLocaleString()}건{memos.length > 0 ? ` ${isExpanded ? '▲' : '▼'}` : ''}
+                    </span>
+                  </div>
+                  <div style={{ background: '#e8eef6', borderRadius: 4, height: 7 }}>
+                    <div style={{ width: `${(s.count / max) * 100}%`, background: isTop ? '#ef4444' : '#94a3b8', height: '100%', borderRadius: 4, minWidth: s.count > 0 ? 3 : 0 }} />
+                  </div>
+                  {isExpanded && (
+                    <div style={{ marginTop: 8, borderRadius: 8, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+                      {pageMemos.map((m, mi) => (
+                        <div key={m.id} style={{ padding: '8px 12px', fontSize: 12, color: '#374151', lineHeight: 1.6, borderBottom: mi < pageMemos.length - 1 ? '1px solid #f1f5f9' : undefined, background: mi % 2 === 0 ? '#fff' : '#fafafa' }}>
+                          {m.text
+                            ? m.text.split('\n').map((line, li) => <Fragment key={li}>{li > 0 && <br />}{line}</Fragment>)
+                            : <span style={{ color: '#94a3b8' }}>메모 없음</span>
+                          }
+                        </div>
+                      ))}
+                      {pageCount > 1 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid #e2e8f0', fontSize: 12, color: '#64748b', background: '#f8fafc' }}>
+                          <button onClick={() => setPage(key, Math.max(0, curPage - 1))} disabled={curPage === 0} style={{ padding: '2px 8px', cursor: curPage === 0 ? 'default' : 'pointer', borderRadius: 4, border: '1px solid #e2e8f0', background: '#fff' }}>‹</button>
+                          <span>{curPage + 1} / {pageCount}</span>
+                          <button onClick={() => setPage(key, Math.min(pageCount - 1, curPage + 1))} disabled={curPage === pageCount - 1} style={{ padding: '2px 8px', cursor: curPage === pageCount - 1 ? 'default' : 'pointer', borderRadius: 4, border: '1px solid #e2e8f0', background: '#fff' }}>›</button>
+                          <span style={{ marginLeft: 8, color: '#94a3b8' }}>{curPage * MEMOS_PER_PAGE + 1}~{Math.min((curPage + 1) * MEMOS_PER_PAGE, memos.length)}건 / 전체 {memos.length}건</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )
       })}
@@ -259,54 +305,19 @@ function RiskBarChart({ rows }: { rows: RiskRow[] }) {
 const MEMOS_PER_PAGE = 20
 
 function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boolean }) {
-  const [open, setOpen] = useState(false)
-  const [page, setPage] = useState(0)
-
-  const memos = row.memos ?? []
-  const pageCount = Math.ceil(memos.length / MEMOS_PER_PAGE)
-  const pageMemos = memos.slice(page * MEMOS_PER_PAGE, (page + 1) * MEMOS_PER_PAGE)
-
   return (
-    <div style={{
-      background: '#fff', borderRadius: 12,
-      border: '1px solid #e2e8f0',
-      marginBottom: 12, overflow: 'hidden',
-    }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '12px 16px', background: '#f8fafc',
-        borderBottom: '1px solid #e2e8f0',
-      }}>
+    <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', marginBottom: 12, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
         <span style={{ fontSize: 12, color: '#94a3b8' }}>{row.main}</span>
         <span style={{ fontSize: 12, color: '#cbd5e1' }}>›</span>
         <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', flex: 1 }}>{row.sub}</span>
-        <span style={{
-          fontSize: 12, fontWeight: 700, color: RISK_RED,
-          background: '#fef2f2', borderRadius: 6,
-          padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0,
-        }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: RISK_RED, background: '#fef2f2', borderRadius: 6, padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0 }}>
           {row.count}건
         </span>
-        {memos.length > 0 && (
-          <span
-            onClick={() => { setOpen(o => !o); setPage(0) }}
-            style={{
-              fontSize: 12, color: '#64748b',
-              cursor: 'pointer', userSelect: 'none',
-              textDecoration: 'underline', textDecorationStyle: 'dotted', flexShrink: 0,
-            }}
-          >
-            메모 {open ? '접기' : '보기'}
-          </span>
-        )}
       </div>
-
       <div style={{ padding: '10px 16px' }}>
         {row.summary ? (
-          <div style={{
-            fontSize: 13, color: '#374151', lineHeight: 1.7,
-            borderLeft: `3px solid ${NAVY}`, paddingLeft: 10,
-          }}>
+          <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.7, borderLeft: `3px solid ${NAVY}`, paddingLeft: 10 }}>
             {row.summary}
           </div>
         ) : aiLoading ? (
@@ -315,51 +326,6 @@ function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boo
           <div style={{ fontSize: 12, color: '#94a3b8' }}>AI 분석 없음</div>
         )}
       </div>
-
-      {open && (
-        <div style={{ borderTop: '1px solid #e2e8f0' }}>
-          {pageMemos.map((m, i) => (
-            <div
-              key={m.id}
-              style={{
-                padding: '8px 16px',
-                borderBottom: i < pageMemos.length - 1 ? '1px solid #f1f5f9' : undefined,
-                fontSize: 13, color: '#374151', lineHeight: 1.6,
-                background: i % 2 === 0 ? '#fff' : '#fafafa',
-              }}
-            >
-              {m.text
-                ? m.text.split('\n').map((line, li) => (
-                    <Fragment key={li}>{li > 0 && <br />}{line}</Fragment>
-                  ))
-                : <span style={{ color: '#94a3b8' }}>메모 없음</span>
-              }
-            </div>
-          ))}
-          {pageCount > 1 && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '8px 16px', borderTop: '1px solid #e2e8f0',
-              fontSize: 12, color: '#64748b', background: '#f8fafc',
-            }}>
-              <button
-                onClick={() => setPage(p => Math.max(0, p - 1))}
-                disabled={page === 0}
-                style={{ padding: '2px 8px', cursor: page === 0 ? 'default' : 'pointer', borderRadius: 4, border: '1px solid #e2e8f0', background: '#fff' }}
-              >‹</button>
-              <span>{page + 1} / {pageCount}</span>
-              <button
-                onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
-                disabled={page === pageCount - 1}
-                style={{ padding: '2px 8px', cursor: page === pageCount - 1 ? 'default' : 'pointer', borderRadius: 4, border: '1px solid #e2e8f0', background: '#fff' }}
-              >›</button>
-              <span style={{ marginLeft: 8, color: '#94a3b8' }}>
-                {page * MEMOS_PER_PAGE + 1}~{Math.min((page + 1) * MEMOS_PER_PAGE, memos.length)}건 / 전체 {memos.length}건
-              </span>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }
@@ -657,7 +623,7 @@ export default function DailyReport() {
             {report.risk_rows.length === 0 ? (
               <div style={{ color: '#94a3b8', fontSize: 13 }}>리스크 카테고리 데이터 없음</div>
             ) : (
-              report.risk_rows.map((row, i) => (
+              [...report.risk_rows].sort((a, b) => (b.main_total ?? b.count) - (a.main_total ?? a.count)).map((row, i) => (
                 <RiskRowItem key={i} row={row} aiLoading={aiGenerating} />
               ))
             )}

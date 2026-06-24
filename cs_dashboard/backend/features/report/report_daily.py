@@ -150,16 +150,17 @@ def _fetch_day_stats(date_str: str) -> dict:
         if main not in main_sub_memos:
             continue
         subs = main_sub_memos[main]
-        top_sub = max(subs, key=lambda s: len(subs[s]))
-        memos = subs[top_sub]
+        sorted_subs = sorted(subs.items(), key=lambda kv: -len(kv[1]))
+        top_sub, top_memos = sorted_subs[0]
         main_total = sum(len(ms) for ms in subs.values())
         risk_rows.append({
             "main": main,
             "sub": top_sub,
-            "count": len(memos),
+            "count": len(top_memos),
             "main_total": main_total,
-            "memos": memos,
+            "memos": top_memos,
             "summary": "",
+            "subs": [{"sub": s, "count": len(ms), "memos": ms} for s, ms in sorted_subs],
         })
 
     risk_total = sum(
@@ -399,6 +400,7 @@ def _build_content(date_str: str, stats: dict, peak_bucket: dict) -> dict:
                 "sub": r["sub"],
                 "count": r["count"],
                 "main_total": r.get("main_total", r["count"]),
+                "subs": r.get("subs", []),
                 "summary": r.get("summary", ""),
                 "memos": r.get("memos", []),
                 "analysis_groups": r.get("analysis_groups", []),
