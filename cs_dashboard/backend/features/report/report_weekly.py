@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
-# 주간 CS 보고서 생성 모듈. 한 주(월~일) 통계를 집계하고 Ollama를 순차 호출해 인사이트를 생성한다.
+# 주간 CS 보고서 생성 모듈. 한 주(월~일) 통계를 집계하고 Gemma를 순차 호출해 인사이트를 생성한다.
 #
 # 주요 흐름:
-#   generate_weekly_report_stats(week_start) → 통계만 저장 (Ollama 없음, 빠른 첫 렌더링)
-#   generate_weekly_report(week_start)        → 통계 + Ollama 분석 전체 저장
+#   generate_weekly_report_stats(week_start) → 통계만 저장 (Gemma 없음, 빠른 첫 렌더링)
+#   generate_weekly_report(week_start)        → 통계 + Gemma 분석 전체 저장
 #     ├─ _fetch_week_stats()           : DB → 7일 통계 (KPI·SQI·스택바·피크·카테고리 비율·리스크 메모)
-#     ├─ _call_ollama_weekly_risk()    : Ollama Call 1..N — 리스크 카테고리별 2줄 분석
-#     ├─ _call_ollama_weekly_summary() : Ollama Call N+1 — 주간 종합 3문장 분석
+#     ├─ _call_gemma_weekly_risk()    : Gemma Call 1..N — 리스크 카테고리별 2줄 분석
+#     ├─ _call_gemma_weekly_summary() : Gemma Call N+1 — 주간 종합 3문장 분석
 #     └─ reports 테이블 UPSERT (report_type='weekly') → 결과 반환
 #
 # KPI·SQI·스택바·피크는 평일(월~금)만 집계. 일별 바 차트와 AI 분석 메모는 7일 전부 포함.
 # week_start는 항상 월요일 날짜(ISO 형식).
 #
 # 공유 상수·유틸: report_utils.py (RISK_MAIN, _is_risk, _SYSTEM_CATEGORY 등)
-# Ollama 클라이언트: core/ollama_client.py
+# Gemma 클라이언트: core/gemma_client.py
 # 정책 2 준수: DB 날짜 필터는 datetime(created_date, '+9 hours') KST 변환
 
 import json
@@ -23,7 +23,7 @@ from datetime import date, datetime, timedelta
 
 from core.db import get_conn
 from core.holidays import is_off_day
-from core.ollama_client import call_ollama, parse_json_response
+from core.gemma_client import call_gemma, parse_json_response
 from features.issues.classifier import extract_symptom_fields
 from features.report.report_utils import (
     INSUFFICIENT_SUMMARY, _MIN_ANALYSIS_MEMOS,
@@ -31,7 +31,7 @@ from features.report.report_utils import (
     RISK_MAIN, RISK_SPECIFIC,
 )
 
-# ── Ollama 프롬프트 (주간 전용) ───────────────────────────────────────────────
+# ── Gemma 프롬프트 (주간 전용) ───────────────────────────────────────────────
 
 _PROMPT_WEEKLY_CATEGORY = (
     "아래는 {week_range} [{cat_label}] 관련 CS 상담 메모입니다.\n"
@@ -41,7 +41,7 @@ _PROMPT_WEEKLY_CATEGORY = (
     "\n"
     "메모에서 이번 주 두드러진 패턴이나 특이사항을 분석하세요.\n"
     "첫 문장: 이 주에 어떤 현상이 두드러졌는지 (피크 요일이나 패턴 포함).\n"
-    "두 번째 문장: 그 현상이 사용자에게 어떤 영향을 주는지 또는 왜 주목해야 하는지.\n"
+    "두 번째 문장: 왜 주목해야 하는지 또는 다음 주 확인이 필요한 이유 (반드시 '~로 보입니다', '~가능성이 있습니다' 같은 추측 표현 사용).\n"
     "건수 단순 반복이나 CS 운영 조언은 쓰지 마세요.\n\n"
     "{memos}"
 )
@@ -67,6 +67,8 @@ _PROMPT_WEEKLY_SUMMARY = (
     "\n"
     "이번 주 CS를 3~4개 항목(•)으로 종합 분석하세요.\n"
     "각 항목: 핵심 현상 + 서비스·제품 관점 의미 또는 모니터링 포인트.\n"
+    "해석이나 판단이 포함될 경우 반드시 '~로 보입니다', '~가능성이 있습니다' 같은 추측 표현을 사용하세요.\n"
+    "마지막 항목은 반드시 다음 주 확인이 필요한 영역(반복 인입, 관련 티켓, 세부 유형 지속 여부 등)으로 마무리하세요.\n"
     "건수 단순 나열이나 CS 운영 조언은 쓰지 마세요.\n"
 )
 
@@ -243,12 +245,13 @@ def _fetch_week_stats(week_start: str) -> dict:
 
     category_breakdown = [{"main": r["main"], "count": r["cnt"]} for r in cat_total]
 
-    # 전주 KPI (저장된 이전 보고서에서 읽음 — 없으면 None)
+    # 전주 KPI + 소분류 스택 (저장된 이전 보고서에서 읽음 — 없으면 None/{})
     prev_week_start = str(d0 - timedelta(days=7))
     prev_report = get_weekly_report(prev_week_start)
     prev_total_weekday = prev_report["total_weekday"] if prev_report else None
     prev_risk_total = prev_report["risk_total"] if prev_report else None
     prev_daily_avg = prev_report["daily_avg"] if prev_report else None
+    prev_risk_sub_stack = prev_report.get("risk_sub_stack", {}) if prev_report else {}
 
     risk_memos: dict = defaultdict(list)
     for row in risk_memo_raw:
@@ -286,14 +289,15 @@ def _fetch_week_stats(week_start: str) -> dict:
         "peak_daily": peak_daily,
         "risk_rows": risk_rows,
         "risk_sub_stack": risk_sub_stack,
+        "risk_sub_stack_prev": prev_risk_sub_stack,
     }
 
 
-# ── Ollama 호출 ───────────────────────────────────────────────────────────────
+# ── Gemma 호출 ───────────────────────────────────────────────────────────────
 
 
-async def _call_ollama_weekly_risk(week_range: str, risk_rows: list, week_start: str | None = None) -> None:
-    """리스크 카테고리별 Ollama 호출. 피크 요일 가중 샘플링 + 키워드 추출 후 분석."""
+async def _call_gemma_weekly_risk(week_range: str, risk_rows: list, week_start: str | None = None) -> None:
+    """리스크 카테고리별 Gemma 호출. 피크 요일 가중 샘플링 + 키워드 추출 후 분석."""
     total_risk = sum(r["count"] for r in risk_rows)
     for row in risk_rows:
         memos = row["memos"]
@@ -348,14 +352,14 @@ async def _call_ollama_weekly_risk(week_range: str, risk_rows: list, week_start:
             top_kw = _extract_top_keywords(raw_texts)
             prompt = _build_prompt()
 
-        print(f"[Ollama Weekly Risk - {row['main']}] 프롬프트 길이: {len(prompt)}자, 샘플: {len(lines)}건")
+        print(f"[Gemma Weekly Risk - {row['main']}] 프롬프트 길이: {len(prompt)}자, 샘플: {len(lines)}건")
         print(prompt)
         try:
-            raw = await call_ollama(_SYSTEM_CATEGORY, prompt)
+            raw = await call_gemma(_SYSTEM_CATEGORY, prompt)
             result = parse_json_response(raw)
             row["summary"] = result.get("summary", "") if result else ""
         except Exception as e:
-            print(f"[Ollama Weekly Risk - {row['main']}] 실패 (건너뜀): {e}")
+            print(f"[Gemma Weekly Risk - {row['main']}] 실패 (건너뜀): {e}")
             row["summary"] = ""
 
         # 카테고리 하나 완료될 때마다 중간 저장
@@ -370,8 +374,8 @@ async def _call_ollama_weekly_risk(week_range: str, risk_rows: list, week_start:
                 print(f"[Weekly] 중간 저장 완료: {row['main']}")
 
 
-async def _call_ollama_weekly_summary(stats: dict) -> str:
-    """주간 종합 Ollama 호출. 실패 시 빈 문자열 반환."""
+async def _call_gemma_weekly_summary(stats: dict) -> str:
+    """주간 종합 Gemma 호출. 실패 시 빈 문자열 반환."""
     category_summary = ", ".join(
         f"{r['main']} {r['count']}건"
         for r in stats["category_breakdown"][:6]
@@ -390,13 +394,13 @@ async def _call_ollama_weekly_summary(stats: dict) -> str:
         category_summary=category_summary,
         risk_analysis=risk_analysis,
     )
-    print(f"[Ollama Weekly Summary] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
+    print(f"[Gemma Weekly Summary] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
     try:
-        raw = await call_ollama(_SYSTEM_WEEKLY_SUMMARY, prompt)
+        raw = await call_gemma(_SYSTEM_WEEKLY_SUMMARY, prompt)
         result = parse_json_response(raw)
         return result.get("summary", "") if result else ""
     except Exception as e:
-        print(f"[Ollama Weekly Summary] 실패 (건너뜀): {e}")
+        print(f"[Gemma Weekly Summary] 실패 (건너뜀): {e}")
         return ""
 
 
@@ -418,6 +422,7 @@ def _build_weekly_content(stats: dict, weekly_summary: str) -> dict:
         "category_breakdown": stats["category_breakdown"],
         "risk_stack": stats["risk_stack"],
         "risk_sub_stack": stats.get("risk_sub_stack", {}),
+        "risk_sub_stack_prev": stats.get("risk_sub_stack_prev", {}),
         "peak_daily": stats["peak_daily"],
         "risk_rows": [
             {"main": r["main"], "count": r["count"], "summary": r.get("summary", "")}
@@ -440,7 +445,7 @@ def _save_weekly_report(week_start: str, content: dict) -> str:
 
 
 async def generate_weekly_report_stats(week_start: str) -> dict:
-    """통계만 저장 (Ollama 없음). 프론트엔드 첫 렌더링을 위한 1단계 생성."""
+    """통계만 저장 (Gemma 없음). 프론트엔드 첫 렌더링을 위한 1단계 생성."""
     stats = _fetch_week_stats(week_start)
     content = _build_weekly_content(stats, "")
     generated_at = _save_weekly_report(week_start, content)
@@ -449,11 +454,11 @@ async def generate_weekly_report_stats(week_start: str) -> dict:
 
 
 async def generate_weekly_report(week_start: str) -> dict:
-    """통계 + Ollama AI 분석 전체 생성 → DB 저장 → 결과 반환."""
+    """통계 + Gemma AI 분석 전체 생성 → DB 저장 → 결과 반환."""
     stats = _fetch_week_stats(week_start)
     week_range = f"{stats['week_start']} ~ {stats['week_end']}"
-    await _call_ollama_weekly_risk(week_range, stats["risk_rows"], week_start=week_start)
-    weekly_summary = await _call_ollama_weekly_summary(stats)
+    await _call_gemma_weekly_risk(week_range, stats["risk_rows"], week_start=week_start)
+    weekly_summary = await _call_gemma_weekly_summary(stats)
     content = _build_weekly_content(stats, weekly_summary)
     generated_at = _save_weekly_report(week_start, content)
     content["generated_at"] = generated_at
@@ -510,13 +515,13 @@ def get_weekly_risk_memos(
 
 
 async def analyze_weekly_category(week_start: str, main: str) -> dict:
-    """특정 주간 리스크 카테고리만 Ollama 분석. 기존 보고서가 있으면 summary patch-save."""
+    """특정 주간 리스크 카테고리만 Gemma 분석. 기존 보고서가 있으면 summary patch-save."""
     stats = _fetch_week_stats(week_start)
     week_range = f"{stats['week_start']} ~ {stats['week_end']}"
     target_rows = [r for r in stats["risk_rows"] if r["main"] == main]
     if not target_rows:
         return {"error": f"'{main}' 카테고리 없음"}
-    await _call_ollama_weekly_risk(week_range, target_rows)
+    await _call_gemma_weekly_risk(week_range, target_rows)
     row = target_rows[0]
 
     existing = get_weekly_report(week_start)
@@ -536,7 +541,7 @@ async def analyze_weekly_category(week_start: str, main: str) -> dict:
 
 
 async def analyze_weekly_summary(week_start: str) -> dict:
-    """주간 종합 브리핑만 Ollama 분석. 기존 보고서의 risk summary를 참조해 생성 후 patch-save."""
+    """주간 종합 브리핑만 Gemma 분석. 기존 보고서의 risk summary를 참조해 생성 후 patch-save."""
     stats = _fetch_week_stats(week_start)
     existing = get_weekly_report(week_start)
     if existing:
@@ -544,7 +549,7 @@ async def analyze_weekly_summary(week_start: str) -> dict:
             stored = next((s for s in existing.get("risk_rows", []) if s["main"] == r["main"]), None)
             if stored:
                 r["summary"] = stored.get("summary", "")
-    summary = await _call_ollama_weekly_summary(stats)
+    summary = await _call_gemma_weekly_summary(stats)
     if existing:
         existing["weekly_summary"] = summary
         _save_weekly_report(week_start, existing)
@@ -557,6 +562,19 @@ def get_weekly_report(week_start: str) -> dict | None:
         row = conn.execute(
             "SELECT content, generated_at FROM reports WHERE report_date = ? AND report_type = 'weekly'",
             (week_start,),
+        ).fetchone()
+    if not row:
+        return None
+    result = json.loads(row["content"])
+    result["generated_at"] = row["generated_at"]
+    return result
+
+
+def get_latest_weekly_report() -> dict | None:
+    """가장 최근 저장된 주간 보고서 조회. 없으면 None."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT content, generated_at FROM reports WHERE report_type = 'weekly' ORDER BY report_date DESC LIMIT 1",
         ).fetchone()
     if not row:
         return None

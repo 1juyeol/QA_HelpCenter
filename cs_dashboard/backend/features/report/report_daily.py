@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
-# 일별 CS 보고서 생성 모듈. DB 쿼리로 당일 통계를 뽑고 Ollama를 순차 호출해 인사이트를 생성한다.
+# 일별 CS 보고서 생성 모듈. DB 쿼리로 당일 통계를 뽑고 Gemma를 순차 호출해 인사이트를 생성한다.
 #
 # 주요 흐름:
-#   generate_report_stats(date_str) → 통계만 저장 (Ollama 없음, 빠른 첫 렌더링)
-#   generate_report(date_str)       → 통계 + Ollama 분석 전체 저장
+#   generate_report_stats(date_str) → 통계만 저장 (Gemma 없음, 빠른 첫 렌더링)
+#   generate_report(date_str)       → 통계 + Gemma 분석 전체 저장
 #     ├─ _fetch_day_stats()               : DB → 총건수, 리스크 5개, 시간대별 건수, 피크 버킷 row
-#     ├─ _prepare_category_brief()        : 카테고리별 Ollama용 텍스트 생성
+#     ├─ _prepare_category_brief()        : 카테고리별 Gemma용 텍스트 생성
 #     │     해지·유지 상담 → _build_cancellation_brief() (해지 사유 카운팅)
 #     │     그 외          → _build_keyword_groups()     (RULES 키워드 그룹핑)
-#     ├─ _call_ollama_category_insights() : Ollama Call 1 — 카테고리별 2줄 분석
-#     ├─ _call_ollama_peak_bucket()       : Ollama Call 2 — 피크 최다 버킷 분석
+#     ├─ _call_gemma_category_insights() : Gemma Call 1 — 카테고리별 2줄 분석
+#     ├─ _call_gemma_peak_bucket()       : Gemma Call 2 — 피크 최다 버킷 분석
 #     └─ reports 테이블 UPSERT (report_type='daily') → 결과 반환
 #
 # 공유 상수·유틸: report_utils.py (RISK_MAIN, _is_risk, _SYSTEM_CATEGORY 등)
-# Ollama 클라이언트: core/ollama_client.py
+# Gemma 클라이언트: core/gemma_client.py
 # 정책 2 준수: DB 날짜 필터는 datetime(created_date, '+9 hours') KST 변환
 
 import json
@@ -23,7 +23,7 @@ from datetime import date, datetime, timedelta
 
 from core.db import get_conn
 from core.holidays import is_off_day
-from core.ollama_client import call_ollama, parse_json_response
+from core.gemma_client import call_gemma, parse_json_response
 from features.issues.classifier import extract_symptom_fields, RULES, SUB_TO_MAIN
 from features.report.report_utils import (
     INSUFFICIENT_SUMMARY, _MIN_ANALYSIS_MEMOS,
@@ -35,7 +35,7 @@ _CANCEL_REASON_RE = re.compile(r'해지(?:요청)?사유\s*[: ]\s*(\S+)')
 # N차 상담 fallback: "-해지확정 아이흥미없음" 형태
 _CANCEL_REASON_FALLBACK_RE = re.compile(r'해지확정\s+([가-힣()\-_·]+)')
 
-# ── Ollama 프롬프트 (일별 전용) ───────────────────────────────────────────────
+# ── Gemma 프롬프트 (일별 전용) ───────────────────────────────────────────────
 
 _PROMPT_CATEGORY = (
     "아래는 {date_str} [{cat_label}] CS 상담 메모입니다.\n"
@@ -294,11 +294,11 @@ def _prepare_category_brief(risk_rows: list) -> None:
             row["_prompt_section"] = result["prompt_text"]
 
 
-# ── Ollama 호출 ───────────────────────────────────────────────────────────────
+# ── Gemma 호출 ───────────────────────────────────────────────────────────────
 
 
-async def _call_ollama_category_insights(date_str: str, risk_rows: list) -> None:
-    """Call 1: 카테고리별로 Ollama를 개별 호출. 배치 호출 시 JSON 잘림 방지."""
+async def _call_gemma_category_insights(date_str: str, risk_rows: list) -> None:
+    """Call 1: 카테고리별로 Gemma를 개별 호출. 배치 호출 시 JSON 잘림 방지."""
     _prepare_category_brief(risk_rows)
 
     for row in risk_rows:
@@ -313,18 +313,18 @@ async def _call_ollama_category_insights(date_str: str, risk_rows: list) -> None
             memos=row.get("_prompt_section", ""),
         )
 
-        print(f"[Ollama Daily Cat - {cat_label}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
+        print(f"[Gemma Daily Cat - {cat_label}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
         try:
-            raw = await call_ollama(_SYSTEM_CATEGORY, prompt)
+            raw = await call_gemma(_SYSTEM_CATEGORY, prompt)
             result = parse_json_response(raw)
             row["summary"] = result.get("summary", "") if result else ""
         except Exception as e:
-            print(f"[Ollama Daily Cat - {cat_label}] 실패 (건너뜀): {e}")
+            print(f"[Gemma Daily Cat - {cat_label}] 실패 (건너뜀): {e}")
             row["summary"] = ""
 
 
-async def _call_ollama_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dict:
-    """Call 2: 피크타임 최다 버킷 메모 → Ollama 분석. 데이터 없으면 빈 dict 반환."""
+async def _call_gemma_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dict:
+    """Call 2: 피크타임 최다 버킷 메모 → Gemma 분석. 데이터 없으면 빈 dict 반환."""
     if not peak_bucket_rows:
         return {}
 
@@ -359,12 +359,12 @@ async def _call_ollama_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dic
         avg_count=avg_count,
         memos="\n".join(lines),
     )
-    print(f"[Ollama Daily Peak {max_bucket}~{bucket_end}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
+    print(f"[Gemma Daily Peak {max_bucket}~{bucket_end}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
     try:
-        raw = await call_ollama(_SYSTEM_PEAK_BUCKET, prompt)
+        raw = await call_gemma(_SYSTEM_PEAK_BUCKET, prompt)
         result = parse_json_response(raw)
     except Exception as e:
-        print(f"[Ollama Daily Peak {max_bucket}~{bucket_end}] 실패 (건너뜀): {e}")
+        print(f"[Gemma Daily Peak {max_bucket}~{bucket_end}] 실패 (건너뜀): {e}")
         return {}
 
     if not result:
@@ -426,7 +426,7 @@ def _save_report(date_str: str, content: dict) -> str:
 
 
 async def generate_report_stats(date_str: str) -> dict:
-    """통계만 저장 (Ollama 없음). 프론트엔드 첫 렌더링을 위한 1단계 생성."""
+    """통계만 저장 (Gemma 없음). 프론트엔드 첫 렌더링을 위한 1단계 생성."""
     stats = _fetch_day_stats(date_str)
     content = _build_content(date_str, stats, {})
     generated_at = _save_report(date_str, content)
@@ -435,10 +435,10 @@ async def generate_report_stats(date_str: str) -> dict:
 
 
 async def generate_report(date_str: str) -> dict:
-    """통계 + Ollama AI 분석 전체 생성 → DB 저장 → 결과 반환."""
+    """통계 + Gemma AI 분석 전체 생성 → DB 저장 → 결과 반환."""
     stats = _fetch_day_stats(date_str)
-    await _call_ollama_category_insights(date_str, stats["risk_rows"])
-    peak_bucket = await _call_ollama_peak_bucket(date_str, stats["peak_bucket_rows"])
+    await _call_gemma_category_insights(date_str, stats["risk_rows"])
+    peak_bucket = await _call_gemma_peak_bucket(date_str, stats["peak_bucket_rows"])
     content = _build_content(date_str, stats, peak_bucket)
     generated_at = _save_report(date_str, content)
     content["generated_at"] = generated_at
@@ -446,12 +446,12 @@ async def generate_report(date_str: str) -> dict:
 
 
 async def analyze_single_category(date_str: str, main_category: str) -> dict:
-    """특정 대분류만 Ollama 분석 실행. 기존 보고서가 있으면 해당 카테고리 summary를 패치 저장."""
+    """특정 대분류만 Gemma 분석 실행. 기존 보고서가 있으면 해당 카테고리 summary를 패치 저장."""
     stats = _fetch_day_stats(date_str)
     target_rows = [r for r in stats["risk_rows"] if r["main"] == main_category]
     if not target_rows:
         return {"error": f"'{main_category}' 카테고리 없음"}
-    await _call_ollama_category_insights(date_str, target_rows)
+    await _call_gemma_category_insights(date_str, target_rows)
     row = target_rows[0]
 
     existing = get_report(date_str)
@@ -475,7 +475,7 @@ async def analyze_single_category(date_str: str, main_category: str) -> dict:
 
 
 async def analyze_peak_bucket(date_str: str) -> dict:
-    """피크타임 최다 버킷만 Ollama 분석 실행. 저장하지 않고 결과만 반환. 테스트용."""
+    """피크타임 최다 버킷만 Gemma 분석 실행. 저장하지 않고 결과만 반환. 테스트용."""
     stats = _fetch_day_stats(date_str)
     peak_bucket_rows = stats["peak_bucket_rows"]
     if not peak_bucket_rows:
@@ -510,19 +510,19 @@ async def analyze_peak_bucket(date_str: str) -> dict:
         memos="\n".join(lines),
     )
 
-    print(f"[Ollama Peak Test {max_bucket}~{bucket_end}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
+    print(f"[Gemma Peak Test {max_bucket}~{bucket_end}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
     result_pattern = ""
     result_summary = ""
     insufficient = len(lines) < 3
     if not insufficient:
         try:
-            raw = await call_ollama(_SYSTEM_PEAK_BUCKET, prompt)
+            raw = await call_gemma(_SYSTEM_PEAK_BUCKET, prompt)
             parsed = parse_json_response(raw)
             if parsed:
                 result_pattern = parsed.get("pattern", "")
                 result_summary = parsed.get("summary", "")
         except Exception as e:
-            print(f"[Ollama Peak Test] 실패: {e}")
+            print(f"[Gemma Peak Test] 실패: {e}")
 
     result = {
         "bucket_start": max_bucket,

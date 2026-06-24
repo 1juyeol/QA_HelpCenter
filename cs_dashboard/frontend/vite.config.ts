@@ -9,7 +9,15 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: 'dist'
+    outDir: 'dist',
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('chart.js')) return 'vendor-chart'
+          if (id.includes('react')) return 'vendor-react'
+        },
+      },
+    },
   },
   test: {
     environment: 'node',

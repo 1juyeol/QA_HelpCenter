@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # features/report/report_weekly.py 의 순수 유틸 함수 단위 테스트.
 # 테스트 대상: _fmt_date_ko, _weighted_sample_memos, _extract_top_keywords
-# DB·Ollama 의존 없이 실행 가능 (import 시 연결하지 않고 호출 시점에 연결하는 구조).
+# DB·Gemma 의존 없이 실행 가능 (import 시 연결하지 않고 호출 시점에 연결하는 구조).
 import sys
 from pathlib import Path
 

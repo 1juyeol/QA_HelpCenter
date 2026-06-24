@@ -130,7 +130,7 @@ export default function JiraBugs() {
             </p>
             <p style={{ fontSize: 12, color: '#cbd5e1', margin: '8px 0 0', lineHeight: 1.6 }}>
               분석 흐름: JIRA 이슈 요약 → 키워드 추출 → CS 메모 LIKE 검색 (AND 조건)<br />
-              현재는 규칙 기반 추출 (정확도 제한적) · 예정: Ollama(gemma4:12b)가 이슈를 읽고
+              현재는 규칙 기반 추출 (정확도 제한적) · 예정: Gemma(gemma4:12b)가 이슈를 읽고
               CS 신고 가능 여부 판단 후 키워드 직접 생성
             </p>
           </div>
