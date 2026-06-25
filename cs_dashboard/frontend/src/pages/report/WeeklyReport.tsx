@@ -378,7 +378,7 @@ export default function WeeklyReport() {
   const [aiGenerating, setAiGenerating] = useState(false)
   const [notFound, setNotFound] = useState(false)
 
-  type ModalState = { main: string; dateStart: string; dateEnd: string; initialSubs?: string[]; fullDateStart?: string; fullDateEnd?: string }
+  type ModalState = { main: string; dateStart: string; dateEnd: string; initialSubs?: string[]; fullDateStart?: string; fullDateEnd?: string; allowedSubs?: string[] }
   const [hiddenDonutItems, setHiddenDonutItems] = useState<Set<number>>(new Set())
   const [testPanelOpen, setTestPanelOpen] = useState(false)
   const [modalState, setModalState] = useState<ModalState | null>(null)
@@ -844,13 +844,14 @@ export default function WeeklyReport() {
                         const curStack  = report.risk_sub_stack[row.main]
                         const chartStart = prevStack[0]?.date ?? report.week_start
                         const chartEnd   = curStack[curStack.length - 1]?.date ?? report.week_end
+                        const riskSubs = Object.keys(curStack[0] ?? {}).filter(k => k !== 'date')
                         return (
                           <div style={{ marginBottom: 14, padding: '12px 0', borderTop: '1px dashed #e2e8f0' }}>
                             <div style={{ height: 220, position: 'relative' }}>
                               <TwoWeekSubLineChart
                                 data={curStack}
                                 prevData={prevStack}
-                                onChartClick={(date, sub) => { if (!date) return; setModalState({ main: row.main, dateStart: date, dateEnd: date, initialSubs: sub ? [sub] : undefined, fullDateStart: chartStart, fullDateEnd: chartEnd }) }}
+                                onChartClick={(date, sub) => { if (!date) return; setModalState({ main: row.main, dateStart: date, dateEnd: date, initialSubs: sub ? [sub] : undefined, fullDateStart: chartStart, fullDateEnd: chartEnd, allowedSubs: riskSubs }) }}
                               />
                             </div>
                           </div>
@@ -878,7 +879,8 @@ export default function WeeklyReport() {
                           const curStack  = report.risk_sub_stack?.[row.main]
                           const chartStart = prevStack?.[0]?.date ?? report.week_start
                           const chartEnd   = curStack?.[curStack.length - 1]?.date ?? report.week_end
-                          setModalState({ main: row.main, dateStart: chartStart, dateEnd: chartEnd, fullDateStart: chartStart, fullDateEnd: chartEnd })
+                          const riskSubs = Object.keys(curStack?.[0] ?? {}).filter(k => k !== 'date')
+                          setModalState({ main: row.main, dateStart: chartStart, dateEnd: chartEnd, fullDateStart: chartStart, fullDateEnd: chartEnd, allowedSubs: riskSubs })
                         }}
                         style={{
                           fontSize: 12, color: '#64748b', background: 'none',
@@ -957,6 +959,7 @@ export default function WeeklyReport() {
           dateStart={modalState.dateStart}
           dateEnd={modalState.dateEnd}
           initialSubs={modalState.initialSubs}
+          allowedSubs={modalState.allowedSubs}
           fullDateStart={modalState.fullDateStart}
           fullDateEnd={modalState.fullDateEnd}
           onClose={() => setModalState(null)}
