@@ -26,6 +26,7 @@ interface Props {
   initialSubs?: string[]
   fullDateStart?: string
   fullDateEnd?: string
+  allowedSubs?: string[]  // 지정 시 이 소분류만 체크박스에 표시
 }
 
 function fmtDate(dtStr: string): string {
@@ -34,7 +35,7 @@ function fmtDate(dtStr: string): string {
 }
 
 
-export default function CategoryMemoModal({ categoryMain, dateStart, dateEnd, onClose, initialSubs, fullDateStart, fullDateEnd }: Props) {
+export default function CategoryMemoModal({ categoryMain, dateStart, dateEnd, onClose, initialSubs, fullDateStart, fullDateEnd, allowedSubs }: Props) {
   const [availableSubs, setAvailableSubs] = useState<string[]>([])
   const [checkedSubs, setCheckedSubs] = useState<string[]>([])
   const [page, setPage] = useState(1)
@@ -53,8 +54,9 @@ export default function CategoryMemoModal({ categoryMain, dateStart, dateEnd, on
   useEffect(() => {
     api.fetchIssueSubs(categoryMain, curStart, curEnd)
       .then(res => {
-        setAvailableSubs(res.subs)
-        setCheckedSubs(initialSubs && initialSubs.length > 0 ? initialSubs : res.subs)
+        const subs = allowedSubs ? res.subs.filter(s => allowedSubs.includes(s)) : res.subs
+        setAvailableSubs(subs)
+        setCheckedSubs(initialSubs && initialSubs.length > 0 ? initialSubs : subs)
       })
       .catch(() => setLoading(false))
   }, [curStart, curEnd])

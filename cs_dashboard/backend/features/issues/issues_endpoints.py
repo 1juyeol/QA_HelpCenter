@@ -22,9 +22,9 @@ def get_issue_subs(
     col = "date(datetime(created_date, '+9 hours'))"
     with get_conn() as conn:
         rows = conn.execute(
-            f"SELECT DISTINCT new_category_sub FROM issues "
+            f"SELECT new_category_sub, COUNT(*) AS cnt FROM issues "
             f"WHERE {col} BETWEEN ? AND ? AND new_category_main = ? AND new_category_sub IS NOT NULL "
-            f"ORDER BY new_category_sub",
+            f"GROUP BY new_category_sub ORDER BY cnt DESC",
             [start_date, end_date, category_main],
         ).fetchall()
     return {"subs": [r[0] for r in rows if r[0]]}

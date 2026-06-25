@@ -13,10 +13,11 @@
 //   POST /api/report/daily/generate?date=YYYY-MM-DD → 보고서 생성 (Gemma 호출)
 //
 // 의존: api/client.ts (DailyReport, RiskRow, PeakBucket 타입, fetchDailyReport, generateDailyReport)
-import { Fragment, useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Chart from 'chart.js/auto'
-import { api, type DailyReport, type RiskRow, type BucketRow } from '../../api/client'
+import { api, type DailyReport, type RiskRow, type BucketRow, type Issue } from '../../api/client'
+import CategoryMemoModal from '../../components/CategoryMemoModal'
 
 const NAVY = '#1e3c72'
 const NAVY2 = '#2a5298'
@@ -206,21 +207,14 @@ function KpiCard({
 // ── 리스크 바 차트 ────────────────────────────────────────────────────────────
 
 
-function RiskBarChart({ rows }: { rows: RiskRow[] }) {
-  const [expandedKey, setExpandedKey] = useState<string | null>(null)
-  const [pages, setPages] = useState<Record<string, number>>({})
-
+function RiskBarChart({ rows, onBarClick }: {
+  rows: RiskRow[]
+  onBarClick: (main: string, sub: string | null) => void
+}) {
   const sorted = [...rows].sort((a, b) => (b.main_total ?? b.count) - (a.main_total ?? a.count))
   const allSubCounts = sorted.flatMap(r => (r.subs?.length ? r.subs.map(s => s.count) : [r.count]))
   const max = Math.max(...allSubCounts, 1)
   const topRow = sorted[0]
-
-  function toggleKey(key: string) {
-    setExpandedKey(prev => prev === key ? null : key)
-    setPages(prev => ({ ...prev, [key]: 0 }))
-  }
-  function getPage(key: string) { return pages[key] ?? 0 }
-  function setPage(key: string, p: number) { setPages(prev => ({ ...prev, [key]: p })) }
 
   return (
     <div>
@@ -240,59 +234,32 @@ function RiskBarChart({ rows }: { rows: RiskRow[] }) {
         const subs = row.subs?.length ? row.subs : [{ sub: row.sub, count: row.count, memos: row.memos }]
         return (
           <div key={i} style={{ marginBottom: i < sorted.length - 1 ? 22 : 0 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div
+              onClick={() => onBarClick(row.main, null)}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, cursor: 'pointer' }}
+            >
               <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{row.main}</span>
               <span style={{ fontSize: 14, color: '#94a3b8' }}>총 {(row.main_total ?? row.count).toLocaleString()}건</span>
             </div>
             {subs.map((s, si) => {
               const isTop = si === 0
-              const key = `${row.main}:${s.sub}`
-              const memos = s.memos ?? []
-              const isExpanded = expandedKey === key
-              const curPage = getPage(key)
-              const pageCount = Math.ceil(memos.length / MEMOS_PER_PAGE)
-              const pageMemos = memos.slice(curPage * MEMOS_PER_PAGE, (curPage + 1) * MEMOS_PER_PAGE)
               return (
-                <div key={si} style={{ paddingLeft: 12, marginBottom: si < subs.length - 1 ? 10 : 0 }}>
+                <div
+                  key={si}
+                  onClick={() => onBarClick(row.main, s.sub)}
+                  style={{ paddingLeft: 12, marginBottom: si < subs.length - 1 ? 10 : 0, cursor: 'pointer' }}
+                >
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                     <span style={{ fontSize: 16, fontWeight: isTop ? 700 : 400, color: isTop ? '#ef4444' : '#374151' }}>
                       {s.sub}
                     </span>
-                    <span
-                      onClick={memos.length > 0 ? () => toggleKey(key) : undefined}
-                      style={{
-                        fontSize: 17, fontWeight: isTop ? 700 : 500,
-                        color: isTop ? '#ef4444' : '#64748b',
-                        cursor: memos.length > 0 ? 'pointer' : 'default',
-                        userSelect: 'none', flexShrink: 0, marginLeft: 8,
-                      }}
-                    >
-                      {s.count.toLocaleString()}건{memos.length > 0 ? ` ${isExpanded ? '▲' : '▼'}` : ''}
+                    <span style={{ fontSize: 17, fontWeight: isTop ? 700 : 500, color: isTop ? '#ef4444' : '#64748b', flexShrink: 0, marginLeft: 8 }}>
+                      {s.count.toLocaleString()}건
                     </span>
                   </div>
                   <div style={{ background: '#e8eef6', borderRadius: 4, height: 7 }}>
                     <div style={{ width: `${(s.count / max) * 100}%`, background: isTop ? '#ef4444' : '#94a3b8', height: '100%', borderRadius: 4, minWidth: s.count > 0 ? 3 : 0 }} />
                   </div>
-                  {isExpanded && (
-                    <div style={{ marginTop: 8, borderRadius: 8, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-                      {pageMemos.map((m, mi) => (
-                        <div key={m.id} style={{ padding: '8px 12px', fontSize: 12, color: '#374151', lineHeight: 1.6, borderBottom: mi < pageMemos.length - 1 ? '1px solid #f1f5f9' : undefined, background: mi % 2 === 0 ? '#fff' : '#fafafa' }}>
-                          {m.text
-                            ? m.text.split('\n').map((line, li) => <Fragment key={li}>{li > 0 && <br />}{line}</Fragment>)
-                            : <span style={{ color: '#94a3b8' }}>메모 없음</span>
-                          }
-                        </div>
-                      ))}
-                      {pageCount > 1 && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid #e2e8f0', fontSize: 12, color: '#64748b', background: '#f8fafc' }}>
-                          <button onClick={() => setPage(key, Math.max(0, curPage - 1))} disabled={curPage === 0} style={{ padding: '2px 8px', cursor: curPage === 0 ? 'default' : 'pointer', borderRadius: 4, border: '1px solid #e2e8f0', background: '#fff' }}>‹</button>
-                          <span>{curPage + 1} / {pageCount}</span>
-                          <button onClick={() => setPage(key, Math.min(pageCount - 1, curPage + 1))} disabled={curPage === pageCount - 1} style={{ padding: '2px 8px', cursor: curPage === pageCount - 1 ? 'default' : 'pointer', borderRadius: 4, border: '1px solid #e2e8f0', background: '#fff' }}>›</button>
-                          <span style={{ marginLeft: 8, color: '#94a3b8' }}>{curPage * MEMOS_PER_PAGE + 1}~{Math.min((curPage + 1) * MEMOS_PER_PAGE, memos.length)}건 / 전체 {memos.length}건</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               )
             })}
@@ -304,8 +271,6 @@ function RiskBarChart({ rows }: { rows: RiskRow[] }) {
 }
 
 // ── 리스크 행 ─────────────────────────────────────────────────────────────────
-
-const MEMOS_PER_PAGE = 10
 
 function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boolean }) {
   return (
@@ -335,94 +300,201 @@ function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boo
 
 // ── 시간대별 전체 흐름 차트 ──────────────────────────────────────────────────
 
-function HourlyTrendChart({ hourly }: { hourly: [number, number][] }) {
+function HourlyBucketChart({ buckets, onBarClick }: {
+  buckets: BucketRow[]
+  onBarClick?: (bucket: string) => void
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const chartRef = useRef<Chart | null>(null)
+  const onBarClickRef = useRef(onBarClick)
+  onBarClickRef.current = onBarClick
 
   useEffect(() => {
-    if (!canvasRef.current) return
+    if (!canvasRef.current || buckets.length === 0) return
     chartRef.current?.destroy()
 
-    const filtered = hourly
-    const counts = filtered.map(([, c]) => c)
-    const maxVal = Math.max(...counts, 1)
-    const bgColors = filtered.map(([h, c]) => {
-      if (c === maxVal) return '#ef4444'
-      if (h >= 17 && h <= 20) return '#3b82f6'
+    const data = buckets.map(b => b.count)
+    const maxVal = Math.max(...data, 1)
+    const bgColors = buckets.map((b, i) => {
+      if (data[i] === maxVal && data[i] > 0) return '#ef4444'
+      if (b.bucket >= '17:00' && b.bucket <= '20:30') return '#3b82f6'
       return '#e2e8f0'
     })
 
     chartRef.current = new Chart(canvasRef.current, {
       type: 'bar',
       data: {
-        labels: filtered.map(([h]) => `${h}시`),
-        datasets: [{ data: counts, backgroundColor: bgColors, borderRadius: 3, borderSkipped: false }],
+        labels: buckets.map(b => b.bucket),
+        datasets: [{ data, backgroundColor: bgColors, borderRadius: 3, borderSkipped: false, barPercentage: 0.8 }],
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${(ctx.raw as number).toLocaleString()}건` } } },
+        onClick: (_e: unknown, elements: any[]) => {
+          if (elements.length > 0) onBarClickRef.current?.(buckets[elements[0].index].bucket)
+        },
+        onHover: (ev: any, elements: any[]) => {
+          const t = ev.native?.target as HTMLElement | undefined
+          if (t) t.style.cursor = elements.length ? 'pointer' : 'default'
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: (ctx: any) => `${(ctx.raw as number).toLocaleString()}건` } },
+        },
         scales: {
           y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 } } },
-          x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+          x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0 } },
         },
       },
     })
     return () => { chartRef.current?.destroy() }
-  }, [hourly])
+  }, [buckets])
 
   return <canvas ref={canvasRef} />
 }
 
 // ── 피크타임 30분 버킷 차트 ───────────────────────────────────────────────────
 
-// UTC 08:00~11:30 = KST 17:00~20:30
-function filterPeakBuckets(buckets: BucketRow[]): BucketRow[] {
-  return buckets.filter(b => {
-    const hour = parseInt(b.bucket.slice(11, 13), 10)
-    return hour >= 8 && hour <= 11
-  })
+
+// ── 피크타임 버킷 메모 모달 ───────────────────────────────────────────────────
+
+const PEAK_PAGE_SIZE = 50
+
+function bucketsToKstRange(buckets: string[]): string {
+  // 버킷 포맷: "HH:MM" KST
+  const first = buckets[0]
+  const last = buckets[buckets.length - 1]
+  const [endH, endM] = last.split(':').map(Number)
+  const endMin = endM === 0 ? 30 : 0
+  const endHour = endM === 0 ? endH : endH + 1
+  return `${first}~${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`
 }
 
-function bucketToKstLabel(bucket: string): string {
-  const utcHour = parseInt(bucket.slice(11, 13), 10)
-  const min = bucket.slice(14, 16)
-  const kstHour = (utcHour + 9) % 24
-  return `${kstHour}:${min}`
-}
+function PeakMemoModal({ buckets, date, onClose }: { buckets: string[]; date: string; onClose: () => void }) {
+  const [availableMains, setAvailableMains] = useState<string[]>([])
+  const [checkedMains, setCheckedMains] = useState<string[]>([])
+  const [allMemos, setAllMemos] = useState<Issue[]>([])
+  const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
 
-function PeakBucketChart({ buckets }: { buckets: BucketRow[] }) {
-  if (buckets.length === 0) return null
-  const max = Math.max(...buckets.map(b => b.count), 1)
-  const BAR_MAX_H = 64
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [])
+
+  useEffect(() => {
+    Promise.all([
+      api.fetchCategory({ startDate: date, endDate: date, buckets }),
+      api.fetchIssues({ startDate: date, endDate: date, buckets, limit: 500 }),
+    ]).then(([cats, issues]) => {
+      const mains = [...new Set(cats.map(c => c.new_category_main).filter(Boolean))] as string[]
+      setAvailableMains(mains)
+      setCheckedMains(mains)
+      setAllMemos(issues.items)
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [buckets, date])
+
+  function toggleMain(main: string) {
+    setCheckedMains(prev => prev.includes(main) ? prev.filter(m => m !== main) : [...prev, main])
+    setPage(1)
+  }
+
+  function toggleAll() {
+    setCheckedMains(prev => prev.length === availableMains.length ? [] : [...availableMains])
+    setPage(1)
+  }
+
+  const filtered = allMemos.filter(m => checkedMains.includes(m.new_category_main ?? ''))
+  const total = filtered.length
+  const totalPages = Math.max(1, Math.ceil(total / PEAK_PAGE_SIZE))
+  const pageMemos = filtered.slice((page - 1) * PEAK_PAGE_SIZE, page * PEAK_PAGE_SIZE)
+  const allChecked = checkedMains.length === availableMains.length
+
+  const pager = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#64748b' }}>
+      <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 14px', background: '#fff', fontSize: 13, cursor: page <= 1 ? 'default' : 'pointer', color: page <= 1 ? '#cbd5e1' : '#374151' }}>이전</button>
+      <span>{page} / {totalPages} 페이지 (총 {total.toLocaleString()}건)</span>
+      <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 14px', background: '#fff', fontSize: 13, cursor: page >= totalPages ? 'default' : 'pointer', color: page >= totalPages ? '#cbd5e1' : '#374151' }}>다음</button>
+    </div>
+  )
 
   return (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: BAR_MAX_H + 20 }}>
-        {buckets.map(b => {
-          const h = Math.round((b.count / max) * BAR_MAX_H)
-          const isMax = b.count > 0 && b.count === max
-          return (
-            <div key={b.bucket} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}>
-              <span style={{ fontSize: 10, color: isMax ? RISK_RED : '#64748b', fontWeight: isMax ? 700 : 400, marginBottom: 3 }}>{b.count}</span>
-              <div style={{
-                width: '100%', height: h,
-                background: isMax
-                  ? `linear-gradient(180deg, ${RISK_RED}, #f87171)`
-                  : `linear-gradient(180deg, ${NAVY}, ${NAVY2})`,
-                borderRadius: '3px 3px 0 0',
-                minHeight: b.count > 0 ? 3 : 0,
-              }} />
-            </div>
-          )
-        })}
-      </div>
-      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-        {buckets.map(b => (
-          <div key={b.bucket} style={{ flex: 1, textAlign: 'center', fontSize: 9, color: '#94a3b8' }}>
-            {bucketToKstLabel(b.bucket)}
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 960, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
+
+        {/* 헤더 */}
+        <div style={{ padding: '18px 32px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#1e293b' }}>피크타임 메모 — {bucketsToKstRange(buckets)}</div>
+            <div style={{ marginTop: 4, fontSize: 15, color: '#475569', fontWeight: 500 }}>{date}</div>
           </div>
-        ))}
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#94a3b8', lineHeight: 1, padding: 4 }}>✕</button>
+        </div>
+
+        {/* 대분류 체크박스 */}
+        {availableMains.length > 0 && (
+          <div style={{ padding: '10px 32px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexWrap: 'wrap', gap: '6px 20px', alignItems: 'center', flexShrink: 0, background: '#fafafa' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={allChecked} onChange={toggleAll} style={{ cursor: 'pointer', accentColor: '#1e3c72' }} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>전체</span>
+            </label>
+            {availableMains.map(main => (
+              <label key={main} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                <input type="checkbox" checked={checkedMains.includes(main)} onChange={() => toggleMain(main)} style={{ cursor: 'pointer', accentColor: '#1e3c72' }} />
+                <span style={{ fontSize: 13, fontWeight: 700, color: checkedMains.includes(main) ? '#1e293b' : '#cbd5e1', transition: 'color 0.15s' }}>{main}</span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        {/* 상단 페이지네이션 */}
+        <div style={{ padding: '10px 32px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>{pager}</div>
+
+        {/* 테이블 */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px' }}>
+          {loading ? (
+            <div style={{ padding: '60px 0', textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>조회 중...</div>
+          ) : pageMemos.length === 0 ? (
+            <div style={{ padding: '60px 0', textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>메모 없음</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+                <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                  {['대분류', '소분류', '학생번호', '학부모번호', '내용', '등록일'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pageMemos.map(m => (
+                  <tr key={m.id} style={{ borderBottom: '1px solid #f8fafc' }}>
+                    <td style={{ padding: '9px 12px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#374151', background: '#f1f5f9', borderRadius: 4, padding: '2px 7px' }}>{m.new_category_main ?? '—'}</span>
+                    </td>
+                    <td style={{ padding: '9px 12px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                      {m.new_category_sub ? <span style={{ fontSize: 12, fontWeight: 700, color: '#374151', background: '#f1f5f9', borderRadius: 4, padding: '2px 7px' }}>{m.new_category_sub}</span> : <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span>}
+                    </td>
+                    <td style={{ padding: '9px 12px', fontSize: 12, color: '#64748b', verticalAlign: 'top', whiteSpace: 'nowrap' }}>{m.student_id || '—'}</td>
+                    <td style={{ padding: '9px 12px', fontSize: 12, color: '#64748b', verticalAlign: 'top', whiteSpace: 'nowrap' }}>{m.parent_id ?? '—'}</td>
+                    <td style={{ padding: '9px 12px', fontSize: 13, color: '#374151', lineHeight: 1.6, verticalAlign: 'top' }}>
+                      {m.call_memo ? m.call_memo.split('\n').map((line: string, i: number) => <span key={i}>{i > 0 && <br />}{line}</span>) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '9px 12px', fontSize: 12, color: '#94a3b8', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                      {m.created_date ? m.created_date.slice(0, 16).replace('T', ' ') : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* 하단 페이지네이션 */}
+        <div style={{ padding: '12px 32px', borderTop: '1px solid #f1f5f9', flexShrink: 0 }}>{pager}</div>
       </div>
     </div>
   )
@@ -466,6 +538,8 @@ export default function DailyReport() {
   const [aiGenerating, setAiGenerating] = useState(false)
   const [notFound, setNotFound] = useState(false)
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
+  const [modalState, setModalState] = useState<{ main: string; initialSubs?: string[]; allowedSubs?: string[] } | null>(null)
+  const [peakModalBuckets, setPeakModalBuckets] = useState<string[] | null>(null)
 
   useEffect(() => {
     setSearchParams({ date }, { replace: true })
@@ -483,7 +557,7 @@ export default function DailyReport() {
         api.fetchHourly(d, d),
       ])
       setReport(data)
-      setPeakBuckets(filterPeakBuckets(buckets))
+      setPeakBuckets(buckets)
     } catch {
       setNotFound(true)
     } finally {
@@ -500,7 +574,7 @@ export default function DailyReport() {
         api.fetchHourly(date, date),
       ])
       setReport(statsData)
-      setPeakBuckets(filterPeakBuckets(buckets))
+      setPeakBuckets(buckets)
       setNotFound(false)
       setGenerating(false)
 
@@ -657,7 +731,14 @@ export default function DailyReport() {
                 <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>리스크 카테고리 현황</h3>
                 <span style={{ fontSize: 12, color: '#94a3b8' }}>해지·장애 등 위험 징후로 분류된 상담 유형별 건수입니다</span>
               </div>
-              <RiskBarChart rows={report.risk_rows} />
+              <RiskBarChart
+                rows={report.risk_rows}
+                onBarClick={(main, sub) => {
+                  const matchingRow = report.risk_rows.find(r => r.main === main)
+                  const allowedSubs = matchingRow?.subs?.map(s => s.sub) ?? (matchingRow ? [matchingRow.sub] : undefined)
+                  setModalState({ main, initialSubs: sub ? [sub] : undefined, allowedSubs })
+                }}
+              />
             </div>
           )}
 
@@ -688,19 +769,18 @@ export default function DailyReport() {
               <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>피크타임 패턴 분석</h3>
               <span style={{ fontSize: 12, color: '#94a3b8' }}>17시~20시 30분 구간에서 상담이 집중된 시간대를 찾아 AI가 패턴을 분석합니다</span>
             </div>
-            {report.hourly.length > 0 && (
+            {peakBuckets.length > 0 && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ display: 'flex', gap: 14, fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
                   <span><span style={{ color: '#ef4444', fontWeight: 700 }}>■</span> 최다 시간대</span>
                   <span><span style={{ color: '#3b82f6', fontWeight: 700 }}>■</span> 피크타임 구간 (17~20시)</span>
                   <span><span style={{ color: '#e2e8f0', fontWeight: 700 }}>■</span> 기타</span>
                 </div>
-                <div style={{ height: 140, position: 'relative' }}>
-                  <HourlyTrendChart hourly={report.hourly} />
+                <div style={{ height: 160, position: 'relative' }}>
+                  <HourlyBucketChart buckets={peakBuckets} onBarClick={b => setPeakModalBuckets([b])} />
                 </div>
               </div>
             )}
-            <PeakBucketChart buckets={peakBuckets} />
             {!report.peak_bucket ? (
               aiGenerating
                 ? <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
@@ -771,6 +851,25 @@ export default function DailyReport() {
           </div>
 
         </>
+      )}
+
+      {modalState && report && (
+        <CategoryMemoModal
+          categoryMain={modalState.main}
+          dateStart={report.report_date}
+          dateEnd={report.report_date}
+          initialSubs={modalState.initialSubs}
+          allowedSubs={modalState.allowedSubs}
+          onClose={() => setModalState(null)}
+        />
+      )}
+
+      {peakModalBuckets && report && (
+        <PeakMemoModal
+          buckets={peakModalBuckets}
+          date={report.report_date}
+          onClose={() => setPeakModalBuckets(null)}
+        />
       )}
     </div>
   )
