@@ -276,6 +276,7 @@ export const api = {
     q?: string
     categoryMain?: string
     categorySub?: string
+    subs?: string[]
     unclassified?: boolean
     limit?: number
     offset?: number
@@ -288,11 +289,17 @@ export const api = {
     if (params.buckets?.length) p.set('bucket',      params.buckets.join(','))
     if (params.q)            p.set('q',              params.q)
     if (params.categoryMain) p.set('category_main',  params.categoryMain)
-    if (params.categorySub)  p.set('category_sub',   params.categorySub)
+    if (params.subs?.length) p.set('subs',           params.subs.join(','))
+    else if (params.categorySub) p.set('category_sub', params.categorySub)
     if (params.unclassified) p.set('unclassified',   '1')
     if (params.limit  != null) p.set('limit',  String(params.limit))
     if (params.offset != null) p.set('offset', String(params.offset))
     return get<IssueList>(`/api/issues?${p}`)
+  },
+
+  fetchIssueSubs(categoryMain: string, startDate: string, endDate: string) {
+    const p = new URLSearchParams({ category_main: categoryMain, start_date: startDate, end_date: endDate })
+    return get<{ subs: string[] }>(`/api/issues/subs?${p}`)
   },
 
   fetchWingsTickets() {
