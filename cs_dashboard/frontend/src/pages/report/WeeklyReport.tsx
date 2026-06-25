@@ -22,8 +22,8 @@ import {
   api,
   type WeeklyReport as WeeklyReportType,
   type WeeklyDayCount,
-  type WeeklyMemosPage,
 } from '../../api/client'
+import CategoryMemoModal from '../../components/CategoryMemoModal'
 
 const NAVY = '#1e3c72'
 const NAVY2 = '#2a5298'
@@ -101,7 +101,7 @@ function DeltaBadge({ delta, unit, invert, deltaPct }: { delta: number | null | 
   const isPositive = delta > 0
   const color = invert
     ? (isPositive ? '#ef4444' : '#16a34a')
-    : (isPositive ? '#3b82f6' : '#f59e0b')
+    : '#f59e0b'
   const arrow = isPositive ? '↑' : '↓'
   return (
     <div style={{ fontSize: 13, color, fontWeight: 600, marginTop: 5 }}>
@@ -118,9 +118,11 @@ const SUB_RANK_COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', 
 function TwoWeekSubLineChart({
   data,
   prevData,
+  onChartClick,
 }: {
   data: Array<{ date: string } & Record<string, number>>
   prevData: Array<{ date: string } & Record<string, number>>
+  onChartClick?: (date: string | null, sub: string | null) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const chartRef = useRef<Chart | null>(null)
@@ -129,8 +131,8 @@ function TwoWeekSubLineChart({
     if (!canvasRef.current || data.length === 0 || prevData.length === 0) return
     chartRef.current?.destroy()
 
-    const PREV_LEN = prevData.length
-    const labels = [...prevData.map(d => fmtDate(d.date)), ...data.map(d => fmtDate(d.date))]
+    const allDates = [...prevData.map(d => d.date), ...data.map(d => d.date)]
+    const labels = allDates.map(d => fmtDate(d))
 
     const subs = Object.keys(data[0])
       .filter(k => k !== 'date')
@@ -153,14 +155,9 @@ function TwoWeekSubLineChart({
         tension: 0.3,
         borderColor: color,
         backgroundColor: 'transparent',
-        pointRadius: combined.map((_, idx) => idx >= PREV_LEN ? 4 : 2),
-        pointBackgroundColor: combined.map((_, idx) => idx >= PREV_LEN ? color : color + '55'),
-        segment: {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          borderWidth: () => 3.5,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          borderColor: (ctx: any) => ctx.p0DataIndex >= PREV_LEN ? color : color + '55',
-        },
+        pointRadius: 4,
+        pointBackgroundColor: color,
+        borderWidth: 3.5,
       }
     })
 
@@ -170,12 +167,19 @@ function TwoWeekSubLineChart({
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        layout: { padding: { left: 4, right: 4, bottom: 4 } },
         plugins: {
           legend: { position: 'top', labels: { boxWidth: 10, font: { size: 12 }, padding: 14 } },
         },
         scales: {
-          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 13 } } },
-          x: { grid: { display: false }, ticks: { font: { size: 13 } } },
+          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 13 }, padding: 10 } },
+          x: { grid: { display: false }, ticks: { font: { size: 13 }, padding: 10 } },
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        onClick: (_: unknown, elements: any[]) => {
+          const date = elements.length > 0 ? (allDates[elements[0].index] ?? null) : null
+          const sub = elements.length > 0 ? (datasets[elements[0].datasetIndex]?.label ?? null) : null
+          onChartClick?.(date, sub)
         },
       },
     })
@@ -199,8 +203,8 @@ function KpiCard({
       borderTop: `${isSecondary ? 3 : 5}px solid ${color}`,
     }}>
       <div style={{
-        fontSize: 11, fontWeight: 700, color: '#94a3b8',
-        textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8,
+        fontSize: 13, fontWeight: 700, color: '#94a3b8',
+        textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8,
       }}>
         {label}
       </div>
@@ -270,8 +274,8 @@ function DailyBar({ dailyCounts }: { dailyCounts: WeeklyDayCount[] }) {
           tooltip: { callbacks: { label: ctx => `${(ctx.raw as number).toLocaleString()}건` } },
         },
         scales: {
-          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 11 } } },
-          x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 13 }, padding: 10 } },
+          x: { grid: { display: false }, ticks: { font: { size: 13 }, padding: 10 } },
         },
       },
       plugins: [datalabels],
@@ -374,19 +378,10 @@ export default function WeeklyReport() {
   const [aiGenerating, setAiGenerating] = useState(false)
   const [notFound, setNotFound] = useState(false)
 
-  type MemoState = { open: boolean; page: number; sub: string; data: WeeklyMemosPage | null; loading: boolean }
-  const [memoStates, setMemoStates] = useState<Record<string, MemoState>>({})
-  const [analysisExpanded, setAnalysisExpanded] = useState<Set<string>>(new Set())
+  type ModalState = { main: string; dateStart: string; dateEnd: string; initialSubs?: string[]; fullDateStart?: string; fullDateEnd?: string }
   const [hiddenDonutItems, setHiddenDonutItems] = useState<Set<number>>(new Set())
   const [testPanelOpen, setTestPanelOpen] = useState(false)
-
-  function toggleAnalysis(main: string) {
-    setAnalysisExpanded(prev => {
-      const next = new Set(prev)
-      next.has(main) ? next.delete(main) : next.add(main)
-      return next
-    })
-  }
+  const [modalState, setModalState] = useState<ModalState | null>(null)
 
   // Chart.js 캔버스 및 인스턴스
   const sqiRef      = useRef<HTMLCanvasElement>(null)
@@ -426,31 +421,10 @@ export default function WeeklyReport() {
     })
   }
 
-  async function loadMemos(main: string, page: number, sub?: string) {
-    const curSub = sub ?? memoStates[main]?.sub ?? ''
-    setMemoStates(s => ({ ...s, [main]: { ...(s[main] ?? { open: true, data: null }), open: true, page, sub: curSub, loading: true } }))
-    try {
-      const data = await api.fetchWeeklyMemos(weekStart, main, page, curSub)
-      setMemoStates(s => ({ ...s, [main]: { ...s[main], data, loading: false } }))
-    } catch {
-      setMemoStates(s => ({ ...s, [main]: { ...s[main], loading: false } }))
-    }
-  }
-
-  function toggleMemos(main: string) {
-    const cur = memoStates[main]
-    if (cur?.open) {
-      setMemoStates(s => ({ ...s, [main]: { ...s[main], open: false } }))
-    } else {
-      loadMemos(main, cur?.page ?? 1, cur?.sub ?? '')
-    }
-  }
-
   async function loadReport() {
     setLoading(true)
     setReport(null)
     setNotFound(false)
-    setMemoStates({})
     try {
       const r = await api.fetchWeeklyReport(weekStart)
       setReport(r)
@@ -527,10 +501,14 @@ export default function WeeklyReport() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          tooltip: { callbacks: { label: (ctx: any) => `${ctx.parsed.y}%` } },
+        },
         scales: {
-          y: { beginAtZero: true, ticks: { callback: v => `${v}%`, font: { size: 12 } } },
-          x: { grid: { display: false }, ticks: { font: { size: 12 } } },
+          y: { beginAtZero: true, ticks: { callback: v => `${v}%`, font: { size: 13 }, padding: 10 } },
+          x: { grid: { display: false }, ticks: { font: { size: 13 }, padding: 10 } },
         },
       },
     })
@@ -568,6 +546,11 @@ export default function WeeklyReport() {
               },
             },
           },
+        },
+        onClick: (_: unknown, elements: any[]) => {
+          if (elements.length === 0) return
+          const idx = elements[0].index
+          setModalState({ main: sorted[idx].main, dateStart: r.week_start, dateEnd: r.week_end })
         },
       } as any,
     })
@@ -762,7 +745,7 @@ export default function WeeklyReport() {
                         key={cat.main}
                         onClick={() => toggleDonutItem(i)}
                         style={{
-                          display: 'flex', alignItems: 'center', gap: 5, fontSize: 11,
+                          display: 'flex', alignItems: 'center', gap: 5, fontSize: 12,
                           color: hidden ? '#cbd5e1' : '#374151',
                           cursor: 'pointer', userSelect: 'none',
                           textDecoration: hidden ? 'line-through' : 'none',
@@ -778,13 +761,18 @@ export default function WeeklyReport() {
               {/* 상위 유형 요약 */}
               <div style={{ paddingLeft: 8, borderLeft: '1px solid #f1f5f9' }}>
                 <h3 style={{ margin: '0 0 14px', fontSize: 20, fontWeight: 700, color: '#1e293b' }}>이번 주 주요 유형</h3>
-                {sortedBreakdown.filter(c => c.main !== '기타').slice(0, 3).map((cat, i) => {
+                {sortedBreakdown.filter(c => c.main !== '기타').slice(0, 3).map((cat, rank) => {
+                  const i = sortedBreakdown.findIndex(c => c.main === cat.main)
                   const pct = totalCatCount > 0 ? Math.round(cat.count / totalCatCount * 100) : 0
                   return (
-                    <div key={cat.main} style={{ marginBottom: 14 }}>
+                    <div
+                      key={cat.main}
+                      onClick={() => setModalState({ main: cat.main, dateStart: report.week_start, dateEnd: report.week_end })}
+                      style={{ marginBottom: 14, cursor: 'pointer' }}
+                    >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
                         <span style={{ fontSize: 15, color: '#374151' }}>
-                          <span style={{ color: '#94a3b8', fontWeight: 700, marginRight: 6 }}>{i + 1}</span>
+                          <span style={{ color: '#94a3b8', fontWeight: 700, marginRight: 6 }}>{rank + 1}</span>
                           {cat.main}
                         </span>
                         <span style={{ fontSize: 15, fontWeight: 700, color: PALETTE[i % PALETTE.length] }}>{pct}%</span>
@@ -817,12 +805,6 @@ export default function WeeklyReport() {
             </div>
             <div>
               {[...report.risk_rows].sort((a, b) => b.count - a.count).map((row) => {
-                  const ms = memoStates[row.main]
-                  const totalPages = ms?.data ? Math.ceil(ms.data.total / ms.data.page_size) : 1
-                  const isExpanded = analysisExpanded.has(row.main)
-                  const preview = row.summary && row.summary.length > 100
-                    ? row.summary.slice(0, 100) + '…'
-                    : row.summary
                   const cardTopSub = (() => {
                     const days = report.risk_sub_stack?.[row.main]
                     if (!days) return null
@@ -851,41 +833,38 @@ export default function WeeklyReport() {
                           </span>
                         </div>
                         {cardTopSub && (
-                          <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                          <div style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>
                             이번 주 주요 세부 유형: <strong style={{ color: '#475569' }}>{cardTopSub}</strong>
                           </div>
                         )}
                       </div>
                       <div style={{ padding: '14px 16px' }}>
-                      {report.risk_sub_stack?.[row.main] && report.risk_sub_stack_prev?.[row.main] && (
-                        <div style={{ marginBottom: 14, padding: '12px 0', borderTop: '1px dashed #e2e8f0' }}>
-                          <div style={{ height: 220, position: 'relative' }}>
-                            <TwoWeekSubLineChart
-                              data={report.risk_sub_stack[row.main]}
-                              prevData={report.risk_sub_stack_prev[row.main]}
-                            />
+                      {report.risk_sub_stack?.[row.main] && report.risk_sub_stack_prev?.[row.main] && (() => {
+                        const prevStack = report.risk_sub_stack_prev[row.main]
+                        const curStack  = report.risk_sub_stack[row.main]
+                        const chartStart = prevStack[0]?.date ?? report.week_start
+                        const chartEnd   = curStack[curStack.length - 1]?.date ?? report.week_end
+                        return (
+                          <div style={{ marginBottom: 14, padding: '12px 0', borderTop: '1px dashed #e2e8f0' }}>
+                            <div style={{ height: 220, position: 'relative' }}>
+                              <TwoWeekSubLineChart
+                                data={curStack}
+                                prevData={prevStack}
+                                onChartClick={(date, sub) => { if (!date) return; setModalState({ main: row.main, dateStart: date, dateEnd: date, initialSubs: sub ? [sub] : undefined, fullDateStart: chartStart, fullDateEnd: chartEnd }) }}
+                              />
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )
+                      })()}
                       {row.summary
-                        ? <>
-                            <div style={{
+                        ? <div style={{
                               fontSize: 13, color: '#374151', lineHeight: 1.7,
                               background: '#f0f4fb', borderRadius: 6,
                               padding: '7px 12px', borderLeft: `3px solid ${NAVY}`,
                               marginBottom: 8, whiteSpace: 'pre-line',
                             }}>
-                              {isExpanded ? row.summary : preview}
-                            </div>
-                            {row.summary.length > 100 && (
-                              <button
-                                onClick={() => toggleAnalysis(row.main)}
-                                style={{ fontSize: 11, color: '#64748b', background: 'none', border: 'none', padding: 0, cursor: 'pointer', marginBottom: 6 }}
-                              >
-                                {isExpanded ? '▴ 접기' : '▾ 상세 보기'}
-                              </button>
-                            )}
-                          </>
+                            {row.summary}
+                          </div>
                         : <p style={{ margin: '0 0 8px', fontSize: 13 }}>
                             {aiGenerating
                               ? <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</span>
@@ -893,78 +872,22 @@ export default function WeeklyReport() {
                             }
                           </p>
                       }
-                      {/* 메모 토글 */}
                       <button
-                        onClick={() => toggleMemos(row.main)}
+                        onClick={() => {
+                          const prevStack = report.risk_sub_stack_prev?.[row.main]
+                          const curStack  = report.risk_sub_stack?.[row.main]
+                          const chartStart = prevStack?.[0]?.date ?? report.week_start
+                          const chartEnd   = curStack?.[curStack.length - 1]?.date ?? report.week_end
+                          setModalState({ main: row.main, dateStart: chartStart, dateEnd: chartEnd, fullDateStart: chartStart, fullDateEnd: chartEnd })
+                        }}
                         style={{
-                          fontSize: 11, color: '#64748b', background: 'none',
+                          fontSize: 12, color: '#64748b', background: 'none',
                           border: '1px solid #e2e8f0', borderRadius: 5,
-                          padding: '3px 10px', cursor: 'pointer',
+                          padding: '4px 14px', cursor: 'pointer',
                         }}
                       >
-                        {ms?.open ? '메모 접기 ▴' : '메모 보기 ▾'}
+                        전체 메모 보기
                       </button>
-                      {ms?.open && (
-                        <div style={{ marginTop: 10 }}>
-                          {(() => {
-                            const subOptions = report.risk_sub_stack?.[row.main]?.length
-                              ? Object.keys(report.risk_sub_stack[row.main][0]).filter(k => k !== 'date')
-                              : []
-                            return subOptions.length > 0 ? (
-                              <div style={{ marginBottom: 8 }}>
-                                <select
-                                  value={ms.sub ?? ''}
-                                  onChange={e => loadMemos(row.main, 1, e.target.value)}
-                                  style={{
-                                    padding: '4px 10px', fontSize: 12, border: '1px solid #e2e8f0',
-                                    borderRadius: 6, background: '#fff', color: '#374151', cursor: 'pointer',
-                                  }}
-                                >
-                                  <option value="">전체 소분류</option>
-                                  {subOptions.map(s => <option key={s} value={s}>{s}</option>)}
-                                </select>
-                              </div>
-                            ) : null
-                          })()}
-                          {ms.loading
-                            ? <div style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0' }}>조회 중...</div>
-                            : ms.data && ms.data.memos.length > 0
-                              ? <>
-                                  {ms.data.memos.map((m, mi) => (
-                                    <div key={mi} style={{
-                                      display: 'flex', gap: 8, alignItems: 'baseline',
-                                      padding: '5px 0', borderBottom: '1px solid #f8fafc',
-                                      fontSize: 12,
-                                    }}>
-                                      <span style={{ color: '#94a3b8', whiteSpace: 'nowrap', minWidth: 70 }}>{fmtDate(m.date)}</span>
-                                      <span style={{
-                                        color: '#475569', background: '#f1f5f9',
-                                        borderRadius: 4, padding: '1px 6px',
-                                        whiteSpace: 'nowrap', fontSize: 11,
-                                      }}>{m.sub}</span>
-                                      <span style={{ color: '#374151', lineHeight: 1.5, whiteSpace: 'pre-line' }}>
-                                        {m.text}
-                                      </span>
-                                    </div>
-                                  ))}
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12, color: '#64748b' }}>
-                                    <button
-                                      disabled={ms.page <= 1}
-                                      onClick={() => loadMemos(row.main, ms.page - 1)}
-                                      style={{ border: '1px solid #e2e8f0', borderRadius: 4, padding: '2px 8px', background: '#fff', cursor: ms.page <= 1 ? 'default' : 'pointer', color: ms.page <= 1 ? '#cbd5e1' : '#374151' }}
-                                    >이전</button>
-                                    <span>{ms.page} / {totalPages} 페이지 (총 {ms.data.total}건)</span>
-                                    <button
-                                      disabled={ms.page >= totalPages}
-                                      onClick={() => loadMemos(row.main, ms.page + 1)}
-                                      style={{ border: '1px solid #e2e8f0', borderRadius: 4, padding: '2px 8px', background: '#fff', cursor: ms.page >= totalPages ? 'default' : 'pointer', color: ms.page >= totalPages ? '#cbd5e1' : '#374151' }}
-                                    >다음</button>
-                                  </div>
-                                </>
-                              : <div style={{ fontSize: 12, color: '#94a3b8', padding: '8px 0' }}>메모 없음</div>
-                          }
-                        </div>
-                      )}
                       </div>
                     </div>
                   )
@@ -1026,6 +949,18 @@ export default function WeeklyReport() {
             )}
           </div>
         </>
+      )}
+
+      {modalState && (
+        <CategoryMemoModal
+          categoryMain={modalState.main}
+          dateStart={modalState.dateStart}
+          dateEnd={modalState.dateEnd}
+          initialSubs={modalState.initialSubs}
+          fullDateStart={modalState.fullDateStart}
+          fullDateEnd={modalState.fullDateEnd}
+          onClose={() => setModalState(null)}
+        />
       )}
     </div>
   )

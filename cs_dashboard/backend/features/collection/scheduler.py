@@ -230,10 +230,13 @@ def _register_jobs(scheduler: AsyncIOScheduler) -> None:
     scheduler.add_job(_generate_last_week_report, "cron", day_of_week="mon", hour=0, minute=30)
 
     if COLLECTION_ENABLED:
-        # 업무시간 증분 수집: 09:00~20:30 30분 간격
+        # 업무시간 증분 수집: 09:00~21:00, 30분 간격 (25회)
         scheduler.add_job(collect_today, "cron", hour="9-20", minute="0,30")
-        # 자정: 전날 21~24시 신규분 + 어제치 전량 보정 + 인사이트 캐시 갱신
+        scheduler.add_job(collect_today, "cron", hour=21, minute=0)
+        # 자정: 21시 이후 유입분 수집 (1회)
         scheduler.add_job(collect_today, "cron", hour=0, minute=0)
+        # 업무 시작 전: 자정~오전 유입분 수집 (1회)
+        scheduler.add_job(collect_today, "cron", hour=8, minute=30)
     else:
         print("[scheduler] COLLECTION_ENABLED=False — 자동 수집/API 호출 비활성화됨")
 
