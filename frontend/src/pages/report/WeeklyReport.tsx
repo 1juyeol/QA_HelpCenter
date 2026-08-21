@@ -17,6 +17,7 @@
 //       Chart.js (SQI 라인, 도넛, 리스크 스택 바)
 
 import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import Chart from 'chart.js/auto'
 import {
   api,
@@ -372,7 +373,12 @@ function WeeklyTestPanel({
 
 export default function WeeklyReport() {
   const mondays = getRecentMondays()
-  const [weekStart, setWeekStart] = useState(mondays[1])   // 기본: 직전 주
+  const [searchParams] = useSearchParams()
+  // 감사 로그의 "보고서 보기" 링크(?week_start=)로 들어온 경우 그 주를 바로 보여준다.
+  const [weekStart, setWeekStart] = useState(() => searchParams.get('week_start') ?? mondays[1])   // 기본: 직전 주
+  // 감사 로그의 "보고서 보기" 링크(?highlight=)로 들어온 경우 해당 카테고리/구간으로 스크롤한다.
+  const [highlightTarget] = useState(() => searchParams.get('highlight'))
+  const hasScrolledToHighlight = useRef(false)
   const [report, setReport] = useState<WeeklyReportType | null>(null)
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -393,6 +399,18 @@ export default function WeeklyReport() {
   useEffect(() => {
     loadReport()
   }, [weekStart])
+
+  useEffect(() => {
+    if (!highlightTarget || !report || hasScrolledToHighlight.current) return
+    const targetId = highlightTarget === '__summary__' ? 'summary-section' : `risk-row-${highlightTarget}`
+    const el = document.getElementById(targetId)
+    if (!el) return
+    hasScrolledToHighlight.current = true
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.style.outline = '3px solid #ef4444'
+    el.style.outlineOffset = '2px'
+    setTimeout(() => { el.style.outline = ''; el.style.outlineOffset = '' }, 2500)
+  }, [highlightTarget, report])
 
   // 언마운트 시 차트 정리
   useEffect(() => () => {
@@ -816,7 +834,7 @@ export default function WeeklyReport() {
                     return Object.entries(totals).sort(([, a], [, b]) => b - a)[0]?.[0] ?? null
                   })()
                   return (
-                    <div key={row.main} style={{
+                    <div key={row.main} id={`risk-row-${row.main}`} style={{
                       background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0',
                       marginBottom: 12, overflow: 'hidden',
                     }}>
@@ -904,7 +922,7 @@ export default function WeeklyReport() {
           )}
 
           {/* 주간 종합 분석 (전체 폭) */}
-          <div className="section-card">
+          <div className="section-card" id="summary-section">
             <div style={{
               display: 'flex', alignItems: 'center', gap: 10,
               marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',

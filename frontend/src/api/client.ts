@@ -507,6 +507,10 @@ export const api = {
     )
   },
 
+  retryDailyReportFailed(date: string) {
+    return post<DailyReport>(`/api/report/daily/retry-failed?date=${date}`)
+  },
+
   fetchWeeklyReport(weekStart: string) {
     return get<WeeklyReport>(`/api/report/weekly?week_start=${weekStart}`)
   },

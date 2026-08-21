@@ -17,9 +17,42 @@
 // 계정 시스템이 없어 "누가" 했는지는 안 남고 "언제·무엇을·수동인지 자동인지"만 남는다.
 // 요청에 따라 담당자/캠페인 컬럼, 엑셀 내보내기는 넣지 않았다.
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api, type AuditLogEntry } from '../../api/client'
 import { useAdmin } from '../../hooks/useAdmin'
 import Badge from '../../components/Badge'
+
+// 보고서 관련 액션의 detail에서 날짜를 뽑아 해당 보고서 화면 링크를 만든다.
+// "Gemma 응답 파싱 실패" 같은 실패 기록을 눌러서 바로 그 보고서의 실패한 카테고리/구간
+// 위치로 스크롤 이동할 수 있게 highlight 파라미터를 같이 붙인다 (report 페이지가 읽어서
+// 해당 DOM에 scrollIntoView + 강조 표시를 한다).
+export function getReportLink(action: string, detail: string): string | null {
+  if (action.startsWith('daily_report_')) {
+    const m = detail.match(/date=(\d{4}-\d{2}-\d{2})/)
+    if (!m) return null
+    let url = `/report/daily?date=${m[1]}`
+    if (action === 'daily_report_analyze_category') {
+      const main = detail.match(/main=([^,]+)/)
+      if (main) url += `&highlight=${encodeURIComponent(main[1].trim())}`
+    } else if (action === 'daily_report_analyze_peak') {
+      url += '&highlight=__peak__'
+    }
+    return url
+  }
+  if (action.startsWith('weekly_report_')) {
+    const m = detail.match(/week_start=(\d{4}-\d{2}-\d{2})/)
+    if (!m) return null
+    let url = `/report/weekly?week_start=${m[1]}`
+    if (action === 'weekly_report_analyze_category') {
+      const main = detail.match(/main=([^,]+)/)
+      if (main) url += `&highlight=${encodeURIComponent(main[1].trim())}`
+    } else if (action === 'weekly_report_analyze_summary') {
+      url += '&highlight=__summary__'
+    }
+    return url
+  }
+  return null
+}
 
 type Category = 'auth' | 'collection' | 'settings' | 'report'
 
@@ -35,6 +68,7 @@ const ACTION_LABEL: Record<string, string> = {
   daily_report_generate_stats: '일별 보고서 통계 생성',
   daily_report_analyze_category: '일별 보고서 카테고리 분석',
   daily_report_analyze_peak: '일별 보고서 피크타임 분석',
+  daily_report_manual_generate: '일별 보고서 수동 생성 완료',
   daily_report_auto_generate: '일별 보고서 자동 생성',
   daily_report_auto_generate_failed: '일별 보고서 자동 생성 실패',
   weekly_report_generate_stats: '주간 보고서 통계 생성',
@@ -57,6 +91,7 @@ const ACTION_CATEGORY: Record<string, Category> = {
   daily_report_generate_stats: 'report',
   daily_report_analyze_category: 'report',
   daily_report_analyze_peak: 'report',
+  daily_report_manual_generate: 'report',
   daily_report_auto_generate: 'report',
   daily_report_auto_generate_failed: 'report',
   weekly_report_generate_stats: 'report',
@@ -93,6 +128,35 @@ function ModeBadge({ mode }: { mode: string }) {
     <Badge color={isAuto ? '#fde68a' : '#e2e8f0'} textColor={isAuto ? '#0f172a' : '#475569'}>
       {isAuto ? '자동' : '수동'}
     </Badge>
+  )
+}
+
+// detail 문자열에서 "status=failed"와 "error=..." 부분만 빨간 볼드로 강조한다.
+// error 메시지 자체에 쉼표가 들어있을 수 있어서(describe_gemma_failure의 응답 미리보기 등),
+// ", error="를 기준으로 앞부분(쉼표 구분 나열)과 뒷부분(에러 메시지 전체)을 먼저 나눈다.
+const FAIL_STYLE = { color: '#ef4444', fontWeight: 700 } as const
+
+function renderDetail(detail: string) {
+  const errorIdx = detail.indexOf(', error=')
+  const before = errorIdx === -1 ? detail : detail.slice(0, errorIdx)
+  const errorPart = errorIdx === -1 ? null : detail.slice(errorIdx + 2)
+  const beforeParts = before.split(', ')
+
+  return (
+    <>
+      {beforeParts.map((part, i) => (
+        <span key={i}>
+          {i > 0 && ', '}
+          <span style={part === 'status=failed' ? FAIL_STYLE : undefined}>{part}</span>
+        </span>
+      ))}
+      {errorPart && (
+        <>
+          {', '}
+          <span style={FAIL_STYLE}>{errorPart}</span>
+        </>
+      )}
+    </>
   )
 }
 
@@ -188,29 +252,42 @@ export default function AuditLog() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: 13, color: '#94a3b8' }}>{filtered.length}건 (전체 {entries.length}건)</div>
-          {filtered.map(e => (
-            <div
-              key={e.id}
-              style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                gap: 12, padding: '10px 14px', background: '#f8fafc', borderRadius: 8,
-              }}
-            >
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <CategoryBadge action={e.action} />
-                  <ModeBadge mode={e.mode} />
-                  <span style={{ fontSize: 15, fontWeight: 600, color: '#1e293b' }}>
-                    {ACTION_LABEL[e.action] ?? e.action}
-                  </span>
+          {filtered.map(e => {
+            const link = e.detail ? getReportLink(e.action, e.detail) : null
+            return (
+              <div
+                key={e.id}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+                  gap: 12, padding: '10px 14px', background: '#f8fafc', borderRadius: 8,
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <CategoryBadge action={e.action} />
+                    <ModeBadge mode={e.mode} />
+                    <span style={{ fontSize: 15, fontWeight: 600, color: '#1e293b' }}>
+                      {ACTION_LABEL[e.action] ?? e.action}
+                    </span>
+                  </div>
+                  {e.detail && (
+                    <div style={{ fontSize: 13, color: '#94a3b8' }}>
+                      {renderDetail(e.detail)}
+                      {link && (
+                        <>
+                          {' · '}
+                          <Link to={link} style={{ color: '#1a56db', fontWeight: 600, textDecoration: 'none' }}>
+                            {link.includes('&highlight=') ? '해당 위치 바로 보기 →' : '보고서 보기 →'}
+                          </Link>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {e.detail && (
-                  <div style={{ fontSize: 13, color: '#94a3b8' }}>{e.detail}</div>
-                )}
+                <span style={{ fontSize: 13, color: '#64748b', whiteSpace: 'nowrap' }}>{e.created_at}</span>
               </div>
-              <span style={{ fontSize: 13, color: '#64748b', whiteSpace: 'nowrap' }}>{e.created_at}</span>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

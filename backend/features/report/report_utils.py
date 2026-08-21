@@ -10,6 +10,11 @@
 # Gemma 공통 프롬프트:
 #   _SYSTEM_CATEGORY : 카테고리별 2문장 분석 시스템 프롬프트 (일별·주간 공용)
 #
+# describe_gemma_failure(): Gemma 응답에서 JSON을 못 뽑았을 때의 gemma_error 문자열을 만든다.
+#   예전엔 "Gemma 응답 파싱 실패 또는 빈 응답"이라고만 남아서, 진짜 빈 응답이었는지 응답은
+#   왔는데 내용이 이상했는지(예: 코드블록 기호 3글자만 옴) 서버 로그를 직접 봐야만 알 수
+#   있었다. 응답 길이·앞부분 미리보기를 메시지에 바로 담아 감사 로그만 봐도 알 수 있게 한다.
+#
 # 프론트엔드 categories.ts의 ALLOWED_MAIN + ALLOWED_SPECIFIC와 동일하게 유지해야 한다.
 
 INSUFFICIENT_SUMMARY = "구체적 증상 데이터가 충분하지 않아 분석에서 제외되었습니다."
@@ -32,6 +37,15 @@ def _is_risk(main: str, sub: str) -> bool:
     if main in RISK_MAIN:
         return True
     return f"{main} > {sub}" in RISK_SPECIFIC
+
+
+def describe_gemma_failure(raw: str) -> str:
+    """Gemma가 호출은 성공했는데 응답에서 JSON을 못 찾았을 때(parse_json_response가 None)
+    쓰는 gemma_error 메시지. 빈 응답과 "응답은 왔는데 내용이 이상함"을 구분해서 보여준다."""
+    if not raw:
+        return "Gemma 응답 없음 (빈 응답)"
+    preview = " ".join(raw.split())[:80]
+    return f'Gemma 응답에서 JSON을 찾지 못함 ({len(raw)}자: "{preview}")'
 
 
 # 카테고리별 2문장 분석 시스템 프롬프트 — 일별(daily_client)과 주간(weekly_client) 공용

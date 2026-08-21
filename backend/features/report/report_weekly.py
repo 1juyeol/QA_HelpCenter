@@ -28,7 +28,7 @@ from features.issues.classifier import extract_symptom_fields
 from features.report.report_utils import (
     INSUFFICIENT_SUMMARY, _MIN_ANALYSIS_MEMOS,
     _MAIN_ORDER, _is_risk, _SYSTEM_CATEGORY,
-    RISK_MAIN, RISK_SPECIFIC,
+    RISK_MAIN, RISK_SPECIFIC, describe_gemma_failure,
 )
 
 # ── Gemma 프롬프트 (주간 전용) ───────────────────────────────────────────────
@@ -366,7 +366,7 @@ async def _call_gemma_weekly_risk(week_range: str, risk_rows: list, week_start: 
                 row["gemma_error"] = None
             else:
                 row["summary"] = ""
-                row["gemma_error"] = "Gemma 응답 파싱 실패 또는 빈 응답"
+                row["gemma_error"] = describe_gemma_failure(raw)
                 print(f"[Gemma Weekly Risk - {row['main']}] {row['gemma_error']}")
         except Exception as e:
             row["summary"] = ""
@@ -412,7 +412,7 @@ async def _call_gemma_weekly_summary(stats: dict) -> tuple[str, str | None]:
         result = parse_json_response(raw)
         if result and result.get("summary"):
             return result["summary"], None
-        return "", "Gemma 응답 파싱 실패 또는 빈 응답"
+        return "", describe_gemma_failure(raw)
     except Exception as e:
         print(f"[Gemma Weekly Summary] 실패 (건너뜀): {e}")
         return "", str(e)
