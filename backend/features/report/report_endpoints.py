@@ -6,6 +6,7 @@
 # POST /api/report/daily/analyze-category?date=&main=        : 특정 대분류 Gemma 분석 후 DB 저장.
 # POST /api/report/daily/analyze-peak?date=                  : 피크타임 최다 버킷 Gemma 분석 후 DB 저장.
 # POST /api/report/daily/generate-complete?date=&failed=      : 수동 생성 완료 요약 로그 한 줄 (프론트가 순차 호출 끝나고 호출).
+# POST /api/report/daily/retry-failed?date=                   : 저장된 보고서에서 gemma_error 남은 항목만 즉시 재시도.
 # GET  /api/report/weekly?week_start=YYYY-MM-DD              : 저장된 주간 보고서 반환. 없으면 404.
 # POST /api/report/weekly/generate-stats?week_start=YYYY-MM-DD : 통계만 생성 (1단계).
 # POST /api/report/weekly/generate?week_start=YYYY-MM-DD     : 통계 + AI 분석 전체 생성 (2단계).
@@ -15,7 +16,10 @@
 # generate-stats → generate 순서로 호출해 차트를 먼저 렌더링하고 AI 분석을 나중에 채운다.
 
 from fastapi import APIRouter, HTTPException, Query
-from features.report.report_daily import generate_report_stats, get_report, analyze_single_category, analyze_peak_bucket
+from features.report.report_daily import (
+    generate_report_stats, get_report, analyze_single_category, analyze_peak_bucket,
+    has_gemma_failures, retry_failed_analyses,
+)
 from features.report.report_weekly import (
     generate_weekly_report, generate_weekly_report_stats,
     get_weekly_report, get_latest_weekly_report, get_weekly_risk_memos,
@@ -82,6 +86,30 @@ def daily_report_generate_complete(
         detail += f", gemma_failed={failed}"
     log_action("daily_report_manual_generate", detail)
     return {"status": "ok"}
+
+
+@router.post("/api/report/daily/retry-failed")
+async def retry_daily_report_failed(date: str = Query(..., description="YYYY-MM-DD")):
+    """저장된 보고서에서 gemma_error가 남은 항목(카테고리·피크타임·이상시간대)만 즉시 재시도한다.
+    자동 생성(scheduler.py)은 5분 간격으로 이걸 최대 2번 부르고, 사람이 기다리는 수동 생성은
+    화면에서 한 번 더 이걸 즉시(대기 없이) 불러 실패한 것만 다시 채운다."""
+    content = get_report(date)
+    if content is None:
+        raise HTTPException(status_code=404, detail="보고서 없음")
+    if not has_gemma_failures(content):
+        return content
+    content = await retry_failed_analyses(date, content)
+
+    failed = [r["main"] for r in content.get("risk_rows", []) if r.get("gemma_error")]
+    if content.get("peak_bucket") and content["peak_bucket"].get("gemma_error"):
+        failed.append("피크타임")
+    if content.get("anomaly_bucket") and content["anomaly_bucket"].get("gemma_error"):
+        failed.append("이상시간대")
+    detail = f"date={date}"
+    if failed:
+        detail += f", gemma_failed={','.join(failed)}"
+    log_action("daily_report_retry_failed", detail)
+    return content
 
 
 @router.get("/api/report/weekly/latest")

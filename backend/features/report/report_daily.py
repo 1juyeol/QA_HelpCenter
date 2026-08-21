@@ -33,7 +33,7 @@ from core.gemma_client import call_gemma, parse_json_response
 from features.issues.classifier import extract_symptom_fields, RULES, SUB_TO_MAIN
 from features.report.report_utils import (
     INSUFFICIENT_SUMMARY, _MIN_ANALYSIS_MEMOS,
-    _MAIN_ORDER, _is_risk, _SYSTEM_CATEGORY,
+    _MAIN_ORDER, _is_risk, _SYSTEM_CATEGORY, describe_gemma_failure,
 )
 
 # "해지요청사유 :아이흥미없음" 또는 "해지사유 콘텐츠불만" 형태에서 사유 추출
@@ -352,7 +352,7 @@ async def _call_gemma_category_insights(date_str: str, risk_rows: list) -> None:
                 row["gemma_error"] = None
             else:
                 row["summary"] = ""
-                row["gemma_error"] = "Gemma 응답 파싱 실패 또는 빈 응답"
+                row["gemma_error"] = describe_gemma_failure(raw)
                 print(f"[Gemma Daily Cat - {cat_label}] {row['gemma_error']}")
         except Exception as e:
             row["summary"] = ""
@@ -392,7 +392,7 @@ async def _run_bucket_gemma(label: str, prompt: str, base: dict) -> dict:
         return {**base, "gemma_error": str(e)}
 
     if not result:
-        return {**base, "gemma_error": "Gemma 응답 파싱 실패 또는 빈 응답"}
+        return {**base, "gemma_error": describe_gemma_failure(raw)}
 
     pattern = result.get("pattern", "")
     return {
@@ -628,7 +628,7 @@ async def analyze_peak_bucket(date_str: str) -> dict:
                 result_pattern = parsed.get("pattern", "")
                 result_summary = parsed["summary"]
             else:
-                gemma_error = "Gemma 응답 파싱 실패 또는 빈 응답"
+                gemma_error = describe_gemma_failure(raw)
         except Exception as e:
             gemma_error = str(e)
             print(f"[Gemma Peak Test] 실패: {e}")

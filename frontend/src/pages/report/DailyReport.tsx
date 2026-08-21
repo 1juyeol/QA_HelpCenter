@@ -276,7 +276,7 @@ function RiskBarChart({ rows, onBarClick }: {
 
 function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boolean }) {
   return (
-    <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', marginBottom: 12, overflow: 'hidden' }}>
+    <div id={`risk-row-${row.main}`} style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', marginBottom: 12, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
         <span style={{ fontSize: 12, color: '#94a3b8' }}>{row.main}</span>
         <span style={{ fontSize: 12, color: '#cbd5e1' }}>›</span>
@@ -537,6 +537,10 @@ function showReportNotification(data: DailyReport, targetUrl: string) {
 export default function DailyReport() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [date, setDate] = useState(() => searchParams.get('date') ?? yesterday())
+  // 감사 로그의 "보고서 보기" 링크(?highlight=)로 들어온 경우 해당 카테고리/구간으로 스크롤한다.
+  // date만 남기고 URL을 정리하는 아래 setSearchParams 호출 전에 값을 미리 떼어 state로 들고 있는다.
+  const [highlightTarget] = useState(() => searchParams.get('highlight'))
+  const hasScrolledToHighlight = useRef(false)
   const [report, setReport] = useState<DailyReport | null>(null)
   const [peakBuckets, setPeakBuckets] = useState<BucketRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -551,6 +555,18 @@ export default function DailyReport() {
     setSearchParams({ date }, { replace: true })
     loadReport(date)
   }, [date])
+
+  useEffect(() => {
+    if (!highlightTarget || !report || hasScrolledToHighlight.current) return
+    const targetId = highlightTarget === '__peak__' ? 'peak-section' : `risk-row-${highlightTarget}`
+    const el = document.getElementById(targetId)
+    if (!el) return
+    hasScrolledToHighlight.current = true
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.style.outline = `3px solid ${RISK_RED}`
+    el.style.outlineOffset = '2px'
+    setTimeout(() => { el.style.outline = ''; el.style.outlineOffset = '' }, 2500)
+  }, [highlightTarget, report])
 
   async function loadReport(d: string) {
     setLoading(true)
@@ -612,8 +628,26 @@ export default function DailyReport() {
         failedNames.push('피크타임')
         console.error('[AI] 피크타임 분석 실패', e)
       }
+
+      // 3단계: 실패한 것만 즉시 한 번 더 재시도. 자동 생성(새벽)은 5분 간격으로 최대 2번 재시도하지만,
+      // 여기는 사람이 화면 보며 기다리는 중이라 대기 없이 한 번만 바로 다시 시도한다.
+      let finalFailedNames = failedNames
+      if (failedNames.length > 0) {
+        try {
+          const retried = await api.retryDailyReportFailed(date)
+          setReport(retried)
+          finalFailedNames = [
+            ...retried.risk_rows.filter(r => r.gemma_error).map(r => r.main),
+            ...(retried.peak_bucket?.gemma_error ? ['피크타임'] : []),
+            ...(retried.anomaly_bucket?.gemma_error ? ['이상시간대'] : []),
+          ]
+        } catch (e) {
+          console.error('[AI] 실패 항목 재시도 실패', e)
+        }
+      }
+
       try {
-        await api.logDailyReportComplete(date, failedNames)
+        await api.logDailyReportComplete(date, finalFailedNames)
       } catch (e) {
         console.error('[AI] 생성 완료 로그 기록 실패', e)
       }
@@ -777,7 +811,7 @@ export default function DailyReport() {
           </div>
 
           {/* 피크타임 특이사항 */}
-          <div className="section-card">
+          <div className="section-card" id="peak-section">
             <div style={{
               display: 'flex', alignItems: 'center', gap: 10,
               marginBottom: 6, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
@@ -842,7 +876,7 @@ export default function DailyReport() {
           </div>
 
           {report.anomaly_bucket && (
-            <div className="section-card">
+            <div className="section-card" id="anomaly-section">
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 10,
                 marginBottom: 6, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
