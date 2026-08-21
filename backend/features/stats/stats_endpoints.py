@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # 통계 집계 API 라우터 (10개 엔드포인트). 모두 GET 요청이며 쿼리 파라미터로 기간을 지정한다.
 # hourly_range       : 날짜 범위의 30분 버킷별 건수 반환 — 차트 X축 26개 버킷 고정 출력.
 # daily              : 일별 건수 (period=day/week/month).

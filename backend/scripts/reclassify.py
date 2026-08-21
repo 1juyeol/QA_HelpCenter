@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # 전체 이슈 재분류 스크립트 (정책 4: 분류 규칙 변경 후 전체 재적용).
 # issues 테이블의 모든 행에 classifier.py의 최신 RULES를 다시 적용한다.
 # 실행 방법: cd backend && python scripts/reclassify.py

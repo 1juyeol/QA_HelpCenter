@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # 인사이트 집계 순수 계산 함수. DB를 직접 조회해 집계 결과를 반환하며, 저장은 insights_cache.py가 담당한다.
 # compute_wings_tickets : call_memo에서 Wings 티켓 URL을 정규식으로 추출해 동일 티켓 ID에 연결된 CS 건을
 #   집계한다. 2건 이상 언급된 티켓만 반환 — 다수 고객에게 영향을 주는 미처리 티켓을 찾는 것이 목적이다.

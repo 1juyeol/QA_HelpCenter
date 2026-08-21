@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # features/stats/stats_endpoints.py의 compute_keyword_trend 순수 함수 유닛 테스트.
 # compute_keyword_trend: 집계된 단어 빈도(this_week_counts / prior_counts)로
 #   이번 주 급증 키워드 TOP 10을 계산하는 순수 함수. DB·형태소 분석과 분리되어 있어

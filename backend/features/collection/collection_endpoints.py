@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # 수집 이력·on/off 제어 API 라우터 (6개 엔드포인트).
 # GET  /api/collection/latest      : collection_log 테이블에서 가장 최근 수집 기록 1건을 반환한다.
 #   헤더에 표시되는 "마지막 수집: HH:MM" 텍스트의 데이터 소스이며, App.tsx에서 60초마다 폴링한다.
