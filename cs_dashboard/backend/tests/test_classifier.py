@@ -178,3 +178,54 @@ class TestPriorityRegression:
         assert classify("와이파이 연결이 안됨")[0] == "네트워크·앱 오류"
         assert classify("위약금 문의 주심")[1] == "해지금·위약금 문의"
         assert classify("") == (None, None)
+
+
+class TestOverbroadKeywordFix:
+    # 2026-08-20 오분류 신고 회귀 테스트 — "인증번호"/"캐시삭제"/"재회수" 키워드가
+    # 너무 일반적이어서 무관한 상담이 앱 오류·기기 장기미회수로 잘못 분류되던 문제 수정.
+
+    def test_card_change_auth_code_not_app_error(self):
+        # 결제카드 변경 중 휴대폰 인증번호 오류 — "인증번호" 키워드로 앱 오류가 잘못 매칭되던 케이스
+        memo = (
+            "결제카드 변경시 휴대폰 인증번호 오류로 변경이 되지 않는다며 직접 변경요청. "
+            "개인정보보로로 카드번호 받을수 없음 안내 ARS 문자발송 *후속관리 : 미진행"
+        )
+        main, sub = classify(memo)
+        assert main == "미납·결제"
+        assert sub == "결제·환불 처리"
+
+    def test_internet_speed_test_device_swap_not_app_error(self):
+        # 인터넷 속도측정 후 캐시삭제 언급 — "캐시삭제" 키워드로 앱 오류가 잘못 매칭되던 케이스
+        # 실제로는 기기교체요청 건이므로 기기·하드웨어 오류로 분류되어야 함
+        memo = (
+            "*인터넷 속도측정 - 다운로드 : 19.45 /16.80 - 업로드 : /31.45 /47.17 "
+            "- 지연시간 : 0 /O - 손실률 : 100 - 속도 측정후 캐시삭제 "
+            "- 통신사 회신점검 안내드리니 공유기도 재 설치했다고 함 - 기기교체요청 - *후속관리 : 미진행"
+        )
+        main, sub = classify(memo)
+        assert (main, sub) == ("기기·하드웨어 오류", "기기 교체 요청")
+
+    def test_book_recollection_not_device_long_uncollected(self):
+        # 도서 재회수 요청 — "재회수" 키워드로 기기 장기미회수가 잘못 매칭되던 케이스
+        # 회수 요청 자체는 배송·회수 처리로 분류되어야 함 (대분류는 교재·물류·배송으로 동일)
+        memo = "5개월 차 도서 재회수 요청 *후속관리 : 미진행"
+        main, sub = classify(memo)
+        assert main == "교재·물류·배송"
+        assert sub != "기기 장기미회수"
+
+    def test_device_recollection_still_long_uncollected(self):
+        # "재회수"를 통째로 지우면 진짜 학습기 재회수 건까지 기타로 떨어지는 회귀가 있었음.
+        # "학습기 재회수"/"기기 재회수"처럼 기기 단어가 붙은 구문은 계속 기기 장기미회수로 잡혀야 함
+        memo = "종료 회원 학습기 재회수 접수 요청 / 자마드 전달 / *후속관리 : 미진행"
+        main, sub = classify(memo)
+        assert (main, sub) == ("교재·물류·배송", "기기 장기미회수")
+
+    def test_haeji_yocheong_sayu_field_not_stripped(self):
+        # *해지요청 사유 : <내용> 필드가 _META_FIELD 정규식에 걸려 라벨·내용이 통째로
+        # 삭제되면서 기타로 떨어지던 문제. "해지요청" 키워드는 보존되어 해지 상담으로 잡혀야 함
+        memo = (
+            "*해지요청 사유 : 해지 문의  / *특이사항 : 해지 상담 부탁드립니다.  / "
+            "담당선생님 전달하여 상담 받아보실 수 있도록 하겠다 안내 / *후속관리 : 미진행"
+        )
+        main, sub = classify(memo)
+        assert (main, sub) == ("해지·유지 상담", "해지 상담")

@@ -5,6 +5,7 @@
 # POST /api/jira/sync              : JIRA 즉시 재동기화 (캐시 강제 갱신).
 from fastapi import APIRouter
 from features.jira.jira_client import get_bugs, get_bug_memos, sync_bugs
+from core.audit_log import log_action
 
 router = APIRouter()
 
@@ -22,4 +23,5 @@ def jira_bug_memos(key: str):
 @router.post("/api/jira/sync")
 def jira_sync():
     sync_bugs()
+    log_action("jira_sync")
     return {"status": "ok"}

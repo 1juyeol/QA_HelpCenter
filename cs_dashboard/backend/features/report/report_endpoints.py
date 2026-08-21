@@ -20,8 +20,20 @@ from features.report.report_weekly import (
     get_weekly_report, get_latest_weekly_report, get_weekly_risk_memos,
     analyze_weekly_category, analyze_weekly_summary,
 )
+from core.audit_log import log_action
 
 router = APIRouter()
+
+
+def _gemma_detail(base: str, result: dict) -> str:
+    """analyze-category/analyze-peak 결과의 gemma_error·insufficient_data를 감사 로그
+    detail 문자열에 반영한다. 실패해도 print()로만 사라지지 않고 여기 남는다."""
+    err = result.get("gemma_error")
+    if err:
+        return f"{base}, status=failed, error={err}"
+    if result.get("insufficient_data"):
+        return f"{base}, status=insufficient_data"
+    return f"{base}, status=success"
 
 
 @router.get("/api/report/daily")
@@ -34,7 +46,9 @@ def get_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
 
 @router.post("/api/report/daily/generate-stats")
 async def generate_daily_report_stats(date: str = Query(..., description="YYYY-MM-DD")):
-    return await generate_report_stats(date)
+    result = await generate_report_stats(date)
+    log_action("daily_report_generate_stats", f"date={date}")
+    return result
 
 
 @router.post("/api/report/daily/analyze-category")
@@ -42,12 +56,16 @@ async def analyze_daily_category(
     date: str = Query(..., description="YYYY-MM-DD"),
     main: str = Query(..., description="대분류 이름 (예: 미납·결제)"),
 ):
-    return await analyze_single_category(date, main)
+    result = await analyze_single_category(date, main)
+    log_action("daily_report_analyze_category", _gemma_detail(f"date={date}, main={main}", result))
+    return result
 
 
 @router.post("/api/report/daily/analyze-peak")
 async def analyze_daily_peak(date: str = Query(..., description="YYYY-MM-DD")):
-    return await analyze_peak_bucket(date)
+    result = await analyze_peak_bucket(date)
+    log_action("daily_report_analyze_peak", _gemma_detail(f"date={date}", result))
+    return result
 
 
 @router.get("/api/report/weekly/latest")
@@ -68,12 +86,22 @@ def get_weekly_report_endpoint(week_start: str = Query(..., description="YYYY-MM
 
 @router.post("/api/report/weekly/generate-stats")
 async def generate_weekly_report_stats_endpoint(week_start: str = Query(..., description="YYYY-MM-DD (월요일)")):
-    return await generate_weekly_report_stats(week_start)
+    result = await generate_weekly_report_stats(week_start)
+    log_action("weekly_report_generate_stats", f"week_start={week_start}")
+    return result
 
 
 @router.post("/api/report/weekly/generate")
 async def generate_weekly_report_endpoint(week_start: str = Query(..., description="YYYY-MM-DD (월요일)")):
-    return await generate_weekly_report(week_start)
+    result = await generate_weekly_report(week_start)
+    failed = [r["main"] for r in result.get("risk_rows", []) if r.get("gemma_error")]
+    detail = f"week_start={week_start}"
+    if failed:
+        detail += f", gemma_failed={','.join(failed)}"
+    if result.get("weekly_summary_error"):
+        detail += f", summary_error={result['weekly_summary_error']}"
+    log_action("weekly_report_generate", detail)
+    return result
 
 
 @router.post("/api/report/weekly/analyze-category")
@@ -81,12 +109,16 @@ async def analyze_weekly_category_endpoint(
     week_start: str = Query(..., description="YYYY-MM-DD (월요일)"),
     main: str = Query(..., description="대분류 이름"),
 ):
-    return await analyze_weekly_category(week_start, main)
+    result = await analyze_weekly_category(week_start, main)
+    log_action("weekly_report_analyze_category", _gemma_detail(f"week_start={week_start}, main={main}", result))
+    return result
 
 
 @router.post("/api/report/weekly/analyze-summary")
 async def analyze_weekly_summary_endpoint(week_start: str = Query(..., description="YYYY-MM-DD (월요일)")):
-    return await analyze_weekly_summary(week_start)
+    result = await analyze_weekly_summary(week_start)
+    log_action("weekly_report_analyze_summary", _gemma_detail(f"week_start={week_start}", result))
+    return result
 
 
 @router.get("/api/report/weekly/memos")

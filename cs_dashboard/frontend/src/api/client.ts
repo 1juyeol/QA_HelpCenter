@@ -1,6 +1,13 @@
 // 모든 백엔드 API 호출과 TypeScript 타입을 한 곳에 모은다. 컴포넌트는 직접 fetch를 쓰지 않고 이 모듈만 참조한다.
 // 엔드포인트 경로·파라미터 변경이 생기면 이 파일만 수정하면 된다 (정책 9).
 //
+// [백엔드 주소 참고]
+// 프론트(Firebase 등)와 백엔드(서버컴)가 서로 다른 origin으로 배포되므로, 모든 요청 앞에
+// API_BASE(VITE_API_BASE_URL)를 붙인다. 로컬 개발처럼 값을 안 정해두면 빈 문자열이 붙어
+// 지금까지와 동일하게 상대경로(/api/...)로 동작한다 — 즉 이 값은 프로덕션 빌드 시에만
+// .env.production에 채우면 되고, 로컬 개발 흐름은 전혀 바뀌지 않는다.
+const API_BASE = import.meta.env.VITE_API_BASE_URL || ''
+
 // [student_id / parent_id 참고]
 // 두 ID 모두 help-desk 원본 데이터에서 오며, 내부 어드민 페이지 URL에 직접 사용된다.
 //   학생 상세: https://ad.wink.co.kr/members/search/students/{student_id}/basic/read
@@ -114,6 +121,63 @@ export interface JiraBugMemo {
   call_memo: string
 }
 
+export interface ChurnReasonExample {
+  id: number
+  created_date: string
+  reason: string
+}
+
+export interface ChurnReasonBucket {
+  name: string
+  count: number
+  examples: ChurnReasonExample[]
+}
+
+export interface ChurnReasonStats {
+  total: number
+  buckets: ChurnReasonBucket[]
+}
+
+export interface DeviceSwapExample {
+  id: number
+  created_date: string
+  seonchulgo: boolean
+  reason: string
+}
+
+export interface DeviceSwapModel {
+  model: string
+  count: number
+  examples: DeviceSwapExample[]
+}
+
+export interface DeviceSwapStats {
+  total: number
+  seonchulgo_count: number
+  normal_count: number
+  models: DeviceSwapModel[]
+}
+
+export interface RetentionOfferExample {
+  id: number
+  created_date: string
+  memo: string
+}
+
+export interface RetentionOffer {
+  name: string
+  count: number
+  examples: RetentionOfferExample[]
+}
+
+export interface RetentionStats {
+  defense_count: number
+  confirmed_count: number
+  save_rate: number
+  unlabeled_count: number
+  offers: RetentionOffer[]
+}
+
 export interface AnalysisGroup {
   sub: string
   count: number
@@ -130,11 +194,34 @@ export interface RiskRow {
   memos: { id: number; text: string }[]
   analysis_groups: AnalysisGroup[]
   insufficient_data: boolean
+  gemma_error?: string | null
 }
 
 export interface GemmaSettings {
   url: string
   presets: string[]
+}
+
+export interface AdminVerifyResult { ok: boolean; token?: string }
+export interface CollectionStatus { enabled: boolean }
+export interface CollectionDailyCount { day: string; count: number }
+export interface CollectionLogEntry {
+  id: number
+  collected_at: string
+  count_fetched: number
+  status: string
+  message: string
+  last_id: number | null
+  end_id: number | null
+  source: string | null
+}
+
+export interface AuditLogEntry {
+  id: number
+  created_at: string
+  action: string
+  detail: string
+  mode: 'manual' | 'auto'
 }
 
 export interface PeakBucket {
@@ -145,6 +232,7 @@ export interface PeakBucket {
   pattern: string
   summary: string
   has_pattern: boolean
+  gemma_error?: string | null
 }
 
 export interface DailyReport {
@@ -163,7 +251,7 @@ export interface WeeklyDayCount  { date: string; count: number; is_weekend: bool
 export interface WeeklySqiDay    { date: string; sqi: number }
 export interface WeeklyCatItem   { main: string; count: number }
 export interface WeeklyPeakDay   { date: string; count: number }
-export interface WeeklyRiskRow   { main: string; count: number; summary: string }
+export interface WeeklyRiskRow   { main: string; count: number; summary: string; gemma_error?: string | null }
 // risk_stack: [{ date, "네트워크·앱 오류": number, "기기·하드웨어 오류": number, ... }]
 export type WeeklyRiskStackDay = { date: string } & Record<string, number>
 
@@ -194,6 +282,7 @@ export interface WeeklyReport {
   peak_daily: WeeklyPeakDay[]
   risk_rows: WeeklyRiskRow[]
   weekly_summary: string
+  weekly_summary_error?: string | null
 }
 
 // ── 어드민 URL 헬퍼 ──────────────────────────────────────────────
@@ -209,23 +298,41 @@ export const adminParentUrl = (parentId: string) =>
 // ── 기본 fetcher ─────────────────────────────────────────────────
 
 async function get<T>(url: string): Promise<T> {
-  const r = await fetch(url)
+  const r = await fetch(`${API_BASE}${url}`)
   if (!r.ok) throw new Error(await r.text())
   return r.json() as Promise<T>
 }
 
 async function post<T>(url: string): Promise<T> {
-  const r = await fetch(url, { method: 'POST' })
+  const r = await fetch(`${API_BASE}${url}`, { method: 'POST' })
   if (!r.ok) throw new Error(await r.text())
   return r.json() as Promise<T>
 }
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const r = await fetch(url, {
+  const r = await fetch(`${API_BASE}${url}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json() as Promise<T>
+}
+
+// 관리자 전용 엔드포인트 호출용. X-Admin-Token 헤더에 useAdmin()의 세션 토큰을 실어 보낸다.
+async function postJsonAdmin<T>(url: string, body: unknown, token: string): Promise<T> {
+  const r = await fetch(`${API_BASE}${url}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new Error(await r.text())
+  return r.json() as Promise<T>
+}
+
+// 관리자 전용 GET 엔드포인트 호출용 (예: 감사 로그 조회).
+async function getAdmin<T>(url: string, token: string): Promise<T> {
+  const r = await fetch(`${API_BASE}${url}`, { headers: { 'X-Admin-Token': token } })
   if (!r.ok) throw new Error(await r.text())
   return r.json() as Promise<T>
 }
@@ -342,6 +449,18 @@ export const api = {
     return get<{ data: JiraBug[] }>('/api/jira/bugs')
   },
 
+  fetchChurnReasons() {
+    return get<ChurnReasonStats>('/api/insights/churn_reasons')
+  },
+
+  fetchDeviceSwaps() {
+    return get<DeviceSwapStats>('/api/insights/device_swaps')
+  },
+
+  fetchRetentionStats() {
+    return get<RetentionStats>('/api/insights/retention')
+  },
+
   fetchJiraBugMemos(key: string) {
     return get<{ data: JiraBugMemo[] }>(`/api/jira/bugs/${encodeURIComponent(key)}/memos`)
   },
@@ -359,13 +478,13 @@ export const api = {
   },
 
   analyzeDailyCategory(date: string, main: string) {
-    return post<{ main: string; sub: string; count: number; summary: string; insufficient_data: boolean; prompt_section: string }>(
+    return post<{ main: string; sub: string; count: number; summary: string; insufficient_data: boolean; gemma_error?: string | null; prompt_section: string }>(
       `/api/report/daily/analyze-category?date=${date}&main=${encodeURIComponent(main)}`
     )
   },
 
   analyzeDailyPeak(date: string) {
-    return post<{ bucket_start: string; bucket_end: string; bucket_count: number; avg_count: number; pattern: string; summary: string; has_pattern: boolean; insufficient_data: boolean; prompt_section: string }>(
+    return post<{ bucket_start: string; bucket_end: string; bucket_count: number; avg_count: number; pattern: string; summary: string; has_pattern: boolean; insufficient_data: boolean; gemma_error?: string | null; prompt_section: string }>(
       `/api/report/daily/analyze-peak?date=${date}`
     )
   },
@@ -387,13 +506,13 @@ export const api = {
   },
 
   analyzeWeeklyCategory(weekStart: string, main: string) {
-    return post<{ main: string; count: number; summary: string; insufficient_data: boolean }>(
+    return post<{ main: string; count: number; summary: string; insufficient_data: boolean; gemma_error?: string | null }>(
       `/api/report/weekly/analyze-category?week_start=${weekStart}&main=${encodeURIComponent(main)}`
     )
   },
 
   analyzeWeeklySummary(weekStart: string) {
-    return post<{ summary: string }>(
+    return post<{ summary: string; gemma_error?: string | null }>(
       `/api/report/weekly/analyze-summary?week_start=${weekStart}`
     )
   },
@@ -410,5 +529,33 @@ export const api = {
 
   setGemmaUrl(url: string) {
     return postJson<{ url: string }>('/api/settings/gemma', { url })
+  },
+
+  verifyAdmin(passcode: string) {
+    return postJson<AdminVerifyResult>('/api/admin/verify', { passcode })
+  },
+
+  fetchCollectionStatus() {
+    return get<CollectionStatus>('/api/collection/status')
+  },
+
+  setCollectionEnabled(enabled: boolean, token: string) {
+    return postJsonAdmin<CollectionStatus>('/api/collection/enabled', { enabled }, token)
+  },
+
+  fetchCollectionDailyCounts(days = 7) {
+    return get<CollectionDailyCount[]>(`/api/collection/daily_counts?days=${days}`)
+  },
+
+  fetchCollectionLog(days = 7) {
+    return get<CollectionLogEntry[]>(`/api/collection/log?days=${days}`)
+  },
+
+  fetchCollectionLogIssues(logId: number) {
+    return get<{ items: Issue[] }>(`/api/collection/log/${logId}/issues`)
+  },
+
+  fetchAuditLog(token: string, limit = 200) {
+    return getAdmin<AuditLogEntry[]>(`/api/audit/log?limit=${limit}`, token)
   },
 }

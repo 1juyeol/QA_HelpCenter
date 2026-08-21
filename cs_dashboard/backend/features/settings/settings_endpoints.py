@@ -9,6 +9,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from core.gemma_client import get_gemma_url, set_gemma_url
+from core.audit_log import log_action
 
 router = APIRouter()
 
@@ -30,4 +31,5 @@ def get_gemma_settings():
 @router.post("/api/settings/gemma")
 def update_gemma_settings(body: GemmaUrlBody):
     set_gemma_url(body.url)
+    log_action("gemma_url_change", f"url={body.url}")
     return {"url": get_gemma_url()}

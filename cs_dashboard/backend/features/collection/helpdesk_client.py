@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
 # Helpdesk API HTTP 클라이언트. 쿠키 기반 세션 인증(XSRF-TOKEN + sessionid)으로 로그인한 뒤
-# /issue/issues/ 엔드포인트를 100건씩 페이지네이션하며 완료 이슈 전체를 수집한다.
-# 사용 흐름: HelpdeskClient.login(id, pw) → 인스턴스 생성 → fetch_issues(date) → 정규화 dict 목록 반환.
+# /issue/issues/ 엔드포인트에서 이슈를 수집한다.
+# 사용 흐름: HelpdeskClient.login(id, pw) → 인스턴스 생성 → fetch_issues_since(last_id) → 정규화 dict 목록 반환.
 # 이 클라이언트를 직접 호출하지 말고 scheduler.py(자동 수집) 또는 scripts/backfill_ids.py(보완)를 통해 사용한다.
+#
+# 조회 방식(2026-08 최종 승인): 시간 창이 아니라 id 커서 방식이다.
+#   GET /issue/issues/?model_type=1009&id__gt={마지막 id}&order_by=id&limit=1000&results_only=true
+# "마지막 id"는 별도로 저장하지 않고 우리 DB(issues 테이블)의 MAX(id)로 매번 구한다 — 이미 아는
+# 정보라 중복 저장할 필요가 없다. 응답이 1000건 꽉 차면(공백이 길었던 경우) 마지막 id를 커서 삼아
+# 이어서 요청해 누락 없이 전량을 받는다.
 import httpx
-from datetime import date
 
 BASE_URL = "https://help-desk-api.wink.co.kr"
 HEADERS = {
@@ -18,12 +23,6 @@ HEADERS = {
         "Chrome/148.0.0.0 Safari/537.36"
     ),
 }
-
-
-def select_new_issues(parsed: list[dict], known_ids: set) -> list[dict]:
-    """정규화된 한 페이지 결과에서 known_ids에 없는 신규 이슈만 골라 반환한다 (증분 수집용 순수 함수).
-    반환이 빈 리스트면 호출부(fetch_issues)는 그 페이지가 전부 기존 ID라 보고 페이지네이션을 멈춘다."""
-    return [p for p in parsed if p["id"] not in known_ids]
 
 
 class HelpdeskClient:
@@ -64,47 +63,36 @@ class HelpdeskClient:
             "parent_id": raw.get("parent"),
         }
 
-    async def fetch_issues(self, target_date: date, known_ids: set | None = None) -> list[dict]:
-        """target_date(하루)의 완료 이슈를 100건씩 페이지네이션해 정규화 dict 목록으로 반환한다.
-
-        known_ids 지정 시 '증분 모드': 결과를 최신순(-id)으로 받다가 한 페이지가 전부 기존 ID면
-        더 받지 않고 멈춘다(신규분만 수집). known_ids=None이면 그날 전체를 재조회한다(전량/보정용).
-        주의: 증분 모드는 이미 수집된 이슈의 사후 수정(메모·완료일 변경)은 반영하지 못한다.
+    async def fetch_issues_since(self, last_id: int) -> list[dict]:
+        """id가 last_id보다 큰 이슈를 승인된 커서 방식으로 가져와 정규화 dict 목록으로 반환한다.
+        한 번에 최대 1000건까지 오며, 응답이 1000건 꽉 차면(공백이 길었던 경우) 이번에 받은
+        최댓값을 커서 삼아 이어서 요청해 누락 없이 전량을 받는다.
         """
-        date_str = target_date.strftime("%Y-%m-%d")
-        all_issues = []
-        offset = 0
-        limit = 100
+        all_issues: list[dict] = []
+        cursor = last_id
+        limit = 1000
 
         while True:
             resp = await self.client.get(
                 f"{BASE_URL}/issue/issues/",
                 params={
                     "model_type": 1009,
-                    "is_complete": "true",
+                    "id__gt": cursor,
+                    "order_by": "id",
                     "limit": limit,
-                    "offset": offset,
-                    "created_date": f"{date_str},{date_str}",
-                    "search": "",
-                    "order_by": "-dpo,-id",
+                    "results_only": "true",
                 },
             )
             resp.raise_for_status()
             data = resp.json()
-            results = data.get("results", [])
+            results = data if isinstance(data, list) else data.get("results", [])
             if not results:
                 break
             parsed = [self._parse_issue(r) for r in results]
-            if known_ids is not None:
-                new = select_new_issues(parsed, known_ids)
-                all_issues.extend(new)
-                if not new:  # 이 페이지가 전부 기존 ID → 이후 페이지는 더 오래된 것뿐
-                    break
-            else:
-                all_issues.extend(parsed)
-            if not data.get("next"):
+            all_issues.extend(parsed)
+            cursor = max(p["id"] for p in parsed)
+            if len(results) < limit:
                 break
-            offset += limit
 
         return all_issues
 
