@@ -25,20 +25,10 @@ from features.report.report_weekly import (
     get_weekly_report, get_latest_weekly_report, get_weekly_risk_memos,
     analyze_weekly_category, analyze_weekly_summary,
 )
+from features.report.report_utils import gemma_detail as _gemma_detail
 from core.audit_log import log_action
 
 router = APIRouter()
-
-
-def _gemma_detail(base: str, result: dict) -> str:
-    """analyze-category/analyze-peak 결과의 gemma_error·insufficient_data를 감사 로그
-    detail 문자열에 반영한다. 실패해도 print()로만 사라지지 않고 여기 남는다."""
-    err = result.get("gemma_error")
-    if err:
-        return f"{base}, status=failed, error={err}"
-    if result.get("insufficient_data"):
-        return f"{base}, status=insufficient_data"
-    return f"{base}, status=success"
 
 
 @router.get("/api/report/daily")
@@ -70,7 +60,7 @@ async def analyze_daily_category(
 async def analyze_daily_peak(date: str = Query(..., description="YYYY-MM-DD")):
     result = await analyze_peak_bucket(date)
     log_action("daily_report_analyze_peak", _gemma_detail(f"date={date}", result))
-    return result
+    return result or None
 
 
 @router.post("/api/report/daily/generate-complete")
