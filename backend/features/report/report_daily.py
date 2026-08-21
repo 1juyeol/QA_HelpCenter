@@ -3,20 +3,26 @@
 #
 # 주요 흐름:
 #   generate_report_stats(date_str) → 통계만 저장 (Gemma 없음, 빠른 첫 렌더링)
-#   generate_report(date_str)       → 통계 + Gemma 분석 전체 저장
+#   generate_report_full(date_str, mode) → 통계 → 카테고리별 → 피크타임 → 이상시간대 →
+#     실패 항목 재시도까지 전부 실행하는 단일 생성 로직. scheduler.py의 새벽 배치(mode='auto')와
+#     '재생성' 버튼(POST /api/report/daily/generate, mode='manual')이 트리거만 다르고 이 함수
+#     하나를 그대로 공유한다. 단계마다:
 #     ├─ _fetch_day_stats()               : DB → 총건수, 리스크 5개, 시간대별 건수, 피크 버킷 row
-#     ├─ _prepare_category_brief()        : 카테고리별 Gemma용 텍스트 생성
-#     │     해지·유지 상담 → _build_cancellation_brief() (해지 사유 카운팅)
-#     │     그 외          → _build_keyword_groups()     (RULES 키워드 그룹핑)
-#     ├─ _call_gemma_category_insights() : Gemma Call 1 — 카테고리별 2줄 분석
-#     ├─ _call_gemma_peak_bucket()       : Gemma Call 2 — 피크타임(17~20시) 최다 버킷 분석
-#     ├─ _call_gemma_anomaly_bucket()    : Gemma Call 3 — 피크타임 밖인데 그보다 인입이 많은
-#     │                                    버킷이 있을 때만 실행 (백필 등 이상 유입 포착)
-#     └─ reports 테이블 UPSERT (report_type='daily') → 결과 반환
+#     ├─ analyze_single_category()        : 카테고리 하나 Gemma 분석 + 즉시 저장 (반복)
+#     │     ├─ _prepare_category_brief()  : 카테고리별 Gemma용 텍스트 생성
+#     │     │     해지·유지 상담 → _build_cancellation_brief() (해지 사유 카운팅)
+#     │     │     그 외          → _build_keyword_groups()     (RULES 키워드 그룹핑)
+#     │     └─ _call_gemma_category_insights() : Gemma Call 1 — 카테고리별 2줄 분석
+#     ├─ analyze_peak_bucket()            : 피크타임(17~20시) 최다 버킷 분석 + 즉시 저장
+#     ├─ analyze_anomaly_bucket()         : 피크타임 밖인데 그보다 인입이 많은 버킷이 있을 때만
+#     │                                    실행 (백필 등 이상 유입 포착) + 즉시 저장
+#     └─ retry_failed_analyses()          : gemma_error 남은 항목만 대기 없이 즉시 재시도, 최대 2회
+#   각 단계 진행 상태는 core/report_progress.py에 기록해 새로고침해도 "지금 몇 번째 단계"인지
+#   알 수 있게 하고(예전엔 브라우저 탭 메모리에만 있어서 새로고침하면 유실됐다), 단계별 결과는
+#   감사 로그(daily_report_analyze_category/peak/anomaly, daily_report_retry_failed)에 남긴다.
 #
 # has_gemma_failures(content) / retry_failed_analyses(date_str, content):
-#   gemma_error가 남은 항목만 다시 시도하는 재시도용 함수. scheduler.py의 새벽 자동 생성이
-#   5분 간격으로 최대 2번 이 둘을 써서 재시도한다 (사람이 기다리는 수동 생성 버튼은 안 씀).
+#   gemma_error가 남은 항목만 다시 시도하는 재시도용 함수. generate_report_full()이 쓴다.
 #
 # 공유 상수·유틸: report_utils.py (RISK_MAIN, _is_risk, _SYSTEM_CATEGORY 등)
 # Gemma 클라이언트: core/gemma_client.py
@@ -30,10 +36,12 @@ from datetime import date, datetime, timedelta
 from core.db import get_conn
 from core.holidays import is_off_day
 from core.gemma_client import call_gemma, parse_json_response
+from core.audit_log import log_action
+from core import report_progress
 from features.issues.classifier import extract_symptom_fields, RULES, SUB_TO_MAIN
 from features.report.report_utils import (
     INSUFFICIENT_SUMMARY, _MIN_ANALYSIS_MEMOS,
-    _MAIN_ORDER, _is_risk, _SYSTEM_CATEGORY, describe_gemma_failure,
+    _MAIN_ORDER, _is_risk, _SYSTEM_CATEGORY, describe_gemma_failure, gemma_detail,
 )
 
 # "해지요청사유 :아이흥미없음" 또는 "해지사유 콘텐츠불만" 형태에서 사유 추출
@@ -52,10 +60,13 @@ _PROMPT_CATEGORY = (
     "{memos}"
 )
 
+# "코드 블록 없이 JSON만 출력"이라는 문구가 오히려 모델이 코드 펜스(```)를 열어야 한다는
+# 신호로 헷갈려서 여는 기호 3글자만 뱉고 끝내버리는 사례가 있었다 — "백틱을 쓰지 말라"고
+# 더 직접적으로 지시해서 이 실패를 줄여보려는 시도.
 _SYSTEM_PEAK_BUCKET = (
     "당신은 단비교육 공감센터 CS 분석 전문가입니다.\n"
     "CS팀 운영이 아닌 개발·서비스 품질 관점에서 분석하세요.\n"
-    "규칙: 코드 블록 없이 JSON만 출력\n"
+    "규칙: 백틱(`)을 절대 쓰지 마세요. 마크다운 코드 블록으로 감싸지 말고 JSON 객체만 그대로 출력하세요.\n"
     '응답 형식:\n{"pattern": "반복 패턴 키워드. 없으면 빈 문자열.", "summary": "두 문장 분석. 항상 작성."}'
 )
 
@@ -536,18 +547,6 @@ async def generate_report_stats(date_str: str) -> dict:
     return content
 
 
-async def generate_report(date_str: str) -> dict:
-    """통계 + Gemma AI 분석 전체 생성 → DB 저장 → 결과 반환."""
-    stats = _fetch_day_stats(date_str)
-    await _call_gemma_category_insights(date_str, stats["risk_rows"])
-    peak_bucket = await _call_gemma_peak_bucket(date_str, stats["peak_bucket_rows"])
-    anomaly_bucket = await _call_gemma_anomaly_bucket(date_str, stats["all_bucket_rows"], stats["peak_bucket_rows"])
-    content = _build_content(date_str, stats, peak_bucket, anomaly_bucket)
-    generated_at = _save_report(date_str, content)
-    content["generated_at"] = generated_at
-    return content
-
-
 async def analyze_single_category(date_str: str, main_category: str) -> dict:
     """특정 대분류만 Gemma 분석 실행. 기존 보고서가 있으면 해당 카테고리 summary를 패치 저장."""
     stats = _fetch_day_stats(date_str)
@@ -595,6 +594,20 @@ async def analyze_peak_bucket(date_str: str) -> dict:
     return result
 
 
+async def analyze_anomaly_bucket(date_str: str) -> dict:
+    """이상시간대(피크타임 밖인데 그보다 인입이 많은 버킷) Gemma 분석 실행. 기존 보고서가
+    있으면 anomaly_bucket을 패치 저장한다. analyze_peak_bucket()과 같은 방식."""
+    stats = _fetch_day_stats(date_str)
+    result = await _call_gemma_anomaly_bucket(date_str, stats["all_bucket_rows"], stats["peak_bucket_rows"])
+
+    existing = get_report(date_str)
+    if existing:
+        existing["anomaly_bucket"] = result or None
+        _save_report(date_str, existing)
+
+    return result
+
+
 def has_gemma_failures(content: dict) -> bool:
     """저장된 보고서 content에 gemma_error가 남아있는 항목이 하나라도 있으면 True."""
     if any(r.get("gemma_error") for r in content.get("risk_rows", [])):
@@ -606,10 +619,35 @@ def has_gemma_failures(content: dict) -> bool:
     return False
 
 
+def collect_gemma_failures(content: dict) -> list[str]:
+    """저장된 보고서 content에서 gemma_error가 남은 항목들의 이름 목록(카테고리명/"피크타임"/
+    "이상시간대")을 반환한다. 감사 로그 detail에 어떤 항목이 실패했는지 남기는 데 쓴다."""
+    failed = [r["main"] for r in content.get("risk_rows", []) if r.get("gemma_error")]
+    if content.get("peak_bucket") and content["peak_bucket"].get("gemma_error"):
+        failed.append("피크타임")
+    if content.get("anomaly_bucket") and content["anomaly_bucket"].get("gemma_error"):
+        failed.append("이상시간대")
+    return failed
+
+
+def collect_gemma_failure_reasons(content: dict) -> list[str]:
+    """collect_gemma_failures()와 같은 대상을 훑되, 이름이 아니라 "이름: 실패 사유"를 반환한다.
+    감사 로그에서 "실패 항목: 기기·하드웨어 오류"만 보고는 왜 실패했는지 알 수 없어서,
+    재시도·최종 완료 로그에는 실제 gemma_error 내용까지 같이 남긴다."""
+    reasons = [
+        f"{r['main']}: {r['gemma_error']}"
+        for r in content.get("risk_rows", []) if r.get("gemma_error")
+    ]
+    if content.get("peak_bucket") and content["peak_bucket"].get("gemma_error"):
+        reasons.append(f"피크타임: {content['peak_bucket']['gemma_error']}")
+    if content.get("anomaly_bucket") and content["anomaly_bucket"].get("gemma_error"):
+        reasons.append(f"이상시간대: {content['anomaly_bucket']['gemma_error']}")
+    return reasons
+
+
 async def retry_failed_analyses(date_str: str, content: dict) -> dict:
     """content에서 gemma_error가 남은 항목만 다시 시도해 갱신·저장한다. 재시도할 게 없으면
-    그대로 반환. 스케줄러의 자동 생성이 실패분만 재시도할 때 쓴다 (수동 '보고서 생성' 버튼은
-    사람이 기다리는 상황이라 이 재시도를 쓰지 않고 즉시 결과를 반환한다)."""
+    그대로 반환. generate_report_full()이 매 재시도 라운드마다 이 함수를 호출한다."""
     stats = None
 
     failed_mains = {r["main"] for r in content.get("risk_rows", []) if r.get("gemma_error")}
@@ -637,6 +675,77 @@ async def retry_failed_analyses(date_str: str, content: dict) -> dict:
         ) or content["anomaly_bucket"]
 
     _save_report(date_str, content)
+    return content
+
+
+_MAX_RETRIES = 2
+
+
+async def generate_report_full(date_str: str, mode: str = "manual") -> dict:
+    """통계 저장 → 카테고리별 개별 분석(단계마다 즉시 저장) → 피크타임 → 이상시간대 →
+    실패 항목 재시도(대기 없이 즉시, 최대 _MAX_RETRIES회) 순서로 보고서를 생성하는 단일 로직.
+    자동(스케줄러의 새벽 배치)과 수동('재생성' 버튼)이 트리거만 다를 뿐 이 함수 하나를 그대로
+    공유한다 — 예전엔 자동은 한 번에 전체 호출 후 끝에 한 번만 저장(중간에 멈추면 이미 끝난
+    것까지 전부 유실), 수동은 프론트엔드 반복문으로 카테고리를 하나씩 호출하는 별개 구현이라
+    이상시간대 분석이 자동에만 있는 등 기능이 어긋났었다. 단계마다 report_progress에 진행 상태를
+    남겨서 브라우저를 새로고침해도 "몇 번째 카테고리 진행 중"인지 알 수 있게 하고, 단계별
+    결과는 감사 로그에 남긴다(mode로 auto/manual만 구분)."""
+    stats = await generate_report_stats(date_str)
+    risk_rows = stats["risk_rows"]
+    total_steps = len(risk_rows) + 2  # 카테고리들 + 피크타임 + 이상시간대
+
+    report_progress.start("daily", date_str, total_steps)
+    try:
+        for i, row in enumerate(risk_rows, start=1):
+            report_progress.update("daily", date_str, row["main"], i)
+            result = await analyze_single_category(date_str, row["main"])
+            log_action(
+                "daily_report_analyze_category",
+                gemma_detail(f"date={date_str}, main={row['main']}", result),
+                mode=mode,
+            )
+
+        report_progress.update("daily", date_str, "피크타임", len(risk_rows) + 1)
+        peak_result = await analyze_peak_bucket(date_str)
+        log_action("daily_report_analyze_peak", gemma_detail(f"date={date_str}", peak_result), mode=mode)
+
+        report_progress.update("daily", date_str, "이상시간대", len(risk_rows) + 2)
+        anomaly_result = await analyze_anomaly_bucket(date_str)
+        log_action("daily_report_analyze_anomaly", gemma_detail(f"date={date_str}", anomaly_result), mode=mode)
+
+        content = get_report(date_str)
+        attempt = 0
+        while has_gemma_failures(content) and attempt < _MAX_RETRIES:
+            attempt += 1
+            before_failed = set(collect_gemma_failures(content))
+            report_progress.update("daily", date_str, f"실패 항목 재시도 {attempt}/{_MAX_RETRIES}", total_steps)
+            content = await retry_failed_analyses(date_str, content)
+            after_failed = set(collect_gemma_failures(content))
+            resolved = before_failed - after_failed
+            detail = f"date={date_str}, attempt={attempt}/{_MAX_RETRIES}"
+            if resolved:
+                detail += f", resolved={','.join(resolved)}"
+            if after_failed:
+                detail += f", gemma_failed={','.join(after_failed)}"
+                reasons = collect_gemma_failure_reasons(content)
+                if reasons:
+                    detail += f", error={' / '.join(reasons)}"
+            else:
+                detail += ", status=success"
+            log_action("daily_report_retry_failed", detail, mode=mode)
+    finally:
+        report_progress.finish("daily", date_str)
+
+    failed = collect_gemma_failures(content)
+    detail = f"date={date_str}"
+    if failed:
+        detail += f", gemma_failed={','.join(failed)}, status=partial_failure"
+        reasons = collect_gemma_failure_reasons(content)
+        if reasons:
+            detail += f", error={' / '.join(reasons)}"
+    else:
+        detail += ", status=success"
+    log_action("daily_report_generate_complete", detail, mode=mode)
     return content
 
 

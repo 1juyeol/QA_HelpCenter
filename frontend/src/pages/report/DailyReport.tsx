@@ -16,7 +16,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Chart from 'chart.js/auto'
-import { api, type DailyReport, type RiskRow, type BucketRow, type Issue } from '../../api/client'
+import { api, type DailyReport, type RiskRow, type BucketRow, type Issue, type PeakBucket } from '../../api/client'
 import CategoryMemoModal from '../../components/CategoryMemoModal'
 
 const NAVY = '#1e3c72'
@@ -30,7 +30,6 @@ const RISK_MAINS = ['네트워크·앱 오류', '기기·하드웨어 오류', '
 const TEST_TARGETS = ['피크타임 패턴 분석', ...RISK_MAINS]
 
 type CategoryResult = { main?: string; sub: string; count: number; summary: string; insufficient_data: boolean; gemma_error?: string | null; prompt_section: string }
-type PeakResult = { bucket_start: string; bucket_end: string; bucket_count: number; avg_count: number; pattern: string; summary: string; has_pattern: boolean; insufficient_data: boolean; gemma_error?: string | null; prompt_section: string }
 
 function CategoryTestPanel({
   date,
@@ -39,12 +38,12 @@ function CategoryTestPanel({
 }: {
   date: string
   onCategoryResult: (main: string, summary: string, gemmaError?: string | null) => void
-  onPeakResult: (peak: PeakResult) => void
+  onPeakResult: (peak: PeakBucket | null) => void
 }) {
   const [target, setTarget] = useState(TEST_TARGETS[0])
   const [running, setRunning] = useState(false)
   const [catResult, setCatResult] = useState<CategoryResult | null>(null)
-  const [peakResult, setPeakResult] = useState<PeakResult | null>(null)
+  const [peakResult, setPeakResult] = useState<PeakBucket | null>(null)
   const [error, setError] = useState('')
 
   function resetResults() {
@@ -128,22 +127,13 @@ function CategoryTestPanel({
           <div style={{ marginBottom: 6 }}>
             <span style={{ fontWeight: 700 }}>{peakResult.bucket_start}~{peakResult.bucket_end}</span>
             <span style={{ color: '#64748b', marginLeft: 6 }}>{peakResult.bucket_count}건 (평균 {peakResult.avg_count}건)</span>
-            {peakResult.insufficient_data && <span style={{ color: '#f59e0b', marginLeft: 8 }}>데이터 부족</span>}
             {peakResult.gemma_error && <span style={{ color: RISK_RED, marginLeft: 8 }} title={peakResult.gemma_error}>AI 분석 실패</span>}
-            {!peakResult.insufficient_data && !peakResult.gemma_error && (
+            {!peakResult.gemma_error && (
               <span style={{ marginLeft: 8, color: peakResult.has_pattern ? '#166534' : '#64748b' }}>
                 {peakResult.has_pattern ? '패턴 있음' : '패턴 없음'}
               </span>
             )}
           </div>
-          {peakResult.prompt_section && (
-            <details style={{ marginBottom: 8 }}>
-              <summary style={{ cursor: 'pointer', color: '#64748b', marginBottom: 4 }}>프롬프트 보기</summary>
-              <pre style={{ fontSize: 11, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, overflowX: 'auto', whiteSpace: 'pre-wrap', border: '1px solid #e2e8f0' }}>
-                {peakResult.prompt_section}
-              </pre>
-            </details>
-          )}
           {peakResult.summary && (
             <div style={{ background: '#f0f4fb', borderRadius: 6, padding: '7px 12px', borderLeft: `3px solid ${NAVY}`, fontSize: 13 }}>
               {peakResult.summary}
@@ -274,7 +264,7 @@ function RiskBarChart({ rows, onBarClick }: {
 
 // ── 리스크 행 ─────────────────────────────────────────────────────────────────
 
-function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boolean }) {
+function RiskRowItem({ row, aiLoading = false, isCurrent = false }: { row: RiskRow; aiLoading?: boolean; isCurrent?: boolean }) {
   return (
     <div id={`risk-row-${row.main}`} style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', marginBottom: 12, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
@@ -291,11 +281,13 @@ function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boo
             {row.summary}
           </div>
         ) : row.gemma_error ? (
-          <div style={{ fontSize: 12, color: RISK_RED }} title={row.gemma_error}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }} title={row.gemma_error}>
             AI 분석 실패 — 다시 시도해주세요
           </div>
+        ) : isCurrent ? (
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
         ) : aiLoading ? (
-          <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
+          <div style={{ fontSize: 14, color: '#64748b' }}>대기 중...</div>
         ) : (
           <div style={{ fontSize: 12, color: '#94a3b8' }}>AI 분석 없음</div>
         )}
@@ -546,19 +538,81 @@ export default function DailyReport() {
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [aiGenerating, setAiGenerating] = useState(false)
+  const [progress, setProgress] = useState<{ label: string | null; step: number; total: number } | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
   const [modalState, setModalState] = useState<{ main: string; initialSubs?: string[]; allowedSubs?: string[] } | null>(null)
   const [peakModalBuckets, setPeakModalBuckets] = useState<string[] | null>(null)
+  const pollTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     setSearchParams({ date }, { replace: true })
     loadReport(date)
+    resumeGenerationIfRunning(date)
+    return stopPolling
   }, [date])
+
+  function stopPolling() {
+    if (pollTimerRef.current != null) {
+      window.clearInterval(pollTimerRef.current)
+      pollTimerRef.current = null
+    }
+  }
+
+  // 새로고침해도 서버에서 이미 돌고 있는 생성 작업을 놓치지 않도록, 페이지 진입(날짜 변경 포함)
+  // 시 먼저 진행 상태를 확인한다. 진행 중이면 바로 폴링을 이어서 시작한다.
+  async function resumeGenerationIfRunning(d: string) {
+    try {
+      const status = await api.fetchDailyReportGenerateStatus(d)
+      if (status.running) startPolling(d)
+    } catch {
+      // 상태 조회 실패는 무시 — "재생성" 버튼으로 다시 시작할 수 있다.
+    }
+  }
+
+  function startPolling(d: string) {
+    stopPolling()
+    setAiGenerating(true)
+    const tick = async () => {
+      let status
+      try {
+        status = await api.fetchDailyReportGenerateStatus(d)
+      } catch {
+        return
+      }
+      if (!status.running) {
+        stopPolling()
+        setAiGenerating(false)
+        setProgress(null)
+        const data = await loadReport(d)
+        if (data) {
+          const canNotify = await requestNotificationPermission()
+          if (canNotify) {
+            showReportNotification(data, `${window.location.origin}/report/daily?date=${d}`)
+          }
+        }
+        return
+      }
+      setProgress({ label: status.label ?? null, step: status.step ?? 0, total: status.total ?? 0 })
+      try {
+        const data = await api.fetchDailyReport(d)
+        setReport(data)
+        setNotFound(false)
+      } catch {
+        // 아직 통계 단계 저장 전일 수 있음 — 다음 틱에 다시 시도.
+      }
+    }
+    tick()
+    pollTimerRef.current = window.setInterval(tick, 2500)
+  }
 
   useEffect(() => {
     if (!highlightTarget || !report || hasScrolledToHighlight.current) return
-    const targetId = highlightTarget === '__peak__' ? 'peak-section' : `risk-row-${highlightTarget}`
+    const targetId = highlightTarget === '__peak__'
+      ? 'peak-section'
+      : highlightTarget === '__anomaly__'
+        ? 'anomaly-section'
+        : `risk-row-${highlightTarget}`
     const el = document.getElementById(targetId)
     if (!el) return
     hasScrolledToHighlight.current = true
@@ -568,7 +622,7 @@ export default function DailyReport() {
     setTimeout(() => { el.style.outline = ''; el.style.outlineOffset = '' }, 2500)
   }, [highlightTarget, report])
 
-  async function loadReport(d: string) {
+  async function loadReport(d: string): Promise<DailyReport | null> {
     setLoading(true)
     setReport(null)
     setPeakBuckets([])
@@ -580,87 +634,34 @@ export default function DailyReport() {
       ])
       setReport(data)
       setPeakBuckets(buckets)
+      return data
     } catch {
       setNotFound(true)
+      return null
     } finally {
       setLoading(false)
     }
   }
 
+  // 통계→카테고리→피크→이상시간대→재시도 전체를 서버 백그라운드 작업으로 시작하고 폴링만 한다.
+  // 예전엔 이 순서 관리 자체를 브라우저의 for문이 했었는데, 그러면 새로고침하는 순간 아직
+  // 처리 안 된 나머지 단계가 통째로 유실됐다 — 이제는 서버가 순서를 관리하므로 새로고침해도
+  // 이어서 진행되고, resumeGenerationIfRunning()이 그 진행 상태를 다시 보여준다.
   async function handleGenerate() {
     setGenerating(true)
     try {
-      // 1단계: 통계만 생성 → 차트 바로 렌더링
-      const [statsData, buckets] = await Promise.all([
-        api.generateDailyReportStats(date),
-        api.fetchHourly(date, date),
-      ])
-      setReport(statsData)
-      setPeakBuckets(buckets)
+      const result = await api.startDailyReportGeneration(date)
+      setGenerating(false)
+      if (!result.started) {
+        // 이미 진행 중 — 새 작업을 또 시작하지 않고 그냥 진행 상태를 보여주기 시작한다.
+        startPolling(date)
+        return
+      }
       setNotFound(false)
-      setGenerating(false)
-
-      // 2단계: AI 분석 — 카테고리별 순차 호출, 완료되는 즉시 반영
-      setAiGenerating(true)
-      const failedNames: string[] = []
-      for (const row of statsData.risk_rows) {
-        try {
-          const result = await api.analyzeDailyCategory(date, row.main)
-          if (result.gemma_error) failedNames.push(row.main)
-          setReport(prev => prev ? {
-            ...prev,
-            risk_rows: prev.risk_rows.map(r =>
-              r.main === row.main
-                ? { ...r, summary: result.summary, insufficient_data: result.insufficient_data, gemma_error: result.gemma_error }
-                : r
-            ),
-          } : prev)
-        } catch (e) {
-          failedNames.push(row.main)
-          console.error(`[AI] ${row.main} 분석 실패`, e)
-        }
-      }
-      try {
-        const peakResult = await api.analyzeDailyPeak(date)
-        if (peakResult.gemma_error) failedNames.push('피크타임')
-        setReport(prev => prev ? { ...prev, peak_bucket: peakResult } : prev)
-      } catch (e) {
-        failedNames.push('피크타임')
-        console.error('[AI] 피크타임 분석 실패', e)
-      }
-
-      // 3단계: 실패한 것만 즉시 한 번 더 재시도. 자동 생성(새벽)은 5분 간격으로 최대 2번 재시도하지만,
-      // 여기는 사람이 화면 보며 기다리는 중이라 대기 없이 한 번만 바로 다시 시도한다.
-      let finalFailedNames = failedNames
-      if (failedNames.length > 0) {
-        try {
-          const retried = await api.retryDailyReportFailed(date)
-          setReport(retried)
-          finalFailedNames = [
-            ...retried.risk_rows.filter(r => r.gemma_error).map(r => r.main),
-            ...(retried.peak_bucket?.gemma_error ? ['피크타임'] : []),
-            ...(retried.anomaly_bucket?.gemma_error ? ['이상시간대'] : []),
-          ]
-        } catch (e) {
-          console.error('[AI] 실패 항목 재시도 실패', e)
-        }
-      }
-
-      try {
-        await api.logDailyReportComplete(date, finalFailedNames)
-      } catch (e) {
-        console.error('[AI] 생성 완료 로그 기록 실패', e)
-      }
-      const canNotify = await requestNotificationPermission()
-      if (canNotify) {
-        const url = `${window.location.origin}/report/daily?date=${date}`
-        showReportNotification(statsData, url)
-      }
+      startPolling(date)
     } catch (e) {
-      alert(`보고서 생성 실패: ${e}`)
+      alert(`보고서 생성 시작 실패: ${e}`)
       setGenerating(false)
-    } finally {
-      setAiGenerating(false)
     }
   }
 
@@ -699,7 +700,11 @@ export default function DailyReport() {
             fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
           }}
         >
-          {generating ? '집계 중...' : aiGenerating ? 'AI 분석 중...' : report ? '↻ 재생성' : '보고서 생성'}
+          {generating
+            ? '시작 중...'
+            : aiGenerating
+              ? (progress ? `AI 분석 중 (${progress.step}/${progress.total}) — ${progress.label}` : 'AI 분석 중...')
+              : report ? '↻ 재생성' : '보고서 생성'}
         </button>
       </div>
 
@@ -711,7 +716,7 @@ export default function DailyReport() {
       )}
 
       {/* 미생성 */}
-      {!loading && notFound && !generating && (
+      {!loading && notFound && !generating && !aiGenerating && (
         <div className="section-card">
           <div style={{ padding: '40px 0', textAlign: 'center', color: '#94a3b8' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>📄</div>
@@ -723,8 +728,8 @@ export default function DailyReport() {
         </div>
       )}
 
-      {/* 통계 집계 중 (1단계) */}
-      {generating && !report && (
+      {/* 생성 시작 직후, 아직 통계가 저장되기 전 잠깐의 빈 화면 */}
+      {(generating || aiGenerating) && !report && (
         <div className="section-card">
           <div style={{ padding: '40px 0', textAlign: 'center', color: '#64748b' }}>
             <div style={{ fontSize: 13, marginBottom: 8 }}>통계 집계 중...</div>
@@ -805,7 +810,7 @@ export default function DailyReport() {
               <div style={{ color: '#94a3b8', fontSize: 13 }}>리스크 카테고리 데이터 없음</div>
             ) : (
               [...report.risk_rows].sort((a, b) => (b.main_total ?? b.count) - (a.main_total ?? a.count)).map((row, i) => (
-                <RiskRowItem key={i} row={row} aiLoading={aiGenerating} />
+                <RiskRowItem key={i} row={row} aiLoading={aiGenerating} isCurrent={aiGenerating && progress?.label === row.main} />
               ))
             )}
           </div>
@@ -833,7 +838,9 @@ export default function DailyReport() {
             )}
             {!report.peak_bucket ? (
               aiGenerating
-                ? <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
+                ? (progress?.label === '피크타임'
+                  ? <div style={{ fontSize: 15, fontWeight: 700, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
+                  : <div style={{ fontSize: 15, color: '#64748b' }}>대기 중...</div>)
                 : <div style={{ fontSize: 13, color: '#94a3b8' }}>데이터 없음</div>
             ) : (
               <div>
@@ -867,7 +874,7 @@ export default function DailyReport() {
                     {report.peak_bucket.summary}
                   </div>
                 ) : report.peak_bucket.gemma_error ? (
-                  <div style={{ fontSize: 12, color: RISK_RED }} title={report.peak_bucket.gemma_error}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }} title={report.peak_bucket.gemma_error}>
                     AI 분석 실패 — 다시 시도해주세요
                   </div>
                 ) : null}
@@ -915,7 +922,7 @@ export default function DailyReport() {
                     {report.anomaly_bucket.summary}
                   </div>
                 ) : report.anomaly_bucket.gemma_error ? (
-                  <div style={{ fontSize: 12, color: RISK_RED }} title={report.anomaly_bucket.gemma_error}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }} title={report.anomaly_bucket.gemma_error}>
                     AI 분석 실패 — 다시 시도해주세요
                   </div>
                 ) : null}

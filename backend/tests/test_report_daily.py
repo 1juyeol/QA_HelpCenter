@@ -5,7 +5,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from features.report.report_daily import find_anomaly_bucket, has_gemma_failures
+from features.report.report_daily import (
+    find_anomaly_bucket, has_gemma_failures, collect_gemma_failures, collect_gemma_failure_reasons,
+)
 
 
 def _memos(n):
@@ -66,3 +68,51 @@ class TestHasGemmaFailures:
 
     def test_missing_keys_treated_as_no_failure(self):
         assert has_gemma_failures({}) is False
+
+
+class TestCollectGemmaFailures:
+    def test_no_failures_returns_empty_list(self):
+        content = {
+            "risk_rows": [{"main": "네트워크·앱 오류", "gemma_error": None}],
+            "peak_bucket": {"gemma_error": None},
+            "anomaly_bucket": None,
+        }
+        assert collect_gemma_failures(content) == []
+
+    def test_collects_category_peak_anomaly_names(self):
+        content = {
+            "risk_rows": [
+                {"main": "네트워크·앱 오류", "gemma_error": None},
+                {"main": "기기·하드웨어 오류", "gemma_error": "타임아웃"},
+            ],
+            "peak_bucket": {"gemma_error": "파싱 실패"},
+            "anomaly_bucket": {"gemma_error": "빈 응답"},
+        }
+        assert collect_gemma_failures(content) == ["기기·하드웨어 오류", "피크타임", "이상시간대"]
+
+    def test_missing_keys_treated_as_no_failure(self):
+        assert collect_gemma_failures({}) == []
+
+
+class TestCollectGemmaFailureReasons:
+    def test_no_failures_returns_empty_list(self):
+        content = {"risk_rows": [{"main": "네트워크·앱 오류", "gemma_error": None}]}
+        assert collect_gemma_failure_reasons(content) == []
+
+    def test_collects_name_and_reason(self):
+        content = {
+            "risk_rows": [
+                {"main": "네트워크·앱 오류", "gemma_error": None},
+                {"main": "기기·하드웨어 오류", "gemma_error": "타임아웃"},
+            ],
+            "peak_bucket": {"gemma_error": "파싱 실패"},
+            "anomaly_bucket": {"gemma_error": "빈 응답"},
+        }
+        assert collect_gemma_failure_reasons(content) == [
+            "기기·하드웨어 오류: 타임아웃",
+            "피크타임: 파싱 실패",
+            "이상시간대: 빈 응답",
+        ]
+
+    def test_missing_keys_treated_as_no_failure(self):
+        assert collect_gemma_failure_reasons({}) == []

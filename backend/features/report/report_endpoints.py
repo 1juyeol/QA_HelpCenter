@@ -2,23 +2,25 @@
 # 보고서 API 라우터. 일별·주간 보고서 조회/생성 엔드포인트를 제공한다.
 #
 # GET  /api/report/daily?date=YYYY-MM-DD                     : 저장된 일별 보고서 반환. 없으면 404.
-# POST /api/report/daily/generate-stats?date=YYYY-MM-DD      : 통계만 생성 (Gemma 없음, 1단계).
-# POST /api/report/daily/analyze-category?date=&main=        : 특정 대분류 Gemma 분석 후 DB 저장.
-# POST /api/report/daily/analyze-peak?date=                  : 피크타임 최다 버킷 Gemma 분석 후 DB 저장.
-# POST /api/report/daily/generate-complete?date=&failed=      : 수동 생성 완료 요약 로그 한 줄 (프론트가 순차 호출 끝나고 호출).
-# POST /api/report/daily/retry-failed?date=                   : 저장된 보고서에서 gemma_error 남은 항목만 즉시 재시도.
+# POST /api/report/daily/generate?date=YYYY-MM-DD            : 통계→카테고리→피크→이상시간대→재시도
+#   전체를 서버 백그라운드 작업으로 시작한다("재생성" 버튼). 이미 진행 중이면 중복 시작 안 함.
+#   브라우저를 새로고침해도 이 작업 자체는 서버에서 계속 진행된다 — generate-status로 확인.
+# GET  /api/report/daily/generate-status?date=YYYY-MM-DD     : 지금 생성 중인지, 몇 번째 단계인지 조회.
+# POST /api/report/daily/analyze-category?date=&main=        : (디버그용 개별 실행) 특정 대분류 Gemma 분석 후 DB 저장.
+# POST /api/report/daily/analyze-peak?date=                  : (디버그용 개별 실행) 피크타임 최다 버킷 Gemma 분석 후 DB 저장.
 # GET  /api/report/weekly?week_start=YYYY-MM-DD              : 저장된 주간 보고서 반환. 없으면 404.
 # POST /api/report/weekly/generate-stats?week_start=YYYY-MM-DD : 통계만 생성 (1단계).
 # POST /api/report/weekly/generate?week_start=YYYY-MM-DD     : 통계 + AI 분석 전체 생성 (2단계).
 # GET  /api/report/weekly/memos?week_start=&main=&page=      : 카테고리별 리스크 메모 20개씩 페이지네이션.
 #
 # week_start는 반드시 월요일 날짜(ISO 형식)여야 한다.
-# generate-stats → generate 순서로 호출해 차트를 먼저 렌더링하고 AI 분석을 나중에 채운다.
+# 주간은 아직 generate-stats → generate 2단계 방식이다(일별처럼 백그라운드+진행 상태 표시로
+# 통합 안 됨 — 다음 작업으로 예정).
 
+import asyncio
 from fastapi import APIRouter, HTTPException, Query
 from features.report.report_daily import (
-    generate_report_stats, get_report, analyze_single_category, analyze_peak_bucket,
-    has_gemma_failures, retry_failed_analyses,
+    generate_report_full, get_report, analyze_single_category, analyze_peak_bucket,
 )
 from features.report.report_weekly import (
     generate_weekly_report, generate_weekly_report_stats,
@@ -27,6 +29,7 @@ from features.report.report_weekly import (
 )
 from features.report.report_utils import gemma_detail as _gemma_detail
 from core.audit_log import log_action
+from core import report_progress
 
 router = APIRouter()
 
@@ -37,13 +40,6 @@ def get_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
     if report is None:
         raise HTTPException(status_code=404, detail="보고서 없음")
     return report
-
-
-@router.post("/api/report/daily/generate-stats")
-async def generate_daily_report_stats(date: str = Query(..., description="YYYY-MM-DD")):
-    result = await generate_report_stats(date)
-    log_action("daily_report_generate_stats", f"date={date}")
-    return result
 
 
 @router.post("/api/report/daily/analyze-category")
@@ -63,43 +59,21 @@ async def analyze_daily_peak(date: str = Query(..., description="YYYY-MM-DD")):
     return result or None
 
 
-@router.post("/api/report/daily/generate-complete")
-def daily_report_generate_complete(
-    date: str = Query(..., description="YYYY-MM-DD"),
-    failed: str = Query("", description="쉼표구분 실패한 카테고리/구간 이름, 전부 성공했으면 빈 문자열"),
-):
-    """프론트의 '보고서 생성' 버튼이 통계·카테고리별·피크타임 순차 호출을 다 끝낸 뒤 한 번 호출한다.
-    자동 생성(daily_report_auto_generate)과 동일한 형태로 감사 로그에 완료 요약 한 줄을 남긴다 —
-    스텝별 로그만 있으면 "이 생성이 끝났다"는 게 한눈에 안 보이기 때문."""
-    detail = f"date={date}"
-    if failed:
-        detail += f", gemma_failed={failed}"
-    log_action("daily_report_manual_generate", detail)
-    return {"status": "ok"}
+@router.post("/api/report/daily/generate")
+async def generate_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
+    """'재생성' 버튼 — 통계→카테고리→피크→이상시간대→실패 재시도 전체를 서버 백그라운드
+    작업으로 시작한다. 이미 이 날짜로 생성이 진행 중이면 중복 시작하지 않고 그 사실만 알려준다.
+    브라우저가 새로고침돼도 asyncio 태스크는 서버에서 계속 돈다 — generate-status로 진행 상태를 본다."""
+    if report_progress.is_running("daily", date):
+        return {"started": False, "reason": "already_running"}
+    asyncio.create_task(generate_report_full(date, mode="manual"))
+    return {"started": True}
 
 
-@router.post("/api/report/daily/retry-failed")
-async def retry_daily_report_failed(date: str = Query(..., description="YYYY-MM-DD")):
-    """저장된 보고서에서 gemma_error가 남은 항목(카테고리·피크타임·이상시간대)만 즉시 재시도한다.
-    자동 생성(scheduler.py)은 5분 간격으로 이걸 최대 2번 부르고, 사람이 기다리는 수동 생성은
-    화면에서 한 번 더 이걸 즉시(대기 없이) 불러 실패한 것만 다시 채운다."""
-    content = get_report(date)
-    if content is None:
-        raise HTTPException(status_code=404, detail="보고서 없음")
-    if not has_gemma_failures(content):
-        return content
-    content = await retry_failed_analyses(date, content)
-
-    failed = [r["main"] for r in content.get("risk_rows", []) if r.get("gemma_error")]
-    if content.get("peak_bucket") and content["peak_bucket"].get("gemma_error"):
-        failed.append("피크타임")
-    if content.get("anomaly_bucket") and content["anomaly_bucket"].get("gemma_error"):
-        failed.append("이상시간대")
-    detail = f"date={date}"
-    if failed:
-        detail += f", gemma_failed={','.join(failed)}"
-    log_action("daily_report_retry_failed", detail)
-    return content
+@router.get("/api/report/daily/generate-status")
+def get_daily_report_generate_status(date: str = Query(..., description="YYYY-MM-DD")):
+    status = report_progress.get_status("daily", date)
+    return status or {"running": False}
 
 
 @router.get("/api/report/weekly/latest")
