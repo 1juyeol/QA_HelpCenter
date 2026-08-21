@@ -48,6 +48,21 @@ def describe_gemma_failure(raw: str) -> str:
     return f'Gemma 응답에서 JSON을 찾지 못함 ({len(raw)}자: "{preview}")'
 
 
+def gemma_detail(base: str, result: dict) -> str:
+    """analyze-category/analyze-peak/analyze-anomaly 결과의 gemma_error·insufficient_data를
+    감사 로그 detail 문자열에 반영한다. 실패해도 print()로만 사라지지 않고 여기 남는다.
+    result가 빈 dict(예: 피크타임에 분석할 데이터 자체가 없음)면 실패가 아니라 "분석 대상 없음"으로
+    구분해서 남긴다 — 안 그러면 "성공"으로 잘못 표시된다."""
+    if not result:
+        return f"{base}, status=no_data"
+    err = result.get("gemma_error")
+    if err:
+        return f"{base}, status=failed, error={err}"
+    if result.get("insufficient_data"):
+        return f"{base}, status=insufficient_data"
+    return f"{base}, status=success"
+
+
 # 카테고리별 2문장 분석 시스템 프롬프트 — 일별(daily_client)과 주간(weekly_client) 공용
 _SYSTEM_CATEGORY = (
     "당신은 단비교육 공감센터 CS 분석 전문가입니다.\n"

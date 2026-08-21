@@ -580,77 +580,17 @@ async def analyze_single_category(date_str: str, main_category: str) -> dict:
 
 
 async def analyze_peak_bucket(date_str: str) -> dict:
-    """피크타임 최다 버킷만 Gemma 분석 실행. 저장하지 않고 결과만 반환. 테스트용."""
+    """피크타임 최다 버킷만 Gemma 분석 실행 (자동 생성과 동일한 _call_gemma_peak_bucket 사용).
+    기존 보고서가 있으면 peak_bucket을 패치 저장한다. 예전엔 별도 로직으로 중복 구현되어 있었고
+    성공했을 때만 저장해서 실패가 조용히 사라지는 버그가 있었다 — analyze_single_category처럼
+    성공/실패 상관없이 항상 저장하도록 고쳤다."""
     stats = _fetch_day_stats(date_str)
-    peak_bucket_rows = stats["peak_bucket_rows"]
-    if not peak_bucket_rows:
-        return {"error": "피크타임 데이터 없음"}
+    result = await _call_gemma_peak_bucket(date_str, stats["peak_bucket_rows"])
 
-    max_bucket = max(peak_bucket_rows, key=lambda k: len(peak_bucket_rows[k]))
-    memos = peak_bucket_rows[max_bucket]
-    bucket_count = len(memos)
-
-    total_peak = sum(len(v) for v in peak_bucket_rows.values())
-    avg_count = round(total_peak / len(peak_bucket_rows), 1)
-
-    h, m = map(int, max_bucket.split(':'))
-    end_h, end_m = (h, 30) if m == 0 else (h + 1, 0)
-    bucket_end = f"{end_h}:{end_m:02d}"
-
-    lines = []
-    for memo in memos:
-        text = extract_symptom_fields(memo["text"])
-        text = " ".join(text.split())[:150]
-        if len(text) >= 20:
-            lines.append(f"[{len(lines)+1}] {text}")
-        if len(lines) >= 30:
-            break
-
-    prompt = _PROMPT_PEAK_BUCKET.format(
-        date_str=date_str,
-        bucket_start=max_bucket,
-        bucket_end=bucket_end,
-        bucket_count=bucket_count,
-        avg_count=avg_count,
-        memos="\n".join(lines),
-    )
-
-    print(f"[Gemma Peak Test {max_bucket}~{bucket_end}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
-    result_pattern = ""
-    result_summary = ""
-    gemma_error = None
-    insufficient = len(lines) < 3
-    if not insufficient:
-        try:
-            raw = await call_gemma(_SYSTEM_PEAK_BUCKET, prompt)
-            parsed = parse_json_response(raw)
-            if parsed and parsed.get("summary"):
-                result_pattern = parsed.get("pattern", "")
-                result_summary = parsed["summary"]
-            else:
-                gemma_error = describe_gemma_failure(raw)
-        except Exception as e:
-            gemma_error = str(e)
-            print(f"[Gemma Peak Test] 실패: {e}")
-
-    result = {
-        "bucket_start": max_bucket,
-        "bucket_end": bucket_end,
-        "bucket_count": bucket_count,
-        "avg_count": avg_count,
-        "pattern": result_pattern,
-        "summary": result_summary,
-        "has_pattern": bool(result_pattern),
-        "insufficient_data": insufficient,
-        "gemma_error": gemma_error,
-        "prompt_section": prompt if lines else "",
-    }
-
-    if not insufficient and result_summary:
-        existing = get_report(date_str)
-        if existing:
-            existing["peak_bucket"] = {k: v for k, v in result.items() if k != "prompt_section" and k != "insufficient_data"}
-            _save_report(date_str, existing)
+    existing = get_report(date_str)
+    if existing:
+        existing["peak_bucket"] = result or None
+        _save_report(date_str, existing)
 
     return result
 
