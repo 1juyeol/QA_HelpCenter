@@ -217,16 +217,32 @@ async def _cache_keyword_trend_today():
         print(f"[{now}] keyword_trend 캐시 저장 실패: {e}")
 
 
+_REPORT_RETRY_DELAY_SECONDS = 300  # 5분
+_REPORT_MAX_RETRIES = 2
+
+
 async def _generate_yesterday_report():
     """전날 일별 보고서를 자동 생성한다. COLLECTION_ENABLED 무관하게 실행.
     카테고리별 Gemma 호출이 일부만 실패해도 generate_report() 자체는 예외 없이 끝나므로,
-    반환된 risk_rows의 gemma_error를 검사해서 부분 실패까지 감사 로그에 남긴다."""
-    from features.report.report_daily import generate_report
+    실패한 항목만 5분 간격으로 최대 2번 더 재시도한 뒤, 그래도 남은 실패를 감사 로그에 남긴다.
+    새벽에 사람 없이 도는 자동 생성이라 재시도 사이 대기가 문제없다 (수동 생성 버튼은
+    사람이 기다리므로 이 재시도를 쓰지 않는다 — retry_failed_analyses() 참고)."""
+    from features.report.report_daily import generate_report, has_gemma_failures, retry_failed_analyses
     yesterday = str(date.today() - timedelta(days=1))
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     try:
         content = await generate_report(yesterday)
+        for _ in range(_REPORT_MAX_RETRIES):
+            if not has_gemma_failures(content):
+                break
+            await asyncio.sleep(_REPORT_RETRY_DELAY_SECONDS)
+            content = await retry_failed_analyses(yesterday, content)
+
         failed = [r["main"] for r in content.get("risk_rows", []) if r.get("gemma_error")]
+        if content.get("peak_bucket") and content["peak_bucket"].get("gemma_error"):
+            failed.append("피크타임")
+        if content.get("anomaly_bucket") and content["anomaly_bucket"].get("gemma_error"):
+            failed.append("이상시간대")
         detail = f"date={yesterday}"
         if failed:
             detail += f", gemma_failed={','.join(failed)}"

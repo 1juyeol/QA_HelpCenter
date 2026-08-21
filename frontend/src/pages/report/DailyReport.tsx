@@ -586,9 +586,11 @@ export default function DailyReport() {
 
       // 2단계: AI 분석 — 카테고리별 순차 호출, 완료되는 즉시 반영
       setAiGenerating(true)
+      const failedNames: string[] = []
       for (const row of statsData.risk_rows) {
         try {
           const result = await api.analyzeDailyCategory(date, row.main)
+          if (result.gemma_error) failedNames.push(row.main)
           setReport(prev => prev ? {
             ...prev,
             risk_rows: prev.risk_rows.map(r =>
@@ -598,14 +600,22 @@ export default function DailyReport() {
             ),
           } : prev)
         } catch (e) {
+          failedNames.push(row.main)
           console.error(`[AI] ${row.main} 분석 실패`, e)
         }
       }
       try {
         const peakResult = await api.analyzeDailyPeak(date)
+        if (peakResult.gemma_error) failedNames.push('피크타임')
         setReport(prev => prev ? { ...prev, peak_bucket: peakResult } : prev)
       } catch (e) {
+        failedNames.push('피크타임')
         console.error('[AI] 피크타임 분석 실패', e)
+      }
+      try {
+        await api.logDailyReportComplete(date, failedNames)
+      } catch (e) {
+        console.error('[AI] 생성 완료 로그 기록 실패', e)
       }
       const canNotify = await requestNotificationPermission()
       if (canNotify) {
@@ -830,6 +840,54 @@ export default function DailyReport() {
               </div>
             )}
           </div>
+
+          {report.anomaly_bucket && (
+            <div className="section-card">
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                marginBottom: 6, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
+              }}>
+                <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>이상 시간대 분석</h3>
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>피크타임(17~20시)이 아닌데도 그보다 상담이 더 몰린 시간대가 있어 AI가 패턴을 분석합니다</span>
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span style={{
+                    fontSize: 14, fontWeight: 700, color: '#fff',
+                    background: RISK_RED, borderRadius: 20, padding: '4px 14px',
+                  }}>
+                    {report.anomaly_bucket.bucket_start}~{report.anomaly_bucket.bucket_end}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }}>
+                    {report.anomaly_bucket.bucket_count}건
+                  </span>
+                  <span style={{ fontSize: 13, color: '#64748b' }}>
+                    집중 (당일 피크타임 최다 구간 {report.anomaly_bucket.peak_count}건보다 많음)
+                  </span>
+                  {report.anomaly_bucket.pattern && (
+                    <span style={{
+                      fontSize: 12, fontWeight: 700, color: NAVY,
+                      background: '#dbeafe', borderRadius: 20, padding: '3px 10px',
+                    }}>
+                      {report.anomaly_bucket.pattern} 반복
+                    </span>
+                  )}
+                </div>
+                {report.anomaly_bucket.summary ? (
+                  <div style={{
+                    fontSize: 13, color: '#374151', lineHeight: 1.7,
+                    borderLeft: `3px solid ${RISK_RED}`, paddingLeft: 10,
+                  }}>
+                    {report.anomaly_bucket.summary}
+                  </div>
+                ) : report.anomaly_bucket.gemma_error ? (
+                  <div style={{ fontSize: 12, color: RISK_RED }} title={report.anomaly_bucket.gemma_error}>
+                    AI 분석 실패 — 다시 시도해주세요
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
 
           <div style={{ marginTop: 8 }}>
             <button

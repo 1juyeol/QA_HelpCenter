@@ -5,6 +5,7 @@
 # POST /api/report/daily/generate-stats?date=YYYY-MM-DD      : 통계만 생성 (Gemma 없음, 1단계).
 # POST /api/report/daily/analyze-category?date=&main=        : 특정 대분류 Gemma 분석 후 DB 저장.
 # POST /api/report/daily/analyze-peak?date=                  : 피크타임 최다 버킷 Gemma 분석 후 DB 저장.
+# POST /api/report/daily/generate-complete?date=&failed=      : 수동 생성 완료 요약 로그 한 줄 (프론트가 순차 호출 끝나고 호출).
 # GET  /api/report/weekly?week_start=YYYY-MM-DD              : 저장된 주간 보고서 반환. 없으면 404.
 # POST /api/report/weekly/generate-stats?week_start=YYYY-MM-DD : 통계만 생성 (1단계).
 # POST /api/report/weekly/generate?week_start=YYYY-MM-DD     : 통계 + AI 분석 전체 생성 (2단계).
@@ -66,6 +67,21 @@ async def analyze_daily_peak(date: str = Query(..., description="YYYY-MM-DD")):
     result = await analyze_peak_bucket(date)
     log_action("daily_report_analyze_peak", _gemma_detail(f"date={date}", result))
     return result
+
+
+@router.post("/api/report/daily/generate-complete")
+def daily_report_generate_complete(
+    date: str = Query(..., description="YYYY-MM-DD"),
+    failed: str = Query("", description="쉼표구분 실패한 카테고리/구간 이름, 전부 성공했으면 빈 문자열"),
+):
+    """프론트의 '보고서 생성' 버튼이 통계·카테고리별·피크타임 순차 호출을 다 끝낸 뒤 한 번 호출한다.
+    자동 생성(daily_report_auto_generate)과 동일한 형태로 감사 로그에 완료 요약 한 줄을 남긴다 —
+    스텝별 로그만 있으면 "이 생성이 끝났다"는 게 한눈에 안 보이기 때문."""
+    detail = f"date={date}"
+    if failed:
+        detail += f", gemma_failed={failed}"
+    log_action("daily_report_manual_generate", detail)
+    return {"status": "ok"}
 
 
 @router.get("/api/report/weekly/latest")

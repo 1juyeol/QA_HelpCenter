@@ -9,8 +9,14 @@
 #     │     해지·유지 상담 → _build_cancellation_brief() (해지 사유 카운팅)
 #     │     그 외          → _build_keyword_groups()     (RULES 키워드 그룹핑)
 #     ├─ _call_gemma_category_insights() : Gemma Call 1 — 카테고리별 2줄 분석
-#     ├─ _call_gemma_peak_bucket()       : Gemma Call 2 — 피크 최다 버킷 분석
+#     ├─ _call_gemma_peak_bucket()       : Gemma Call 2 — 피크타임(17~20시) 최다 버킷 분석
+#     ├─ _call_gemma_anomaly_bucket()    : Gemma Call 3 — 피크타임 밖인데 그보다 인입이 많은
+#     │                                    버킷이 있을 때만 실행 (백필 등 이상 유입 포착)
 #     └─ reports 테이블 UPSERT (report_type='daily') → 결과 반환
+#
+# has_gemma_failures(content) / retry_failed_analyses(date_str, content):
+#   gemma_error가 남은 항목만 다시 시도하는 재시도용 함수. scheduler.py의 새벽 자동 생성이
+#   5분 간격으로 최대 2번 이 둘을 써서 재시도한다 (사람이 기다리는 수동 생성 버튼은 안 씀).
 #
 # 공유 상수·유틸: report_utils.py (RISK_MAIN, _is_risk, _SYSTEM_CATEGORY 등)
 # Gemma 클라이언트: core/gemma_client.py
@@ -66,6 +72,26 @@ _PROMPT_PEAK_BUCKET = (
     "건수 단순 반복('N건 접수됐습니다')이나 CS 운영 조언은 쓰지 마세요.\n\n"
     "{memos}"
 )
+
+# 피크타임(17~20시) 밖인데 그날 피크타임 최다 버킷보다 인입이 많은 버킷이 있을 때만 실행된다.
+# 백필·이력 현행화로 CS 업무시간이 아닌 때 대량 유입될 경우를 포착하기 위함 (평소 패턴 지표인
+# 피크타임 분석과는 별개로, 존재할 때만 추가되는 이상탐지형 분석).
+_PROMPT_ANOMALY_BUCKET = (
+    "아래는 {date_str}에 피크타임(17~20시)이 아닌데도 오히려 문의가 가장 많이 접수된\n"
+    "{bucket_start}~{bucket_end} 구간의 CS 상담 메모입니다.\n"
+    "이 구간에 {bucket_count}건이 접수됐으며, 같은 날 피크타임 최다 버킷({peak_count}건)보다 많습니다.\n"
+    "\n"
+    "메모를 읽고 이 시간대에 특이한 패턴이 있는지, 왜 피크타임이 아닌데 몰렸는지 판단하세요.\n"
+    "summary는 항상 두 문장으로 작성하세요.\n"
+    "  첫 문장: 이 시간대에 어떤 현상·증상이 접수됐는지.\n"
+    "  두 번째 문장: 왜 이 시간에 집중됐을 가능성 또는 사용자 영향 (예: 이력 일괄 정리, 특정 이벤트 등).\n"
+    "pattern: 같은 유형의 문제가 반복된다면 10자 이내 키워드. 특정 패턴이 없으면 빈 문자열.\n"
+    "건수 단순 반복('N건 접수됐습니다')이나 CS 운영 조언은 쓰지 마세요.\n\n"
+    "{memos}"
+)
+
+# 피크타임 버킷 키 집합 (30분 단위, 17:00~20:00 마지막 버킷까지 — _fetch_day_stats의 기존 조건과 동일)
+_PEAK_BUCKET_KEYS = {"17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00"}
 
 # ── 내부 함수 ─────────────────────────────────────────────────────────────────
 
@@ -129,7 +155,7 @@ def _fetch_day_stats(date_str: str) -> dict:
     hist_peak = round(sum(hist_counts) / len(hist_counts), 1) if hist_counts else 0.0
 
     main_sub_memos: dict = defaultdict(lambda: defaultdict(list))
-    peak_bucket_rows: dict = {}
+    all_bucket_rows: dict = {}
 
     for row in rows:
         id_, main, sub, memo, hour, minute = (
@@ -138,12 +164,11 @@ def _fetch_day_stats(date_str: str) -> dict:
         )
         if main and sub and _is_risk(main, sub):
             main_sub_memos[main][sub].append({"id": id_, "text": memo or ""})
-        if hour in {17, 18, 19} or (hour == 20 and minute < 30):
-            bucket_min = 0 if minute < 30 else 30
-            bucket_key = f"{hour}:{bucket_min:02d}"
-            if bucket_key not in peak_bucket_rows:
-                peak_bucket_rows[bucket_key] = []
-            peak_bucket_rows[bucket_key].append({"id": id_, "text": memo or ""})
+        bucket_min = 0 if minute < 30 else 30
+        bucket_key = f"{hour}:{bucket_min:02d}"
+        all_bucket_rows.setdefault(bucket_key, []).append({"id": id_, "text": memo or ""})
+
+    peak_bucket_rows = {k: v for k, v in all_bucket_rows.items() if k in _PEAK_BUCKET_KEYS}
 
     risk_rows = []
     for main in _MAIN_ORDER:
@@ -175,6 +200,7 @@ def _fetch_day_stats(date_str: str) -> dict:
         "risk_total": risk_total,
         "hourly": hourly,
         "peak_bucket_rows": peak_bucket_rows,
+        "all_bucket_rows": all_bucket_rows,
         "hist_peak": hist_peak,
     }
 
@@ -334,24 +360,14 @@ async def _call_gemma_category_insights(date_str: str, risk_rows: list) -> None:
             print(f"[Gemma Daily Cat - {cat_label}] 실패 (건너뜀): {e}")
 
 
-async def _call_gemma_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dict:
-    """Call 2: 피크타임 최다 버킷 메모 → Gemma 분석. 데이터 없으면 빈 dict 반환.
-    Gemma 호출 자체가 있었는데 실패한 경우엔 gemma_error를 채워서 반환한다 (빈 dict로
-    뭉개면 "애초에 분석 대상이 없었던 것"과 "분석했는데 실패한 것"을 구분할 수 없기 때문)."""
-    if not peak_bucket_rows:
-        return {}
-
-    max_bucket = max(peak_bucket_rows, key=lambda k: len(peak_bucket_rows[k]))
-    memos = peak_bucket_rows[max_bucket]
-    bucket_count = len(memos)
-
-    total_peak = sum(len(v) for v in peak_bucket_rows.values())
-    avg_count = round(total_peak / len(peak_bucket_rows), 1)
-
-    h, m = map(int, max_bucket.split(':'))
+def _bucket_end(bucket_key: str) -> str:
+    h, m = map(int, bucket_key.split(':'))
     end_h, end_m = (h, 30) if m == 0 else (h + 1, 0)
-    bucket_end = f"{end_h}:{end_m:02d}"
+    return f"{end_h}:{end_m:02d}"
 
+
+def _build_bucket_lines(memos: list[dict]) -> list[str]:
+    """버킷 메모를 Gemma 프롬프트용 번호 매긴 텍스트 라인으로 변환. 최대 30개."""
     lines = []
     for memo in memos:
         text = extract_symptom_fields(memo["text"])
@@ -360,30 +376,19 @@ async def _call_gemma_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dict
             lines.append(f"[{len(lines)+1}] {text}")
         if len(lines) >= 30:
             break
+    return lines
 
-    if not lines:
-        return {}
 
-    base = {
-        "bucket_start": max_bucket, "bucket_end": bucket_end,
-        "bucket_count": bucket_count, "avg_count": avg_count,
-        "pattern": "", "summary": "", "has_pattern": False,
-    }
-
-    prompt = _PROMPT_PEAK_BUCKET.format(
-        date_str=date_str,
-        bucket_start=max_bucket,
-        bucket_end=bucket_end,
-        bucket_count=bucket_count,
-        avg_count=avg_count,
-        memos="\n".join(lines),
-    )
-    print(f"[Gemma Daily Peak {max_bucket}~{bucket_end}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
+async def _run_bucket_gemma(label: str, prompt: str, base: dict) -> dict:
+    """버킷 분석 공통 실행부: Gemma 호출 → 파싱 → base에 결과/gemma_error 채워 반환.
+    호출 자체가 있었는데 실패한 경우엔 gemma_error를 채운다 (빈 dict로 뭉개면 "애초에
+    분석 대상이 없었던 것"과 "분석했는데 실패한 것"을 구분할 수 없기 때문)."""
+    print(f"[Gemma Daily {label}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
     try:
         raw = await call_gemma(_SYSTEM_PEAK_BUCKET, prompt)
         result = parse_json_response(raw)
     except Exception as e:
-        print(f"[Gemma Daily Peak {max_bucket}~{bucket_end}] 실패 (건너뜀): {e}")
+        print(f"[Gemma Daily {label}] 실패 (건너뜀): {e}")
         return {**base, "gemma_error": str(e)}
 
     if not result:
@@ -398,10 +403,88 @@ async def _call_gemma_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dict
         "gemma_error": None,
     }
 
+
+async def _call_gemma_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dict:
+    """Call 2: 피크타임 최다 버킷 메모 → Gemma 분석. 데이터 없으면 빈 dict 반환."""
+    if not peak_bucket_rows:
+        return {}
+
+    max_bucket = max(peak_bucket_rows, key=lambda k: len(peak_bucket_rows[k]))
+    memos = peak_bucket_rows[max_bucket]
+    bucket_count = len(memos)
+
+    total_peak = sum(len(v) for v in peak_bucket_rows.values())
+    avg_count = round(total_peak / len(peak_bucket_rows), 1)
+    bucket_end = _bucket_end(max_bucket)
+
+    lines = _build_bucket_lines(memos)
+    if not lines:
+        return {}
+
+    base = {
+        "bucket_start": max_bucket, "bucket_end": bucket_end,
+        "bucket_count": bucket_count, "avg_count": avg_count,
+        "pattern": "", "summary": "", "has_pattern": False,
+    }
+    prompt = _PROMPT_PEAK_BUCKET.format(
+        date_str=date_str,
+        bucket_start=max_bucket,
+        bucket_end=bucket_end,
+        bucket_count=bucket_count,
+        avg_count=avg_count,
+        memos="\n".join(lines),
+    )
+    return await _run_bucket_gemma(f"Peak {max_bucket}~{bucket_end}", prompt, base)
+
+
+def find_anomaly_bucket(all_bucket_rows: dict, peak_max_count: int) -> str | None:
+    """피크타임(17~20시) 밖에서 건수가 피크타임 최다 버킷보다 많은 버킷이 있으면 그 키를 반환.
+    여러 개면 가장 많은 것 하나만. 없으면 None. 백필·이력 현행화로 업무시간 외에 대량
+    유입되는 경우를 잡기 위함 — 임계값(배수 등) 없이 "피크타임보다 많다"만 기준으로 한다."""
+    off_peak = {k: v for k, v in all_bucket_rows.items() if k not in _PEAK_BUCKET_KEYS}
+    if not off_peak:
+        return None
+    max_key = max(off_peak, key=lambda k: len(off_peak[k]))
+    if len(off_peak[max_key]) > peak_max_count:
+        return max_key
+    return None
+
+
+async def _call_gemma_anomaly_bucket(date_str: str, all_bucket_rows: dict, peak_bucket_rows: dict) -> dict:
+    """Call 3: 피크타임 밖인데 피크타임보다 인입이 많은 버킷이 있으면 그것도 분석.
+    해당 조건을 만족하는 버킷이 없으면 빈 dict (매일 실행되는 게 아니라 이상 시일 때만)."""
+    peak_max_count = max((len(v) for v in peak_bucket_rows.values()), default=0)
+    anomaly_key = find_anomaly_bucket(all_bucket_rows, peak_max_count)
+    if anomaly_key is None:
+        return {}
+
+    memos = all_bucket_rows[anomaly_key]
+    bucket_count = len(memos)
+    bucket_end = _bucket_end(anomaly_key)
+
+    lines = _build_bucket_lines(memos)
+    if not lines:
+        return {}
+
+    base = {
+        "bucket_start": anomaly_key, "bucket_end": bucket_end,
+        "bucket_count": bucket_count, "peak_count": peak_max_count,
+        "pattern": "", "summary": "", "has_pattern": False,
+    }
+    prompt = _PROMPT_ANOMALY_BUCKET.format(
+        date_str=date_str,
+        bucket_start=anomaly_key,
+        bucket_end=bucket_end,
+        bucket_count=bucket_count,
+        peak_count=peak_max_count,
+        memos="\n".join(lines),
+    )
+    return await _run_bucket_gemma(f"Anomaly {anomaly_key}~{bucket_end}", prompt, base)
+
 # ── 공개 API ──────────────────────────────────────────────────────────────────
 
 
-def _build_content(date_str: str, stats: dict, peak_bucket: dict) -> dict:
+def _build_content(date_str: str, stats: dict, peak_bucket: dict, anomaly_bucket: dict | None = None) -> dict:
     from datetime import date as _date, timedelta as _td
     prev_date = str(_date.fromisoformat(date_str) - _td(days=1))
     prev = get_report(prev_date)
@@ -427,6 +510,7 @@ def _build_content(date_str: str, stats: dict, peak_bucket: dict) -> dict:
             for r in stats["risk_rows"]
         ],
         "peak_bucket": peak_bucket or None,
+        "anomaly_bucket": anomaly_bucket or None,
         "hourly": stats["hourly"],
     }
 
@@ -457,7 +541,8 @@ async def generate_report(date_str: str) -> dict:
     stats = _fetch_day_stats(date_str)
     await _call_gemma_category_insights(date_str, stats["risk_rows"])
     peak_bucket = await _call_gemma_peak_bucket(date_str, stats["peak_bucket_rows"])
-    content = _build_content(date_str, stats, peak_bucket)
+    anomaly_bucket = await _call_gemma_anomaly_bucket(date_str, stats["all_bucket_rows"], stats["peak_bucket_rows"])
+    content = _build_content(date_str, stats, peak_bucket, anomaly_bucket)
     generated_at = _save_report(date_str, content)
     content["generated_at"] = generated_at
     return content
@@ -568,6 +653,51 @@ async def analyze_peak_bucket(date_str: str) -> dict:
             _save_report(date_str, existing)
 
     return result
+
+
+def has_gemma_failures(content: dict) -> bool:
+    """저장된 보고서 content에 gemma_error가 남아있는 항목이 하나라도 있으면 True."""
+    if any(r.get("gemma_error") for r in content.get("risk_rows", [])):
+        return True
+    if content.get("peak_bucket") and content["peak_bucket"].get("gemma_error"):
+        return True
+    if content.get("anomaly_bucket") and content["anomaly_bucket"].get("gemma_error"):
+        return True
+    return False
+
+
+async def retry_failed_analyses(date_str: str, content: dict) -> dict:
+    """content에서 gemma_error가 남은 항목만 다시 시도해 갱신·저장한다. 재시도할 게 없으면
+    그대로 반환. 스케줄러의 자동 생성이 실패분만 재시도할 때 쓴다 (수동 '보고서 생성' 버튼은
+    사람이 기다리는 상황이라 이 재시도를 쓰지 않고 즉시 결과를 반환한다)."""
+    stats = None
+
+    failed_mains = {r["main"] for r in content.get("risk_rows", []) if r.get("gemma_error")}
+    if failed_mains:
+        stats = _fetch_day_stats(date_str)
+        retry_rows = [r for r in stats["risk_rows"] if r["main"] in failed_mains]
+        await _call_gemma_category_insights(date_str, retry_rows)
+        retry_by_main = {r["main"]: r for r in retry_rows}
+        for r in content["risk_rows"]:
+            rr = retry_by_main.get(r["main"])
+            if rr:
+                r["summary"] = rr.get("summary", "")
+                r["gemma_error"] = rr.get("gemma_error")
+                r["analysis_groups"] = rr.get("analysis_groups", [])
+                r["insufficient_data"] = rr.get("insufficient_data", False)
+
+    if content.get("peak_bucket") and content["peak_bucket"].get("gemma_error"):
+        stats = stats or _fetch_day_stats(date_str)
+        content["peak_bucket"] = await _call_gemma_peak_bucket(date_str, stats["peak_bucket_rows"]) or content["peak_bucket"]
+
+    if content.get("anomaly_bucket") and content["anomaly_bucket"].get("gemma_error"):
+        stats = stats or _fetch_day_stats(date_str)
+        content["anomaly_bucket"] = await _call_gemma_anomaly_bucket(
+            date_str, stats["all_bucket_rows"], stats["peak_bucket_rows"]
+        ) or content["anomaly_bucket"]
+
+    _save_report(date_str, content)
+    return content
 
 
 def get_report(date_str: str) -> dict | None:
