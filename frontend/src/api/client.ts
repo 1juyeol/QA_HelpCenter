@@ -340,6 +340,14 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   return r.json() as Promise<T>
 }
 
+// 관리자 인증 실패(401/403) 감지 콜백. 서버가 재시작되면 토큰이 메모리에서 사라져 죽는데,
+// useAdmin.tsx의 AdminProvider가 여기에 logout()을 등록해두면 그 순간 바로 자동 로그아웃
+// 처리된다 — 예전엔 사용자가 수동으로 "관리자 모드 끄기"를 눌러야만 재로그인 화면이 떴다.
+let onAdminAuthError: (() => void) | null = null
+export function setAdminAuthErrorHandler(fn: (() => void) | null) {
+  onAdminAuthError = fn
+}
+
 // 관리자 전용 엔드포인트 호출용. X-Admin-Token 헤더에 useAdmin()의 세션 토큰을 실어 보낸다.
 async function postJsonAdmin<T>(url: string, body: unknown, token: string): Promise<T> {
   const r = await fetch(`${API_BASE}${url}`, {
@@ -347,6 +355,7 @@ async function postJsonAdmin<T>(url: string, body: unknown, token: string): Prom
     headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
     body: JSON.stringify(body),
   })
+  if (r.status === 401 || r.status === 403) onAdminAuthError?.()
   if (!r.ok) throw new Error(await r.text())
   return r.json() as Promise<T>
 }
@@ -354,6 +363,7 @@ async function postJsonAdmin<T>(url: string, body: unknown, token: string): Prom
 // 관리자 전용 GET 엔드포인트 호출용 (예: 감사 로그 조회).
 async function getAdmin<T>(url: string, token: string): Promise<T> {
   const r = await fetch(`${API_BASE}${url}`, { headers: { 'X-Admin-Token': token } })
+  if (r.status === 401 || r.status === 403) onAdminAuthError?.()
   if (!r.ok) throw new Error(await r.text())
   return r.json() as Promise<T>
 }
