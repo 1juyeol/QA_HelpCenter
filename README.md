@@ -8,7 +8,6 @@
 ## 파일 구조
 
 ```
-cs_dashboard/
 ├── backend/
 │   ├── server.py                      # 진입점: 라우터 등록·startup·SPA 폴백만
 │   ├── core/
@@ -30,7 +29,7 @@ cs_dashboard/
 │   ├── scripts/
 │   │   ├── reclassify.py              # 전체 재분류 일괄 실행
 │   │   └── backfill_ids.py            # student_id·parent_id 누락 보완
-│   ├── cs_dashboard.db                # SQLite DB
+│   ├── helpdesk.db                    # SQLite DB
 │   └── requirements.txt
 ├── frontend/                          # Vite + React + TypeScript
 │   ├── src/
@@ -226,7 +225,7 @@ FALLBACK_SUBS = {"교사 상담 요청", "기타"}
 ## 외부 API 호출 명세
 
 > 우리 서버는 외부 시스템의 DB를 직접 건드리지 않는다. **HTTP API(읽기 GET) 호출**로만 데이터를 받아
-> **우리 로컬 SQLite(cs_dashboard.db)** 에만 저장한다.
+> **우리 로컬 SQLite(helpdesk.db)** 에만 저장한다.
 
 ### 공통 요청 헤더 (help-desk)
 
