@@ -235,6 +235,17 @@ export interface PeakBucket {
   gemma_error?: string | null
 }
 
+export interface AnomalyBucket {
+  bucket_start: string
+  bucket_end: string
+  bucket_count: number
+  peak_count: number
+  pattern: string
+  summary: string
+  has_pattern: boolean
+  gemma_error?: string | null
+}
+
 export interface DailyReport {
   report_date: string
   generated_at: string
@@ -244,6 +255,7 @@ export interface DailyReport {
   prev_risk_total?: number | null
   risk_rows: RiskRow[]
   peak_bucket?: PeakBucket
+  anomaly_bucket?: AnomalyBucket | null
   hourly: [number, number][]
 }
 
@@ -486,6 +498,12 @@ export const api = {
   analyzeDailyPeak(date: string) {
     return post<{ bucket_start: string; bucket_end: string; bucket_count: number; avg_count: number; pattern: string; summary: string; has_pattern: boolean; insufficient_data: boolean; gemma_error?: string | null; prompt_section: string }>(
       `/api/report/daily/analyze-peak?date=${date}`
+    )
+  },
+
+  logDailyReportComplete(date: string, failed: string[]) {
+    return post<{ status: string }>(
+      `/api/report/daily/generate-complete?date=${date}&failed=${encodeURIComponent(failed.join(','))}`
     )
   },
 
