@@ -224,6 +224,7 @@ export default function AuditLog() {
 
   useEffect(() => {
     if (!isAdmin || !adminToken) return
+    setError(false)
     api.fetchAuditLog(adminToken, 200)
       .then(setEntries)
       .catch(() => setError(true))

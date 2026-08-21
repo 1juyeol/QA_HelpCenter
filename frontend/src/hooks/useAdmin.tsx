@@ -2,7 +2,10 @@
 // 확인한다. 통과하면 백엔드가 발급한 무작위 세션 토큰을 localStorage에 저장한다 — 암호
 // (ADMIN_PASSCODE) 자체는 브라우저에 남기지 않는다. 관리자 전용 API(예: CS 수집 on/off)를
 // 호출할 때 adminToken을 X-Admin-Token 헤더로 실어 보낸다. 토큰은 서버 재시작 시 무효화되므로
-// 그 이후엔 isAdmin이 true로 보여도 실제 API 호출은 403이 날 수 있다(재인증 필요).
+// 그 이후엔 isAdmin이 true로 보여도 실제 API 호출은 401/403이 날 수 있다 — 이 경우
+// client.ts의 setAdminAuthErrorHandler(logout)로 등록해둔 콜백이 즉시 불려 자동 로그아웃
+// 처리된다. 예전엔 사용자가 사이드바에서 수동으로 "관리자 모드 끄기"를 눌러야만 재로그인
+// 화면이 떴다.
 //
 // Context로 만든 이유: 예전엔 컴포넌트마다 이 훅을 각자 호출해서(local useState) 로그인 상태가
 // 컴포넌트별로 따로 놀았다 — 사이드바에서 로그인해도 이미 열려 있던 다른 관리자 페이지는
@@ -14,8 +17,8 @@
 //
 // 나중에 실제 ID/PW 로그인으로 바꿀 때는 AdminProvider 내부(verify 구현)만 교체하면 되고,
 // useAdmin()을 쓰는 컴포넌트들은 수정할 필요가 없다.
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
-import { api } from '../api/client'
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react'
+import { api, setAdminAuthErrorHandler } from '../api/client'
 
 const STORAGE_KEY = 'cs_admin_token'
 
@@ -44,6 +47,12 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(STORAGE_KEY)
     setToken(null)
   }, [])
+
+  // 죽은 토큰으로 관리자 API를 호출해 401/403이 오면 client.ts가 이걸 불러 자동 로그아웃한다.
+  useEffect(() => {
+    setAdminAuthErrorHandler(logout)
+    return () => setAdminAuthErrorHandler(null)
+  }, [logout])
 
   const value: AdminContextValue = { isAdmin: !!token, adminToken: token, verify, logout }
   return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>
