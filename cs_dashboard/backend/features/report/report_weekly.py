@@ -297,12 +297,15 @@ def _fetch_week_stats(week_start: str) -> dict:
 
 
 async def _call_gemma_weekly_risk(week_range: str, risk_rows: list, week_start: str | None = None) -> None:
-    """리스크 카테고리별 Gemma 호출. 피크 요일 가중 샘플링 + 키워드 추출 후 분석."""
+    """리스크 카테고리별 Gemma 호출. 피크 요일 가중 샘플링 + 키워드 추출 후 분석.
+    각 row에 gemma_error를 남긴다: 성공/데이터부족이면 None, 실패면 실패 사유 문자열
+    (일별 보고서와 동일한 이유 — 실패가 print()로만 사라지지 않게)."""
     total_risk = sum(r["count"] for r in risk_rows)
     for row in risk_rows:
         memos = row["memos"]
         if len(memos) < _MIN_ANALYSIS_MEMOS:
             row["summary"] = INSUFFICIENT_SUMMARY
+            row["gemma_error"] = None
             continue
 
         sampled, peak_day, peak_count = _weighted_sample_memos(memos)
@@ -328,6 +331,7 @@ async def _call_gemma_weekly_risk(week_range: str, risk_rows: list, week_start: 
 
         if not lines:
             row["summary"] = INSUFFICIENT_SUMMARY
+            row["gemma_error"] = None
             continue
 
         top_kw = _extract_top_keywords(raw_texts)
@@ -357,10 +361,17 @@ async def _call_gemma_weekly_risk(week_range: str, risk_rows: list, week_start: 
         try:
             raw = await call_gemma(_SYSTEM_CATEGORY, prompt)
             result = parse_json_response(raw)
-            row["summary"] = result.get("summary", "") if result else ""
+            if result and result.get("summary"):
+                row["summary"] = result["summary"]
+                row["gemma_error"] = None
+            else:
+                row["summary"] = ""
+                row["gemma_error"] = "Gemma 응답 파싱 실패 또는 빈 응답"
+                print(f"[Gemma Weekly Risk - {row['main']}] {row['gemma_error']}")
         except Exception as e:
-            print(f"[Gemma Weekly Risk - {row['main']}] 실패 (건너뜀): {e}")
             row["summary"] = ""
+            row["gemma_error"] = str(e)
+            print(f"[Gemma Weekly Risk - {row['main']}] 실패 (건너뜀): {e}")
 
         # 카테고리 하나 완료될 때마다 중간 저장
         if week_start:
@@ -369,13 +380,14 @@ async def _call_gemma_weekly_risk(week_range: str, risk_rows: list, week_start: 
                 for r in existing.get("risk_rows", []):
                     if r["main"] == row["main"]:
                         r["summary"] = row["summary"]
+                        r["gemma_error"] = row.get("gemma_error")
                         break
                 _save_weekly_report(week_start, existing)
                 print(f"[Weekly] 중간 저장 완료: {row['main']}")
 
 
-async def _call_gemma_weekly_summary(stats: dict) -> str:
-    """주간 종합 Gemma 호출. 실패 시 빈 문자열 반환."""
+async def _call_gemma_weekly_summary(stats: dict) -> tuple[str, str | None]:
+    """주간 종합 Gemma 호출. (summary, gemma_error) 튜플 반환 — 실패 시 summary=""·gemma_error=사유."""
     category_summary = ", ".join(
         f"{r['main']} {r['count']}건"
         for r in stats["category_breakdown"][:6]
@@ -398,16 +410,18 @@ async def _call_gemma_weekly_summary(stats: dict) -> str:
     try:
         raw = await call_gemma(_SYSTEM_WEEKLY_SUMMARY, prompt)
         result = parse_json_response(raw)
-        return result.get("summary", "") if result else ""
+        if result and result.get("summary"):
+            return result["summary"], None
+        return "", "Gemma 응답 파싱 실패 또는 빈 응답"
     except Exception as e:
         print(f"[Gemma Weekly Summary] 실패 (건너뜀): {e}")
-        return ""
+        return "", str(e)
 
 
 # ── 공개 API ──────────────────────────────────────────────────────────────────
 
 
-def _build_weekly_content(stats: dict, weekly_summary: str) -> dict:
+def _build_weekly_content(stats: dict, weekly_summary: str, weekly_summary_error: str | None = None) -> dict:
     return {
         "week_start": stats["week_start"],
         "week_end": stats["week_end"],
@@ -425,10 +439,11 @@ def _build_weekly_content(stats: dict, weekly_summary: str) -> dict:
         "risk_sub_stack_prev": stats.get("risk_sub_stack_prev", {}),
         "peak_daily": stats["peak_daily"],
         "risk_rows": [
-            {"main": r["main"], "count": r["count"], "summary": r.get("summary", "")}
+            {"main": r["main"], "count": r["count"], "summary": r.get("summary", ""), "gemma_error": r.get("gemma_error")}
             for r in stats["risk_rows"]
         ],
         "weekly_summary": weekly_summary,
+        "weekly_summary_error": weekly_summary_error,
     }
 
 
@@ -458,8 +473,8 @@ async def generate_weekly_report(week_start: str) -> dict:
     stats = _fetch_week_stats(week_start)
     week_range = f"{stats['week_start']} ~ {stats['week_end']}"
     await _call_gemma_weekly_risk(week_range, stats["risk_rows"], week_start=week_start)
-    weekly_summary = await _call_gemma_weekly_summary(stats)
-    content = _build_weekly_content(stats, weekly_summary)
+    weekly_summary, weekly_summary_error = await _call_gemma_weekly_summary(stats)
+    content = _build_weekly_content(stats, weekly_summary, weekly_summary_error)
     generated_at = _save_weekly_report(week_start, content)
     content["generated_at"] = generated_at
     return content
@@ -529,6 +544,7 @@ async def analyze_weekly_category(week_start: str, main: str) -> dict:
         for r in existing.get("risk_rows", []):
             if r["main"] == main:
                 r["summary"] = row.get("summary", "")
+                r["gemma_error"] = row.get("gemma_error")
                 break
         _save_weekly_report(week_start, existing)
 
@@ -537,6 +553,7 @@ async def analyze_weekly_category(week_start: str, main: str) -> dict:
         "count": row["count"],
         "summary": row.get("summary", ""),
         "insufficient_data": row.get("summary") == INSUFFICIENT_SUMMARY,
+        "gemma_error": row.get("gemma_error"),
     }
 
 
@@ -549,11 +566,12 @@ async def analyze_weekly_summary(week_start: str) -> dict:
             stored = next((s for s in existing.get("risk_rows", []) if s["main"] == r["main"]), None)
             if stored:
                 r["summary"] = stored.get("summary", "")
-    summary = await _call_gemma_weekly_summary(stats)
+    summary, gemma_error = await _call_gemma_weekly_summary(stats)
     if existing:
         existing["weekly_summary"] = summary
+        existing["weekly_summary_error"] = gemma_error
         _save_weekly_report(week_start, existing)
-    return {"summary": summary}
+    return {"summary": summary, "gemma_error": gemma_error}
 
 
 def get_weekly_report(week_start: str) -> dict | None:

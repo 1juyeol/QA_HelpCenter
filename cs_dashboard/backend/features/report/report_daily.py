@@ -298,12 +298,16 @@ def _prepare_category_brief(risk_rows: list) -> None:
 
 
 async def _call_gemma_category_insights(date_str: str, risk_rows: list) -> None:
-    """Call 1: 카테고리별로 Gemma를 개별 호출. 배치 호출 시 JSON 잘림 방지."""
+    """Call 1: 카테고리별로 Gemma를 개별 호출. 배치 호출 시 JSON 잘림 방지.
+    각 row에 gemma_error를 남긴다: 성공/데이터부족이면 None, 실패면 실패 사유 문자열.
+    예전엔 실패해도 print()로만 남고 사라졌는데, 이제 보고서 데이터 자체에 저장돼
+    감사 로그·화면에서 "몇 번 실패했는지 왜 실패했는지" 추적 가능하다."""
     _prepare_category_brief(risk_rows)
 
     for row in risk_rows:
         if row.get("insufficient_data"):
             row["summary"] = INSUFFICIENT_SUMMARY
+            row["gemma_error"] = None
             continue
 
         cat_label = f"{row['main']} > {row['sub']}"
@@ -317,14 +321,23 @@ async def _call_gemma_category_insights(date_str: str, risk_rows: list) -> None:
         try:
             raw = await call_gemma(_SYSTEM_CATEGORY, prompt)
             result = parse_json_response(raw)
-            row["summary"] = result.get("summary", "") if result else ""
+            if result and result.get("summary"):
+                row["summary"] = result["summary"]
+                row["gemma_error"] = None
+            else:
+                row["summary"] = ""
+                row["gemma_error"] = "Gemma 응답 파싱 실패 또는 빈 응답"
+                print(f"[Gemma Daily Cat - {cat_label}] {row['gemma_error']}")
         except Exception as e:
-            print(f"[Gemma Daily Cat - {cat_label}] 실패 (건너뜀): {e}")
             row["summary"] = ""
+            row["gemma_error"] = str(e)
+            print(f"[Gemma Daily Cat - {cat_label}] 실패 (건너뜀): {e}")
 
 
 async def _call_gemma_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dict:
-    """Call 2: 피크타임 최다 버킷 메모 → Gemma 분석. 데이터 없으면 빈 dict 반환."""
+    """Call 2: 피크타임 최다 버킷 메모 → Gemma 분석. 데이터 없으면 빈 dict 반환.
+    Gemma 호출 자체가 있었는데 실패한 경우엔 gemma_error를 채워서 반환한다 (빈 dict로
+    뭉개면 "애초에 분석 대상이 없었던 것"과 "분석했는데 실패한 것"을 구분할 수 없기 때문)."""
     if not peak_bucket_rows:
         return {}
 
@@ -351,6 +364,12 @@ async def _call_gemma_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dict
     if not lines:
         return {}
 
+    base = {
+        "bucket_start": max_bucket, "bucket_end": bucket_end,
+        "bucket_count": bucket_count, "avg_count": avg_count,
+        "pattern": "", "summary": "", "has_pattern": False,
+    }
+
     prompt = _PROMPT_PEAK_BUCKET.format(
         date_str=date_str,
         bucket_start=max_bucket,
@@ -365,20 +384,18 @@ async def _call_gemma_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dict
         result = parse_json_response(raw)
     except Exception as e:
         print(f"[Gemma Daily Peak {max_bucket}~{bucket_end}] 실패 (건너뜀): {e}")
-        return {}
+        return {**base, "gemma_error": str(e)}
 
     if not result:
-        return {}
+        return {**base, "gemma_error": "Gemma 응답 파싱 실패 또는 빈 응답"}
 
     pattern = result.get("pattern", "")
     return {
-        "bucket_start": max_bucket,
-        "bucket_end": bucket_end,
-        "bucket_count": bucket_count,
-        "avg_count": avg_count,
+        **base,
         "pattern": pattern,
         "summary": result.get("summary", ""),
         "has_pattern": bool(pattern),
+        "gemma_error": None,
     }
 
 # ── 공개 API ──────────────────────────────────────────────────────────────────
@@ -405,6 +422,7 @@ def _build_content(date_str: str, stats: dict, peak_bucket: dict) -> dict:
                 "memos": r.get("memos", []),
                 "analysis_groups": r.get("analysis_groups", []),
                 "insufficient_data": r.get("insufficient_data", False),
+                "gemma_error": r.get("gemma_error"),
             }
             for r in stats["risk_rows"]
         ],
@@ -461,6 +479,7 @@ async def analyze_single_category(date_str: str, main_category: str) -> dict:
                 r["summary"] = row.get("summary", "")
                 r["analysis_groups"] = row.get("analysis_groups", [])
                 r["insufficient_data"] = row.get("insufficient_data", False)
+                r["gemma_error"] = row.get("gemma_error")
                 break
         _save_report(date_str, existing)
 
@@ -470,6 +489,7 @@ async def analyze_single_category(date_str: str, main_category: str) -> dict:
         "count": row["count"],
         "summary": row.get("summary", ""),
         "insufficient_data": row.get("insufficient_data", False),
+        "gemma_error": row.get("gemma_error"),
         "prompt_section": row.get("_prompt_section", ""),
     }
 
@@ -513,15 +533,19 @@ async def analyze_peak_bucket(date_str: str) -> dict:
     print(f"[Gemma Peak Test {max_bucket}~{bucket_end}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
     result_pattern = ""
     result_summary = ""
+    gemma_error = None
     insufficient = len(lines) < 3
     if not insufficient:
         try:
             raw = await call_gemma(_SYSTEM_PEAK_BUCKET, prompt)
             parsed = parse_json_response(raw)
-            if parsed:
+            if parsed and parsed.get("summary"):
                 result_pattern = parsed.get("pattern", "")
-                result_summary = parsed.get("summary", "")
+                result_summary = parsed["summary"]
+            else:
+                gemma_error = "Gemma 응답 파싱 실패 또는 빈 응답"
         except Exception as e:
+            gemma_error = str(e)
             print(f"[Gemma Peak Test] 실패: {e}")
 
     result = {
@@ -533,6 +557,7 @@ async def analyze_peak_bucket(date_str: str) -> dict:
         "summary": result_summary,
         "has_pattern": bool(result_pattern),
         "insufficient_data": insufficient,
+        "gemma_error": gemma_error,
         "prompt_section": prompt if lines else "",
     }
 

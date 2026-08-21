@@ -1,7 +1,13 @@
 # FastAPI 애플리케이션 진입점. 비즈니스 로직은 없으며 '배선' 역할만 담당한다.
-# 하는 일: CORS 미들웨어 등록 → features/ 하위 7개 라우터(stats·issues·insights·collection·jira·report·settings) 연결 →
-# 서버 시작 시 자격증명 입력·DB 초기화·스케줄러 기동·당일 데이터 수집·인사이트 캐시 초기화 →
+# 하는 일: CORS 미들웨어 등록 → features/ 하위 9개 라우터(stats·issues·insights·collection·jira·report·settings·admin·audit) 연결 →
+# 서버 시작 시 DB 초기화·스케줄러 기동·당일 데이터 수집·인사이트 캐시 초기화 →
 # /assets 정적 파일 서빙 + 나머지 모든 경로에 React SPA의 index.html 반환(브라우저 새로고침 대응).
+import sys
+# Windows 콘솔 기본 인코딩(cp949)에서는 이모지·특수문자(예: —) print 시 UnicodeEncodeError로 서버가
+# 죽는다. stdout/stderr을 UTF-8로 강제해 어떤 콘솔 환경에서도 죽지 않게 한다.
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 import asyncio
 from pathlib import Path
 from fastapi import FastAPI
@@ -11,7 +17,8 @@ from fastapi.responses import FileResponse
 
 from core.db import init_db
 from core.gemma_client import log_gemma_models
-from features.collection.scheduler import start_scheduler, collect_today, prompt_credentials, COLLECTION_ENABLED
+from core.collection_settings import get_collection_enabled
+from features.collection.scheduler import start_scheduler, collect_new
 from features.insights.insights_cache import _init_insights_cache
 from features.stats.stats_endpoints import router as stats_router
 from features.issues.issues_endpoints import router as issues_router
@@ -20,6 +27,8 @@ from features.collection.collection_endpoints import router as collection_router
 from features.jira.jira_endpoints import router as jira_router
 from features.report.report_endpoints import router as report_router
 from features.settings.settings_endpoints import router as settings_router
+from features.admin.admin_endpoints import router as admin_router
+from features.admin.audit_endpoints import router as audit_router
 
 
 app = FastAPI()
@@ -38,17 +47,17 @@ app.include_router(collection_router)
 app.include_router(jira_router)
 app.include_router(report_router)
 app.include_router(settings_router)
+app.include_router(admin_router)
+app.include_router(audit_router)
 
 
 @app.on_event("startup")
 async def startup():
-    if COLLECTION_ENABLED:
-        prompt_credentials()
     init_db()
     start_scheduler()
     asyncio.create_task(log_gemma_models())
-    if COLLECTION_ENABLED:
-        asyncio.create_task(collect_today())
+    if get_collection_enabled():
+        asyncio.create_task(collect_new(trigger="서버시작"))
     asyncio.create_task(_init_insights_cache())
 
 

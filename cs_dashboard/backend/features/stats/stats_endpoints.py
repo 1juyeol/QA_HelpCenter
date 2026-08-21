@@ -100,7 +100,7 @@ def compute_keyword_trend(this_week_counts: dict, prior_counts: dict) -> list:
 
     증가율 = 이번주_빈도 / max(직전4주_주당평균, 1)
     신규   = 직전 4주 동안 0회 등장
-    이번 주 최소 3건 이상인 단어만 포함하며, 증가율 내림차순 TOP 10을 반환한다.
+    이번 주 최소 5건 이상 & 증가율 2.0배 이상인 단어만 포함하며(오탐 방지), 증가율 내림차순 TOP 10을 반환한다.
     반환: [{"word", "this_week", "avg_per_week", "growth_rate", "is_new"}, ...]"""
     results = []
     for word, this_count in this_week_counts.items():
