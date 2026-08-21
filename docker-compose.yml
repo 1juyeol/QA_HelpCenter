@@ -1,0 +1,33 @@
+# [Docker Compose] 내부망 서버에서 프론트+백엔드를 한 번에 띄우기 위한 정의.
+#
+# 실행 명령: docker compose up --build -d
+#
+# backend(FastAPI+SQLite) → frontend(정적 빌드 + nginx) 순서로 뜨고, 사람이 화면을
+# 보려면 frontend가 노출하는 포트(기본 8090)로 접속하면 된다. frontend의 nginx가
+# /api/* 요청을 backend 컨테이너로 그대로 프록시하므로(nginx.conf 참고), 브라우저
+# 입장에서 오리진이 하나뿐이라 CORS 설정이 필요 없다.
+#
+# helpdesk.db는 컨테이너를 재빌드해도 데이터가 유지되도록 호스트의 실제 파일을
+# 컨테이너 안 같은 경로(core/db.py의 DB_PATH가 가리키는 /app/helpdesk.db)에 그대로
+# 마운트한다. .env는 backend/.env를 그대로 읽어서 컨테이너 환경변수로 주입한다
+# (이미지 안에는 .env가 들어가지 않는다 — backend/.dockerignore 참고).
+#
+# 내부망 전용 배포라 HTTPS는 이 구성에서 다루지 않는다. 사내 공식 도메인을 받으면
+# 그쪽 인프라가 TLS를 종료해주는지 먼저 확인할 것.
+
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend/helpdesk.db:/app/helpdesk.db
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8092}:80"

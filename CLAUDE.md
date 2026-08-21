@@ -149,10 +149,16 @@ npm run dev      # 개발 서버
 npm run build    # 프로덕션 빌드
 ```
 
+**Docker** (backend+frontend 컨테이너 통합 실행, 내부망 배포용)
+```bash
+docker compose up --build -d
+```
+기본 포트 8092(frontend가 서빙, `/api`는 nginx가 backend로 프록시). `backend/.env`를 컨테이너에 그대로 주입하며 이미지에는 포함되지 않는다. 상세: 루트 `README.md`의 "설치 및 실행 > Docker" 참고.
+
 ---
 
 ## 저장소 관례
 
-**브랜치**: `feature/*`, `fix/*`
-**커밋**: `feat:` / `fix:` 접두어 + 한국어 설명
-예: `feat: 시간별 동시간대 비교 추가`, `fix: UTC 날짜 변환 누락 수정`
+**브랜치**: `ljy` 하나를 계속 재사용한다. 작업분을 커밋해 `ljy → main` PR을 올리고, 머지되면 이어서 같은 브랜치에 다음 작업을 쌓는다. 새 브랜치는 명시적으로 요청받았을 때만 만든다.
+**커밋**: 개인 전역 CLAUDE.md 규칙을 따른다 — `타입: 함수명1, 함수명2 - 한줄 요약` 형식, 본문은 함수명·식별자 없이 평문으로.
+예: `fix: classify, extract_symptom_fields - CS 메모 오분류 키워드 수정 및 전체 재분류`

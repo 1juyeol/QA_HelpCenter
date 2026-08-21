@@ -63,11 +63,14 @@ async def startup():
 
 
 _dist = Path(__file__).parent.parent / "frontend" / "dist"
-app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="assets")
+if _dist.exists():
+    # Docker 배포에서는 nginx 컨테이너가 프론트를 서빙하므로 frontend/dist가 없다 —
+    # 그 경우엔 SPA 서빙을 건너뛰고 API 서버로만 동작한다.
+    app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="assets")
 
-@app.get("/{full_path:path}", include_in_schema=False)
-async def spa_fallback(full_path: str):
-    return FileResponse(_dist / "index.html")
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        return FileResponse(_dist / "index.html")
 
 
 if __name__ == "__main__":
