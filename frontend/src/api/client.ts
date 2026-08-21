@@ -254,9 +254,18 @@ export interface DailyReport {
   prev_total_count?: number | null
   prev_risk_total?: number | null
   risk_rows: RiskRow[]
-  peak_bucket?: PeakBucket
+  peak_bucket?: PeakBucket | null
   anomaly_bucket?: AnomalyBucket | null
   hourly: [number, number][]
+}
+
+// GET /api/report/daily/generate-status 응답. running=false면 지금 진행 중인 생성이 없다는 뜻
+// (완료됐거나 애초에 시작 안 함) — label/step/total은 running일 때만 의미 있다.
+export interface DailyReportProgress {
+  running: boolean
+  label?: string | null
+  step?: number
+  total?: number
 }
 
 export interface WeeklyDayCount  { date: string; count: number; is_weekend: boolean }
@@ -485,10 +494,6 @@ export const api = {
     return get<DailyReport>(`/api/report/daily?date=${date}`)
   },
 
-  generateDailyReportStats(date: string) {
-    return post<DailyReport>(`/api/report/daily/generate-stats?date=${date}`)
-  },
-
   analyzeDailyCategory(date: string, main: string) {
     return post<{ main: string; sub: string; count: number; summary: string; insufficient_data: boolean; gemma_error?: string | null; prompt_section: string }>(
       `/api/report/daily/analyze-category?date=${date}&main=${encodeURIComponent(main)}`
@@ -496,19 +501,15 @@ export const api = {
   },
 
   analyzeDailyPeak(date: string) {
-    return post<{ bucket_start: string; bucket_end: string; bucket_count: number; avg_count: number; pattern: string; summary: string; has_pattern: boolean; insufficient_data: boolean; gemma_error?: string | null; prompt_section: string }>(
-      `/api/report/daily/analyze-peak?date=${date}`
-    )
+    return post<PeakBucket | null>(`/api/report/daily/analyze-peak?date=${date}`)
   },
 
-  logDailyReportComplete(date: string, failed: string[]) {
-    return post<{ status: string }>(
-      `/api/report/daily/generate-complete?date=${date}&failed=${encodeURIComponent(failed.join(','))}`
-    )
+  startDailyReportGeneration(date: string) {
+    return post<{ started: boolean; reason?: string }>(`/api/report/daily/generate?date=${date}`)
   },
 
-  retryDailyReportFailed(date: string) {
-    return post<DailyReport>(`/api/report/daily/retry-failed?date=${date}`)
+  fetchDailyReportGenerateStatus(date: string) {
+    return get<DailyReportProgress>(`/api/report/daily/generate-status?date=${date}`)
   },
 
   fetchWeeklyReport(weekStart: string) {

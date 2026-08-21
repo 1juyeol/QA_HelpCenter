@@ -16,8 +16,13 @@ describe('getReportLink', () => {
       .toBe('/report/daily?date=2026-08-19&highlight=__peak__')
   })
 
-  it('일별 자동/수동 생성 요약 로그는 highlight 없이 날짜만 링크한다', () => {
-    expect(getReportLink('daily_report_auto_generate', 'date=2026-08-19, gemma_failed=기기·하드웨어 오류'))
+  it('일별 이상시간대 분석은 __anomaly__ highlight를 담은 링크를 만든다', () => {
+    expect(getReportLink('daily_report_analyze_anomaly', 'date=2026-08-19, status=failed'))
+      .toBe('/report/daily?date=2026-08-19&highlight=__anomaly__')
+  })
+
+  it('일별 생성 완료 요약 로그는 highlight 없이 날짜만 링크한다', () => {
+    expect(getReportLink('daily_report_generate_complete', 'date=2026-08-19, gemma_failed=기기·하드웨어 오류'))
       .toBe('/report/daily?date=2026-08-19')
   })
 
@@ -57,6 +62,14 @@ describe('parseDetail', () => {
       ['error', '응답 없음 (0자: "")'],
     ])
   })
+
+  it('attempt=1/2 처럼 값 안에 등호가 없는 필드도 그대로 파싱한다', () => {
+    expect(parseDetail('date=2026-08-19, attempt=1/2, status=success')).toEqual([
+      ['date', '2026-08-19'],
+      ['attempt', '1/2'],
+      ['status', 'success'],
+    ])
+  })
 })
 
 describe('formatField', () => {
@@ -70,6 +83,14 @@ describe('formatField', () => {
 
   it('gemma_failed는 "실패 항목: "을 붙인다', () => {
     expect(formatField('gemma_failed', '기기·하드웨어 오류')).toBe('실패 항목: 기기·하드웨어 오류')
+  })
+
+  it('attempt는 "N회차"로 바꾼다', () => {
+    expect(formatField('attempt', '1/2')).toBe('재시도 1/2회차')
+  })
+
+  it('resolved는 "재시도로 해결됨: "을 붙인다', () => {
+    expect(formatField('resolved', '기기·하드웨어 오류')).toBe('재시도로 해결됨: 기기·하드웨어 오류')
   })
 
   it('알 수 없는 키는 null을 반환해 조용히 생략된다', () => {

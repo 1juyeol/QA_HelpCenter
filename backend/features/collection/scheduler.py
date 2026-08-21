@@ -217,45 +217,25 @@ async def _cache_keyword_trend_today():
         print(f"[{now}] keyword_trend 캐시 저장 실패: {e}")
 
 
-_REPORT_RETRY_DELAY_SECONDS = 300  # 5분
-_REPORT_MAX_RETRIES = 2
-
-
 async def _generate_yesterday_report():
     """전날 일별 보고서를 자동 생성한다. COLLECTION_ENABLED 무관하게 실행.
-    이미 완전히 성공한 보고서가 있으면(예: 낮에 수동으로 미리 생성해둔 경우) Gemma를 다시
-    통째로 호출하는 낭비를 피하려고 건너뛴다. 실패가 남아있는 보고서면 실패한 항목만 이어서
-    재시도한다 — 아예 새로 만드는 게 아니라 이어서 고치는 것.
-    카테고리별 Gemma 호출이 일부만 실패해도 generate_report() 자체는 예외 없이 끝나므로,
-    실패한 항목만 5분 간격으로 최대 2번 더 재시도한 뒤, 그래도 남은 실패를 감사 로그에 남긴다.
-    새벽에 사람 없이 도는 자동 생성이라 재시도 사이 대기가 문제없다 (수동 생성 버튼은
-    사람이 기다리므로 이 재시도를 쓰지 않는다 — retry_failed_analyses() 참고)."""
-    from features.report.report_daily import generate_report, get_report, has_gemma_failures, retry_failed_analyses
+    이미 완전히 성공한 보고서가 있으면(예: 낮에 수동으로 미리 생성해둔 경우) 통째로 다시
+    만드는 낭비를 피하려고 건너뛴다 — 이건 "매일 밤 무조건 도는 배치"라는 트리거 특성상 필요한
+    판단이라 여기(스케줄러)에 남긴다. 그 외의 실제 생성 로직(카테고리→피크→이상시간대→재시도)은
+    수동 '재생성' 버튼과 완전히 동일한 generate_report_full()을 그대로 쓴다 — 트리거만 다르고
+    로직 자체가 갈라질 이유가 없다 (예전엔 자동만 이상시간대 분석·5분 간격 재시도가 있는 등
+    따로 구현되어 있어서 계속 어긋났었다)."""
+    from features.report.report_daily import generate_report_full, get_report, has_gemma_failures
     yesterday = str(date.today() - timedelta(days=1))
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    existing = get_report(yesterday)
+    if existing and not has_gemma_failures(existing):
+        log_action("daily_report_auto_generate_skipped", f"date={yesterday}, reason=이미 완성된 보고서 있음", mode="auto")
+        print(f"[{now}] 일별 보고서 자동 생성 스킵 (이미 완성됨): {yesterday}")
+        return
     try:
-        existing = get_report(yesterday)
-        if existing and not has_gemma_failures(existing):
-            log_action("daily_report_auto_generate_skipped", f"date={yesterday}, reason=이미 완성된 보고서 있음", mode="auto")
-            print(f"[{now}] 일별 보고서 자동 생성 스킵 (이미 완성됨): {yesterday}")
-            return
-        content = existing if existing else await generate_report(yesterday)
-        for _ in range(_REPORT_MAX_RETRIES):
-            if not has_gemma_failures(content):
-                break
-            await asyncio.sleep(_REPORT_RETRY_DELAY_SECONDS)
-            content = await retry_failed_analyses(yesterday, content)
-
-        failed = [r["main"] for r in content.get("risk_rows", []) if r.get("gemma_error")]
-        if content.get("peak_bucket") and content["peak_bucket"].get("gemma_error"):
-            failed.append("피크타임")
-        if content.get("anomaly_bucket") and content["anomaly_bucket"].get("gemma_error"):
-            failed.append("이상시간대")
-        detail = f"date={yesterday}"
-        if failed:
-            detail += f", gemma_failed={','.join(failed)}"
-        log_action("daily_report_auto_generate", detail, mode="auto")
-        print(f"[{now}] 일별 보고서 생성 완료: {yesterday}" + (f" (일부 실패: {failed})" if failed else ""))
+        await generate_report_full(yesterday, mode="auto")
+        print(f"[{now}] 일별 보고서 생성 완료: {yesterday}")
     except Exception as e:
         log_action("daily_report_auto_generate_failed", f"date={yesterday}, error={e}", mode="auto")
         print(f"[{now}] 일별 보고서 생성 실패: {e}")

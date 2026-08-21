@@ -36,6 +36,8 @@ export function getReportLink(action: string, detail: string): string | null {
       if (main) url += `&highlight=${encodeURIComponent(main[1].trim())}`
     } else if (action === 'daily_report_analyze_peak') {
       url += '&highlight=__peak__'
+    } else if (action === 'daily_report_analyze_anomaly') {
+      url += '&highlight=__anomaly__'
     }
     return url
   }
@@ -68,8 +70,10 @@ const ACTION_LABEL: Record<string, string> = {
   daily_report_generate_stats: '일별 보고서 통계 생성',
   daily_report_analyze_category: '일별 보고서 카테고리 분석',
   daily_report_analyze_peak: '일별 보고서 피크타임 분석',
-  daily_report_manual_generate: '일별 보고서 수동 생성 완료',
-  daily_report_auto_generate: '일별 보고서 자동 생성',
+  daily_report_analyze_anomaly: '일별 보고서 이상시간대 분석',
+  daily_report_retry_failed: '일별 보고서 실패 항목 재시도',
+  daily_report_generate_complete: '일별 보고서 생성 결과',
+  daily_report_auto_generate_skipped: '일별 보고서 자동 생성 건너뜀',
   daily_report_auto_generate_failed: '일별 보고서 자동 생성 실패',
   weekly_report_generate_stats: '주간 보고서 통계 생성',
   weekly_report_generate: '주간 보고서 전체 생성',
@@ -91,8 +95,10 @@ const ACTION_CATEGORY: Record<string, Category> = {
   daily_report_generate_stats: 'report',
   daily_report_analyze_category: 'report',
   daily_report_analyze_peak: 'report',
-  daily_report_manual_generate: 'report',
-  daily_report_auto_generate: 'report',
+  daily_report_analyze_anomaly: 'report',
+  daily_report_retry_failed: 'report',
+  daily_report_generate_complete: 'report',
+  daily_report_auto_generate_skipped: 'report',
   daily_report_auto_generate_failed: 'report',
   weekly_report_generate_stats: 'report',
   weekly_report_generate: 'report',
@@ -137,10 +143,14 @@ function ModeBadge({ mode }: { mode: string }) {
 // error 메시지 자체에 쉼표가 들어있을 수 있어서(describe_gemma_failure의 응답 미리보기 등),
 // ", error="를 기준으로 앞부분과 뒷부분(에러 메시지 전체)을 먼저 나눈다.
 const FAIL_STYLE = { color: '#ef4444', fontWeight: 700 } as const
+// 전부 실패(failed)는 빨강, 일부만 실패(partial_failure)는 주황 — 완전 실패와 부분 실패를
+// 시각적으로 구분해서 "생성 완료"라는 라벨만 보고 다 잘 됐다고 착각하지 않게 한다.
+const WARN_STYLE = { color: '#d97706', fontWeight: 700 } as const
 
 const STATUS_LABEL: Record<string, string> = {
   success: '성공',
   failed: '실패',
+  partial_failure: '일부 실패',
   insufficient_data: '데이터 부족',
   no_data: '분석 대상 없음',
 }
@@ -153,7 +163,9 @@ export function formatField(key: string, value: string): string | null {
     case 'main': return value
     case 'reason': return `사유: ${value}`
     case 'gemma_failed': return `실패 항목: ${value}`
+    case 'resolved': return `재시도로 해결됨: ${value}`
     case 'summary_error': return `요약 분석 오류: ${value}`
+    case 'attempt': return `재시도 ${value}회차`
     default: return null // 알 수 없는 키는 조용히 생략 (미래에 필드가 늘어도 깨지지 않게)
   }
 }
@@ -174,7 +186,7 @@ function renderDetail(detail: string) {
   const pairs = parseDetail(detail)
   const status = pairs.find(([k]) => k === 'status')?.[1]
   const errorValue = pairs.find(([k]) => k === 'error')?.[1]
-  const isFailed = status === 'failed'
+  const statusStyle = status === 'failed' ? FAIL_STYLE : status === 'partial_failure' ? WARN_STYLE : undefined
   const words = pairs
     .filter(([k]) => k !== 'status' && k !== 'error')
     .map(([k, v]) => formatField(k, v))
@@ -186,13 +198,13 @@ function renderDetail(detail: string) {
       {status && (
         <>
           {words.length > 0 && ' · '}
-          <span style={isFailed ? FAIL_STYLE : undefined}>{STATUS_LABEL[status] ?? status}</span>
+          <span style={statusStyle}>{STATUS_LABEL[status] ?? status}</span>
         </>
       )}
       {errorValue && (
         <>
           {' — '}
-          <span style={FAIL_STYLE}>{errorValue}</span>
+          <span style={statusStyle ?? FAIL_STYLE}>{errorValue}</span>
         </>
       )}
     </>
