@@ -7,10 +7,11 @@
 # /api/* 요청을 backend 컨테이너로 그대로 프록시하므로(nginx.conf 참고), 브라우저
 # 입장에서 오리진이 하나뿐이라 CORS 설정이 필요 없다.
 #
-# helpdesk.db는 컨테이너를 재빌드해도 데이터가 유지되도록 호스트의 실제 파일을
-# 컨테이너 안 같은 경로(core/db.py의 DB_PATH가 가리키는 /app/helpdesk.db)에 그대로
-# 마운트한다. .env는 backend/.env를 그대로 읽어서 컨테이너 환경변수로 주입한다
-# (이미지 안에는 .env가 들어가지 않는다 — backend/.dockerignore 참고).
+# helpdesk.db와 collection_settings.json(CS 수집 on/off 상태)은 컨테이너를 재빌드해도
+# 값이 유지되도록 호스트의 실제 파일을 컨테이너 안 같은 경로에 그대로 마운트한다.
+# collection_settings.json을 마운트 안 하면 재배포마다 안전 기본값(false)으로 초기화되어
+# 관리자가 매번 다시 켜줘야 한다. .env는 backend/.env를 그대로 읽어서 컨테이너 환경변수로
+# 주입한다 (이미지 안에는 .env가 들어가지 않는다 — backend/.dockerignore 참고).
 #
 # 내부망 전용 배포라 HTTPS는 이 구성에서 다루지 않는다. 사내 공식 도메인을 받으면
 # 그쪽 인프라가 TLS를 종료해주는지 먼저 확인할 것.
@@ -23,6 +24,7 @@ services:
       - ./backend/.env
     volumes:
       - ./backend/helpdesk.db:/app/helpdesk.db
+      - ./backend/collection_settings.json:/app/collection_settings.json
 
   frontend:
     build: ./frontend
