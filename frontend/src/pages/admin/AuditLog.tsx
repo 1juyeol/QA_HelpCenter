@@ -131,29 +131,68 @@ function ModeBadge({ mode }: { mode: string }) {
   )
 }
 
-// detail 문자열에서 "status=failed"와 "error=..." 부분만 빨간 볼드로 강조한다.
+// detail은 백엔드가 "date=2026-08-19, main=교재·물류·배송, status=success" 같은
+// key=value 나열로 남긴다 (getReportLink()가 정규식으로 date=/week_start=/main=을 뽑아 쓰므로
+// 이 원본 포맷 자체는 그대로 둔다). 여기서는 그걸 사람이 읽는 문장으로 바꿔서 보여주기만 한다.
 // error 메시지 자체에 쉼표가 들어있을 수 있어서(describe_gemma_failure의 응답 미리보기 등),
-// ", error="를 기준으로 앞부분(쉼표 구분 나열)과 뒷부분(에러 메시지 전체)을 먼저 나눈다.
+// ", error="를 기준으로 앞부분과 뒷부분(에러 메시지 전체)을 먼저 나눈다.
 const FAIL_STYLE = { color: '#ef4444', fontWeight: 700 } as const
 
-function renderDetail(detail: string) {
+const STATUS_LABEL: Record<string, string> = {
+  success: '성공',
+  failed: '실패',
+  insufficient_data: '데이터 부족',
+  no_data: '분석 대상 없음',
+}
+
+// status/error를 제외한 key=value 하나를 사람이 읽는 문구 조각으로 바꾼다.
+export function formatField(key: string, value: string): string | null {
+  switch (key) {
+    case 'date': return value
+    case 'week_start': return `${value} 주`
+    case 'main': return value
+    case 'reason': return `사유: ${value}`
+    case 'gemma_failed': return `실패 항목: ${value}`
+    case 'summary_error': return `요약 분석 오류: ${value}`
+    default: return null // 알 수 없는 키는 조용히 생략 (미래에 필드가 늘어도 깨지지 않게)
+  }
+}
+
+export function parseDetail(detail: string): [string, string][] {
   const errorIdx = detail.indexOf(', error=')
   const before = errorIdx === -1 ? detail : detail.slice(0, errorIdx)
-  const errorPart = errorIdx === -1 ? null : detail.slice(errorIdx + 2)
-  const beforeParts = before.split(', ')
+  const errorValue = errorIdx === -1 ? null : detail.slice(errorIdx + ', error='.length)
+  const pairs: [string, string][] = before.split(', ').map(part => {
+    const eq = part.indexOf('=')
+    return eq === -1 ? [part, ''] : [part.slice(0, eq), part.slice(eq + 1)]
+  })
+  if (errorValue !== null) pairs.push(['error', errorValue])
+  return pairs
+}
+
+function renderDetail(detail: string) {
+  const pairs = parseDetail(detail)
+  const status = pairs.find(([k]) => k === 'status')?.[1]
+  const errorValue = pairs.find(([k]) => k === 'error')?.[1]
+  const isFailed = status === 'failed'
+  const words = pairs
+    .filter(([k]) => k !== 'status' && k !== 'error')
+    .map(([k, v]) => formatField(k, v))
+    .filter((v): v is string => v !== null)
 
   return (
     <>
-      {beforeParts.map((part, i) => (
-        <span key={i}>
-          {i > 0 && ', '}
-          <span style={part === 'status=failed' ? FAIL_STYLE : undefined}>{part}</span>
-        </span>
-      ))}
-      {errorPart && (
+      {words.join(' · ')}
+      {status && (
         <>
-          {', '}
-          <span style={FAIL_STYLE}>{errorPart}</span>
+          {words.length > 0 && ' · '}
+          <span style={isFailed ? FAIL_STYLE : undefined}>{STATUS_LABEL[status] ?? status}</span>
+        </>
+      )}
+      {errorValue && (
+        <>
+          {' — '}
+          <span style={FAIL_STYLE}>{errorValue}</span>
         </>
       )}
     </>
