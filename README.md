@@ -157,7 +157,7 @@ uvicorn server:app --host 0.0.0.0 --port 8000
 docker compose up --build -d
 ```
 
-`backend/.env`를 그대로 읽어서 컨테이너에 주입하며, 이미지 안에는 `.env`가 들어가지 않는다(`backend/.dockerignore`). `helpdesk.db`는 호스트 파일을 그대로 볼륨 마운트해서 컨테이너를 재빌드해도 데이터가 유지된다.
+`backend/.env`를 그대로 읽어서 컨테이너에 주입하며, 이미지 안에는 `.env`가 들어가지 않는다(`backend/.dockerignore`). `helpdesk.db`와 `collection_settings.json`(CS 수집 on/off 상태)은 호스트 파일을 그대로 볼륨 마운트해서 컨테이너를 재빌드해도 값이 유지된다.
 
 기본 접속 포트는 `8092`(frontend 컨테이너가 서빙, `/api/*`는 nginx가 backend 컨테이너로 프록시 — 오리진이 하나라 CORS 설정 불필요). 다른 포트를 쓰려면 `FRONTEND_PORT` 환경변수로 지정한다. 내부망 전용 배포 기준이라 HTTPS는 이 구성에 포함하지 않는다 — 외부 노출이 필요해지면 그때 리버스 프록시를 앞단에 추가한다.
 
