@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # 인사이트 집계 결과의 DB 캐시 관리. 집계 쿼리가 무거우므로 결과를 insights_cache 테이블에 보관한다.
 # _save_insights_cache : wings_tickets·repeat_parents를 JSON 직렬화 후 INSERT OR REPLACE.
 # _read_cache          : 키로 캐시 단일 행 조회. 없으면 None 반환.

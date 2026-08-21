@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # 인사이트 조회·갱신 API 라우터 (5개 엔드포인트). 집계는 insight_aggregations.py, 저장은 insights_cache.py에 위임한다.
 # GET  /api/insights/wings_tickets  : 반복 Wings 티켓 캐시 조회.
 # GET  /api/insights/repeat_parents : 학부모 반복 인입 캐시 조회.

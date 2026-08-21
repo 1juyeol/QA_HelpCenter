@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # features/issues/churn_device_insights.py의 순수 함수(추출·분류 로직) 유닛 테스트.
 # 실제 DB 집계 함수(get_churn_reason_stats 등)는 DB 의존이라 여기서는 제외하고,
 # 텍스트 → 값 추출/분류만 결정론적으로 검증한다.

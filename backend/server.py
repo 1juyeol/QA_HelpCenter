@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # FastAPI 애플리케이션 진입점. 비즈니스 로직은 없으며 '배선' 역할만 담당한다.
 # 하는 일: CORS 미들웨어 등록 → features/ 하위 9개 라우터(stats·issues·insights·collection·jira·report·settings·admin·audit) 연결 →
 # 서버 시작 시 DB 초기화·스케줄러 기동·당일 데이터 수집·인사이트 캐시 초기화 →

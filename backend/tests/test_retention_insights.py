@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # features/issues/retention_insights.py의 extract_retention_offer() 유닛 테스트.
 # get_retention_stats()는 DB 의존이라 제외하고, 텍스트 → 오퍼명 추출만 결정론적으로 검증한다.
 import sys

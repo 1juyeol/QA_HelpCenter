@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # student_id·parent_id 누락 이슈 일괄 보완 스크립트.
 # issues 테이블에서 student_id가 NULL인 날짜를 찾아 Helpdesk API를 재호출해 ID를 채운다.
 # 실행 방법: cd backend && python scripts/backfill_ids.py
