@@ -1,6 +1,10 @@
 // 관리자 전용 로드맵 페이지. 두 종류를 묶어 보여준다:
-//   1) 배포 준비 작업 — Docker·Firebase·HTTPS·CS 수집 API 활성화 등 인프라 마이그레이션 작업
+//   1) 배포 준비 작업 — 내부망 Docker 배포·사내 공식 인프라 이관·CS 수집 API 활성화 등
+//      (2026-08-21 기준: 프론트 Firebase 배포는 사내 정보보호팀 "외부 서비스 사용 금지" 방침으로
+//      취소, 프론트도 백엔드처럼 Docker+nginx로 전환함)
 //   2) 인사이트 로드맵 — 학습 데이터 연동을 전제로 논의됐던 인사이트 후보들
+// 둘 다 앞으로 할 일 목록이라, 구현이 끝난 항목은 여기 남겨두지 않고 삭제한다 (완료 이력은
+// git 커밋으로 남으므로 이 페이지가 changelog 역할까지 할 필요는 없음).
 // 둘 다 실시간 데이터가 아니라 이 파일 안의 정적 목록이며, API 호출 없이 상수만 렌더링한다.
 // CS 수집 API 관련 모니터링(호출 규칙·횟수·상세 로그)은 pages/admin/ApiConsole.tsx로 분리했다
 // (이 페이지 하나에 다 몰아넣었더니 너무 길어져서 나눔).
@@ -33,27 +37,18 @@ const STATUS_COLOR: Record<Status, string> = {
 
 const INFRA_TASKS: { title: string; candidates: Candidate[] }[] = [
   {
-    title: 'Docker 배포 (서버컴)',
+    title: '내부망 Docker 배포 (프론트+백엔드)',
     candidates: [
-      { title: 'backend/Dockerfile 작성', status: 'todo' },
-      { title: 'docker-compose.yml 작성', note: '백엔드 서비스 + Watchtower(자동 배포 감시)', status: 'todo' },
-      { title: 'Docker Hub 계정 확인/생성', note: '이미지 올릴 레지스트리', status: 'todo' },
-      { title: '파트리더 컨테이너와 포트 충돌 확인', note: '같은 서버컴에 이미 Docker 사용 중', status: 'todo' },
-      { title: '로컬(개발) 컴퓨터에 Docker Desktop 설치', status: 'todo' },
+      { title: '파트리더 컴퓨터에 실제 배포', note: '포트 충돌 등 현지 환경 확인 필요', status: 'todo' },
     ],
   },
   {
-    title: 'Firebase 배포 (프론트)',
+    title: '사내 공식 인프라 이관',
     candidates: [
       {
-        title: 'Firebase 프로젝트 생성 및 배포',
-        note: '백엔드 주소가 안정화된 뒤 진행 — 지금 하면 나중에 다시 해야 함',
-        status: 'todo',
-      },
-      {
-        title: 'VITE_API_BASE_URL 설정 후 재빌드',
-        note: 'frontend/api/client.ts는 이미 이 환경변수를 읽도록 준비돼 있음 (프론트/백엔드 절대경로 참고)',
-        status: 'todo',
+        title: '공식 도메인·배포서버 발급 대기',
+        note: '발급되면 CORS 허용 오리진 변경 필요. Firebase는 외부 서비스라 사용 중단됨',
+        status: 'pending',
       },
     ],
   },
@@ -61,19 +56,9 @@ const INFRA_TASKS: { title: string; candidates: Candidate[] }[] = [
     title: '백엔드 HTTPS',
     candidates: [
       {
-        title: 'HTTPS 인증서 방식 결정',
-        note: 'Cloudflare Tunnel(추천) / 회사 도메인+Let\'s Encrypt / 자체서명 중 선택 필요',
+        title: 'HTTPS 필요 여부 확인',
+        note: '내부망 전용 접근으로 확정되어 당장은 불필요. 공식 도메인 받을 때 인프라팀이 TLS를 자체 종료해주는지 확인 예정',
         status: 'pending',
-      },
-    ],
-  },
-  {
-    title: 'CS 상담 수집 API 활성화',
-    candidates: [
-      {
-        title: '관리자 모드에서 CS 수집 토글 켜기',
-        note: '회사 승인 완료(2026-08), 실제로 켜서 확인 완료. 상세 규칙/모니터링은 "API 관리" 메뉴 참고',
-        status: 'done',
       },
     ],
   },
@@ -112,12 +97,6 @@ const AXES: { title: string; candidates: Candidate[] }[] = [
     title: '4. 결제 × CS',
     candidates: [
       { title: '미납·환불·리뉴얼 이력 × CS', note: '학습 데이터 없이도 가능, 아직 설계 전', status: 'todo' },
-    ],
-  },
-  {
-    title: 'QA 연계 (학습 데이터 불필요)',
-    candidates: [
-      { title: '수주째 반복 CS = 미패치 버그 목록', note: '카테고리 × 주차 매트릭스, 스프린트 요청 근거', status: 'done' },
     ],
   },
 ]
@@ -188,7 +167,7 @@ export default function InsightRoadmap() {
         <h2>인사이트 로드맵</h2>
         <p style={{ color: '#64748b', fontSize: 13, marginTop: -8, marginBottom: 4 }}>
           학습 데이터 연동을 전제로 논의된 인사이트 후보 목록. help-desk 상담 API만으로는
-          "학습 데이터 필요" 상태 항목을 만들 수 없다.
+          "학습 데이터 필요" 상태 항목을 만들 수 없다. 구현이 끝난 항목은 이 목록에서 뺀다.
         </p>
       </div>
 
