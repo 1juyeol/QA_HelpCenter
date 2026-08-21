@@ -29,8 +29,8 @@ const RISK_MAINS = ['네트워크·앱 오류', '기기·하드웨어 오류', '
 
 const TEST_TARGETS = ['피크타임 패턴 분석', ...RISK_MAINS]
 
-type CategoryResult = { main?: string; sub: string; count: number; summary: string; insufficient_data: boolean; prompt_section: string }
-type PeakResult = { bucket_start: string; bucket_end: string; bucket_count: number; avg_count: number; pattern: string; summary: string; has_pattern: boolean; insufficient_data: boolean; prompt_section: string }
+type CategoryResult = { main?: string; sub: string; count: number; summary: string; insufficient_data: boolean; gemma_error?: string | null; prompt_section: string }
+type PeakResult = { bucket_start: string; bucket_end: string; bucket_count: number; avg_count: number; pattern: string; summary: string; has_pattern: boolean; insufficient_data: boolean; gemma_error?: string | null; prompt_section: string }
 
 function CategoryTestPanel({
   date,
@@ -38,7 +38,7 @@ function CategoryTestPanel({
   onPeakResult,
 }: {
   date: string
-  onCategoryResult: (main: string, summary: string) => void
+  onCategoryResult: (main: string, summary: string, gemmaError?: string | null) => void
   onPeakResult: (peak: PeakResult) => void
 }) {
   const [target, setTarget] = useState(TEST_TARGETS[0])
@@ -64,7 +64,7 @@ function CategoryTestPanel({
       } else {
         const data = await api.analyzeDailyCategory(date, target)
         setCatResult(data)
-        onCategoryResult(target, data.summary)
+        onCategoryResult(target, data.summary, data.gemma_error)
       }
     } catch (e) {
       setError(String(e))
@@ -105,6 +105,7 @@ function CategoryTestPanel({
             <span style={{ fontWeight: 700 }}>{catResult.sub}</span>
             <span style={{ color: '#64748b', marginLeft: 6 }}>{catResult.count}건</span>
             {catResult.insufficient_data && <span style={{ color: '#f59e0b', marginLeft: 8 }}>데이터 부족</span>}
+            {catResult.gemma_error && <span style={{ color: RISK_RED, marginLeft: 8 }} title={catResult.gemma_error}>AI 분석 실패</span>}
           </div>
           {catResult.prompt_section && (
             <details style={{ marginBottom: 8 }}>
@@ -128,7 +129,8 @@ function CategoryTestPanel({
             <span style={{ fontWeight: 700 }}>{peakResult.bucket_start}~{peakResult.bucket_end}</span>
             <span style={{ color: '#64748b', marginLeft: 6 }}>{peakResult.bucket_count}건 (평균 {peakResult.avg_count}건)</span>
             {peakResult.insufficient_data && <span style={{ color: '#f59e0b', marginLeft: 8 }}>데이터 부족</span>}
-            {!peakResult.insufficient_data && (
+            {peakResult.gemma_error && <span style={{ color: RISK_RED, marginLeft: 8 }} title={peakResult.gemma_error}>AI 분석 실패</span>}
+            {!peakResult.insufficient_data && !peakResult.gemma_error && (
               <span style={{ marginLeft: 8, color: peakResult.has_pattern ? '#166534' : '#64748b' }}>
                 {peakResult.has_pattern ? '패턴 있음' : '패턴 없음'}
               </span>
@@ -227,7 +229,7 @@ function RiskBarChart({ rows, onBarClick }: {
         }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>오늘의 주요 리스크</span>
           <span style={{ fontSize: 16, fontWeight: 700, color: '#ef4444' }}>{topRow.main} › {topRow.sub}</span>
-          <span style={{ fontSize: 15, fontWeight: 700, color: '#ef4444' }}>({(topRow.main_total ?? topRow.count).toLocaleString()}건)</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#ef4444' }}>({topRow.count.toLocaleString()}건)</span>
         </div>
       )}
       {sorted.map((row, i) => {
@@ -287,6 +289,10 @@ function RiskRowItem({ row, aiLoading = false }: { row: RiskRow; aiLoading?: boo
         {row.summary ? (
           <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.7, borderLeft: `3px solid ${NAVY}`, paddingLeft: 10 }}>
             {row.summary}
+          </div>
+        ) : row.gemma_error ? (
+          <div style={{ fontSize: 12, color: RISK_RED }} title={row.gemma_error}>
+            AI 분석 실패 — 다시 시도해주세요
           </div>
         ) : aiLoading ? (
           <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
@@ -587,7 +593,7 @@ export default function DailyReport() {
             ...prev,
             risk_rows: prev.risk_rows.map(r =>
               r.main === row.main
-                ? { ...r, summary: result.summary, insufficient_data: result.insufficient_data }
+                ? { ...r, summary: result.summary, insufficient_data: result.insufficient_data, gemma_error: result.gemma_error }
                 : r
             ),
           } : prev)
@@ -809,14 +815,18 @@ export default function DailyReport() {
                     </span>
                   )}
                 </div>
-                {report.peak_bucket.summary && (
+                {report.peak_bucket.summary ? (
                   <div style={{
                     fontSize: 13, color: '#374151', lineHeight: 1.7,
                     borderLeft: `3px solid ${NAVY}`, paddingLeft: 10,
                   }}>
                     {report.peak_bucket.summary}
                   </div>
-                )}
+                ) : report.peak_bucket.gemma_error ? (
+                  <div style={{ fontSize: 12, color: RISK_RED }} title={report.peak_bucket.gemma_error}>
+                    AI 분석 실패 — 다시 시도해주세요
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -837,10 +847,10 @@ export default function DailyReport() {
             {aiPanelOpen && (
               <CategoryTestPanel
                 date={date}
-                onCategoryResult={(main, summary) => {
+                onCategoryResult={(main, summary, gemmaError) => {
                   setReport(prev => prev ? {
                     ...prev,
-                    risk_rows: prev.risk_rows.map(r => r.main === main ? { ...r, summary } : r),
+                    risk_rows: prev.risk_rows.map(r => r.main === main ? { ...r, summary, gemma_error: gemmaError } : r),
                   } : prev)
                 }}
                 onPeakResult={(peak) => {

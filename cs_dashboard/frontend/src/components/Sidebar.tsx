@@ -1,12 +1,17 @@
 // 좌측 네비게이션 사이드바. 대시보드 링크와 인사이트 서브메뉴(접기·펼치기)를 표시한다.
 // NavLink로 현재 경로를 감지해 활성 메뉴를 하이라이트한다.
-// 하단 설정 아이콘: Gemma 서버 URL을 드롭다운으로 변경하고 저장할 수 있다.
-//   - GET /api/settings/gemma : 현재 URL + 프리셋 목록
-//   - POST /api/settings/gemma : URL 변경 (메모리 즉시 반영 + 파일 저장)
 // 인사이트 목록: 보고서(준비 중) / 방치된 JIRA 버그 / 미지의 버그 탐지기 / 반복 Wings 티켓 / 학부모 반복 인입 / 서비스 품질 지수
+// / 이탈·교체 원인 분석(하위: 해지 사유 분석, 기기 교체 분석, 해지 방어 성과)
+// 관리자 모드: 하단 자물쇠 아이콘 클릭 → 암호 입력 모달 → useAdmin().verify()로 확인.
+//   통과하면 다음이 추가로 노출된다:
+//   - 인사이트 서브메뉴에 관리자 전용 페이지 3개(인사이트 로드맵 / API 관리 / 감사 로그)
+//   - "리스크율 기준" 안내, "설정"(Gemma 서버 URL 변경 — GET/POST /api/settings/gemma) 섹션
+//     → 둘 다 일반 사용자에게는 불필요한 내부 정보라 관리자 전용으로 숨겨뒀다.
+//   - CS 상담 수집 API 호출 on/off 토글 버튼 (GET/POST /api/collection/status,enabled)
 import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import { api } from '../api/client'
+import { useAdmin } from '../hooks/useAdmin'
 
 export default function Sidebar() {
   const [insightsOpen, setInsightsOpen] = useState(true)
@@ -17,13 +22,51 @@ export default function Sidebar() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
+  const { isAdmin, adminToken, verify, logout } = useAdmin()
+  const [adminModalOpen, setAdminModalOpen] = useState(false)
+  const [passcodeInput, setPasscodeInput] = useState('')
+  const [adminError, setAdminError] = useState(false)
+
+  const [collectionEnabled, setCollectionEnabled] = useState<boolean | null>(null)
+  const [collectionBusy, setCollectionBusy] = useState(false)
+
+  async function handleAdminSubmit() {
+    const ok = await verify(passcodeInput)
+    if (ok) {
+      setAdminModalOpen(false)
+      setPasscodeInput('')
+      setAdminError(false)
+    } else {
+      setAdminError(true)
+    }
+  }
+
   useEffect(() => {
+    api.fetchCollectionStatus().then(s => setCollectionEnabled(s.enabled)).catch(() => {})
+  }, [])
+
+  async function handleToggleCollection() {
+    if (!adminToken || collectionEnabled === null) return
+    setCollectionBusy(true)
+    try {
+      const result = await api.setCollectionEnabled(!collectionEnabled, adminToken)
+      setCollectionEnabled(result.enabled)
+    } catch {
+      alert('전환 실패 — 서버가 재시작됐다면 관리자 모드를 다시 켜주세요.')
+      logout()
+    } finally {
+      setCollectionBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!isAdmin) return
     api.fetchGemmaSettings().then(s => {
       setPresets(s.presets)
       setCurrentUrl(s.url)
       setSelectedUrl(s.url)
     }).catch(() => {})
-  }, [])
+  }, [isAdmin])
 
   async function handleSave() {
     setSaving(true)
@@ -104,74 +147,210 @@ export default function Sidebar() {
         >
           방치된 JIRA 버그
         </NavLink>
+        <div className="nav-sub-item" style={{ color: '#94a3b8', fontWeight: 700, cursor: 'default' }}>
+          이탈·교체 원인 분석
+        </div>
+        <NavLink
+          to="/insights/churn-reasons"
+          className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
+          style={{ paddingLeft: 56 }}
+        >
+          해지 사유 분석
+        </NavLink>
+        <NavLink
+          to="/insights/device-swaps"
+          className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
+          style={{ paddingLeft: 56 }}
+        >
+          기기 교체 분석
+        </NavLink>
+        <NavLink
+          to="/insights/retention"
+          className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
+          style={{ paddingLeft: 56 }}
+        >
+          해지 방어 성과
+        </NavLink>
+        {isAdmin && (
+          <NavLink
+            to="/admin/insights"
+            className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
+          >
+            🔒 인사이트 로드맵
+          </NavLink>
+        )}
+        {isAdmin && (
+          <NavLink
+            to="/admin/api"
+            className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
+          >
+            🔒 API 관리
+          </NavLink>
+        )}
+        {isAdmin && (
+          <NavLink
+            to="/admin/audit"
+            className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
+          >
+            🔒 감사 로그
+          </NavLink>
+        )}
       </div>
 
-      {/* 설정 */}
+      {isAdmin && (
+        <>
+          {/* 리스크율 기준 (관리자 전용) */}
+          <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 8, padding: '10px 16px 14px' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', marginBottom: 8, letterSpacing: '0.4px' }}>
+              🔒 리스크율 기준
+            </div>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
+              위험 상담 ÷ 전체 상담 × 100
+            </div>
+            <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.9 }}>
+              <div>• 네트워크·앱 오류 (전체)</div>
+              <div>• 기기·하드웨어 오류 (전체)</div>
+              <div>• 교재·물류 › 기기 장기미회수</div>
+              <div>• 교재·물류 › 누락·오배송</div>
+            </div>
+          </div>
+
+          {/* 설정 (관리자 전용) */}
+          <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 8 }}>
+            <button
+              onClick={() => setSettingsOpen(o => !o)}
+              style={{
+                width: '100%', padding: '10px 20px',
+                background: 'transparent', border: 'none',
+                color: settingsOpen ? '#1e293b' : '#64748b',
+                fontSize: 14, fontWeight: 500, textAlign: 'left',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
+              }}
+            >
+              <span style={{ fontSize: 16, width: 20, textAlign: 'center' }}>⚙</span> 🔒 설정
+            </button>
+            {settingsOpen && (
+              <div style={{ padding: '0 12px 12px' }}>
+                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>
+                  Gemma 서버
+                </div>
+                <select
+                  value={selectedUrl}
+                  onChange={e => setSelectedUrl(e.target.value)}
+                  style={{
+                    width: '100%', padding: '6px 8px',
+                    background: '#fff', border: '1px solid #e2e8f0',
+                    borderRadius: 6, color: '#374151', fontSize: 12,
+                    marginBottom: 8,
+                  }}
+                >
+                  {presets.map(p => (
+                    <option key={p} value={p}>{p.replace('http://', '')}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleSave}
+                  disabled={saving || selectedUrl === currentUrl}
+                  style={{
+                    width: '100%', padding: '6px 0',
+                    background: saved ? '#16a34a' : selectedUrl === currentUrl ? '#f1f5f9' : '#3b82f6',
+                    color: selectedUrl === currentUrl ? '#94a3b8' : '#fff',
+                    border: 'none', borderRadius: 6,
+                    fontSize: 12, fontWeight: 600,
+                    cursor: selectedUrl === currentUrl ? 'default' : 'pointer',
+                  }}
+                >
+                  {saved ? '저장됨 ✓' : saving ? '저장 중...' : '저장'}
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* 관리자 모드 */}
       <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 8 }}>
         <button
-          onClick={() => setSettingsOpen(o => !o)}
+          onClick={() => (isAdmin ? logout() : setAdminModalOpen(true))}
           style={{
             width: '100%', padding: '10px 20px',
             background: 'transparent', border: 'none',
-            color: settingsOpen ? '#1e293b' : '#64748b',
+            color: isAdmin ? '#16a34a' : '#64748b',
             fontSize: 14, fontWeight: 500, textAlign: 'left',
             cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
           }}
         >
-          <span style={{ fontSize: 16, width: 20, textAlign: 'center' }}>⚙</span> 설정
+          <span style={{ fontSize: 16, width: 20, textAlign: 'center' }}>{isAdmin ? '🔓' : '🔒'}</span>
+          {isAdmin ? '관리자 모드 끄기' : '관리자 모드'}
         </button>
-        {settingsOpen && (
-          <div style={{ padding: '0 12px 12px' }}>
+
+        {isAdmin && collectionEnabled !== null && (
+          <div style={{ padding: '0 16px 12px' }}>
             <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>
-              Gemma 서버
+              CS 상담 수집 API
             </div>
-            <select
-              value={selectedUrl}
-              onChange={e => setSelectedUrl(e.target.value)}
-              style={{
-                width: '100%', padding: '6px 8px',
-                background: '#fff', border: '1px solid #e2e8f0',
-                borderRadius: 6, color: '#374151', fontSize: 12,
-                marginBottom: 8,
-              }}
-            >
-              {presets.map(p => (
-                <option key={p} value={p}>{p.replace('http://', '')}</option>
-              ))}
-            </select>
             <button
-              onClick={handleSave}
-              disabled={saving || selectedUrl === currentUrl}
+              onClick={handleToggleCollection}
+              disabled={collectionBusy}
               style={{
-                width: '100%', padding: '6px 0',
-                background: saved ? '#16a34a' : selectedUrl === currentUrl ? '#f1f5f9' : '#3b82f6',
-                color: selectedUrl === currentUrl ? '#94a3b8' : '#fff',
-                border: 'none', borderRadius: 6,
+                width: '100%', padding: '7px 0',
+                background: collectionEnabled ? '#ef4444' : '#16a34a',
+                color: '#fff', border: 'none', borderRadius: 6,
                 fontSize: 12, fontWeight: 600,
-                cursor: selectedUrl === currentUrl ? 'default' : 'pointer',
+                cursor: collectionBusy ? 'default' : 'pointer',
+                opacity: collectionBusy ? 0.6 : 1,
               }}
             >
-              {saved ? '저장됨 ✓' : saving ? '저장 중...' : '저장'}
+              {collectionBusy
+                ? '전환 중...'
+                : collectionEnabled ? '⏸ 호출 중단하기 (현재 실행 중)' : '▶ 호출 시작하기 (현재 중단됨)'}
             </button>
           </div>
         )}
       </div>
 
-      {/* 리스크율 기준 */}
-      <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 8, padding: '10px 16px 14px' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', marginBottom: 8, letterSpacing: '0.4px' }}>
-          리스크율 기준
+      {adminModalOpen && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+          }}
+          onClick={() => setAdminModalOpen(false)}
+        >
+          <div
+            style={{ background: '#fff', borderRadius: 12, padding: 20, width: 260 }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 10 }}>
+              관리자 암호 입력
+            </div>
+            <input
+              type="password"
+              value={passcodeInput}
+              autoFocus
+              onChange={e => { setPasscodeInput(e.target.value); setAdminError(false) }}
+              onKeyDown={e => e.key === 'Enter' && handleAdminSubmit()}
+              style={{
+                width: '100%', padding: '8px 10px', boxSizing: 'border-box',
+                border: `1px solid ${adminError ? '#ef4444' : '#e2e8f0'}`,
+                borderRadius: 6, fontSize: 13, marginBottom: 8,
+              }}
+            />
+            {adminError && (
+              <div style={{ fontSize: 11, color: '#ef4444', marginBottom: 8 }}>암호가 틀렸습니다.</div>
+            )}
+            <button
+              onClick={handleAdminSubmit}
+              style={{
+                width: '100%', padding: '7px 0', background: '#3b82f6', color: '#fff',
+                border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              확인
+            </button>
+          </div>
         </div>
-        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
-          위험 상담 ÷ 전체 상담 × 100
-        </div>
-        <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.9 }}>
-          <div>• 네트워크·앱 오류 (전체)</div>
-          <div>• 기기·하드웨어 오류 (전체)</div>
-          <div>• 교재·물류 › 기기 장기미회수</div>
-          <div>• 교재·물류 › 누락·오배송</div>
-        </div>
-      </div>
+      )}
     </nav>
   )
 }

@@ -388,3 +388,20 @@ tr:last-child td { border-bottom: none; }
 .qi-pills { display: flex; flex-wrap: wrap; gap: 5px; }
 .qi-pill { background: var(--bg); color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 3px 10px; font-size: 11px; font-weight: 600; }
 
+.qi-section-title { font-size: 16px; font-weight: 800; color: var(--text); margin: 32px 0 4px; display: flex; align-items: center; gap: 8px; }
+.qi-section-sub { font-size: 13px; color: var(--muted); margin-bottom: 16px; line-height: 1.6; }
+
+.qi-list { display: flex; flex-direction: column; gap: 10px; }
+.qi-list-item { background: var(--surface); border-radius: var(--r); box-shadow: var(--shadow); overflow: hidden; }
+.qi-list-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; cursor: pointer; }
+.qi-list-name { font-size: 14px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 10px; min-width: 0; }
+.qi-list-count { font-size: 13px; font-weight: 800; color: var(--primary); background: var(--primary-soft); border-radius: 999px; padding: 4px 12px; white-space: nowrap; flex-shrink: 0; }
+.qi-list-bar { height: 6px; border-radius: 999px; background: var(--bg); overflow: hidden; margin-top: 10px; }
+.qi-list-bar-fill { height: 100%; border-radius: 999px; background: var(--primary); }
+.qi-list-body { padding: 2px 20px 16px; border-top: 1px solid var(--border); max-height: 360px; overflow-y: auto; }
+.qi-example { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); line-height: 1.5; }
+.qi-example:last-child { border-bottom: none; }
+.qi-example-meta { font-size: 11px; color: var(--faint); margin-bottom: 4px; display: flex; gap: 8px; align-items: center; }
+.qi-example-tag { background: var(--bg); border-radius: 6px; padding: 1px 7px; font-weight: 700; }
+.qi-example-tag.on { background: #fef3c7; color: #b45309; }
+

@@ -297,12 +297,12 @@ function WeeklyTestPanel({
   onSummaryResult,
 }: {
   weekStart: string
-  onCategoryResult: (main: string, summary: string) => void
-  onSummaryResult: (summary: string) => void
+  onCategoryResult: (main: string, summary: string, gemmaError?: string | null) => void
+  onSummaryResult: (summary: string, gemmaError?: string | null) => void
 }) {
   const [target, setTarget] = useState(WEEKLY_TEST_TARGETS[0])
   const [running, setRunning] = useState(false)
-  const [result, setResult] = useState<{ label: string; summary: string; insufficient_data?: boolean } | null>(null)
+  const [result, setResult] = useState<{ label: string; summary: string; insufficient_data?: boolean; gemma_error?: string | null } | null>(null)
   const [error, setError] = useState('')
 
   async function run() {
@@ -312,12 +312,12 @@ function WeeklyTestPanel({
     try {
       if (target === '종합 브리핑') {
         const r = await api.analyzeWeeklySummary(weekStart)
-        setResult({ label: '종합 브리핑', summary: r.summary })
-        onSummaryResult(r.summary)
+        setResult({ label: '종합 브리핑', summary: r.summary, gemma_error: r.gemma_error })
+        onSummaryResult(r.summary, r.gemma_error)
       } else {
         const r = await api.analyzeWeeklyCategory(weekStart, target)
-        setResult({ label: target, summary: r.summary, insufficient_data: r.insufficient_data })
-        onCategoryResult(target, r.summary)
+        setResult({ label: target, summary: r.summary, insufficient_data: r.insufficient_data, gemma_error: r.gemma_error })
+        onCategoryResult(target, r.summary, r.gemma_error)
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
@@ -355,6 +355,7 @@ function WeeklyTestPanel({
           <div style={{ marginBottom: 4 }}>
             <span style={{ fontWeight: 700 }}>{RISK_DISPLAY_LABEL[result.label] ?? result.label}</span>
             {result.insufficient_data && <span style={{ color: '#f59e0b', marginLeft: 8 }}>데이터 부족</span>}
+            {result.gemma_error && <span style={{ color: '#ef4444', marginLeft: 8 }} title={result.gemma_error}>AI 분석 실패</span>}
           </div>
           {result.summary && (
             <div style={{ background: '#f0f4fb', borderRadius: 6, padding: '7px 12px', borderLeft: `3px solid ${NAVY}`, fontSize: 13 }}>
@@ -866,6 +867,10 @@ export default function WeeklyReport() {
                             }}>
                             {row.summary}
                           </div>
+                        : row.gemma_error
+                        ? <p style={{ margin: '0 0 8px', fontSize: 13, color: '#ef4444' }} title={row.gemma_error}>
+                            AI 분석 실패 — 다시 시도해주세요
+                          </p>
                         : <p style={{ margin: '0 0 8px', fontSize: 13 }}>
                             {aiGenerating
                               ? <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</span>
@@ -918,9 +923,13 @@ export default function WeeklyReport() {
                   {report.weekly_summary}
                 </div>
               )
-              : aiGenerating
-                ? <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
-                : <div style={{ fontSize: 13, color: '#94a3b8' }}>분석 없음</div>
+              : report.weekly_summary_error
+                ? <div style={{ fontSize: 13, color: '#ef4444' }} title={report.weekly_summary_error}>
+                    AI 분석 실패 — 다시 시도해주세요
+                  </div>
+                : aiGenerating
+                  ? <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
+                  : <div style={{ fontSize: 13, color: '#94a3b8' }}>분석 없음</div>
             }
           </div>
 
@@ -938,14 +947,14 @@ export default function WeeklyReport() {
             {testPanelOpen && (
               <WeeklyTestPanel
                 weekStart={weekStart}
-                onCategoryResult={(main, summary) => {
+                onCategoryResult={(main, summary, gemmaError) => {
                   setReport(prev => prev ? {
                     ...prev,
-                    risk_rows: prev.risk_rows.map(r => r.main === main ? { ...r, summary } : r),
+                    risk_rows: prev.risk_rows.map(r => r.main === main ? { ...r, summary, gemma_error: gemmaError } : r),
                   } : prev)
                 }}
-                onSummaryResult={(summary) => {
-                  setReport(prev => prev ? { ...prev, weekly_summary: summary } : prev)
+                onSummaryResult={(summary, gemmaError) => {
+                  setReport(prev => prev ? { ...prev, weekly_summary: summary, weekly_summary_error: gemmaError } : prev)
                 }}
               />
             )}
