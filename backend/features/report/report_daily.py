@@ -11,8 +11,8 @@
 #     ├─ analyze_single_category()        : 카테고리 하나 Gemma 분석 + 즉시 저장 (반복)
 #     │     ├─ _prepare_category_brief()  : 카테고리별 Gemma용 텍스트 생성
 #     │     │     해지·유지 상담 → _build_cancellation_brief() (해지 사유 카운팅)
-#     │     │     그 외          → _build_keyword_groups()     (RULES 키워드 그룹핑)
-#     │     └─ _call_gemma_category_insights() : Gemma Call 1 — 카테고리별 2줄 분석
+#     │     │     그 외          → _build_memo_brief()         (필터링 후 시간대별 샘플링)
+#     │     └─ _call_gemma_category_insights() : Gemma Call 1 — 카테고리별 최대 4문장 분석
 #     ├─ analyze_peak_bucket()            : 피크타임(17~20시) 최다 버킷 분석 + 즉시 저장
 #     ├─ analyze_anomaly_bucket()         : 피크타임 밖인데 그보다 인입이 많은 버킷이 있을 때만
 #     │                                    실행 (백필 등 이상 유입 포착) + 즉시 저장
@@ -30,6 +30,7 @@
 
 import json
 import re
+import time
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
@@ -38,7 +39,7 @@ from core.holidays import is_off_day
 from core.gemma_client import call_gemma, parse_json_response
 from core.audit_log import log_action
 from core import report_progress
-from features.issues.classifier import extract_symptom_fields, RULES, SUB_TO_MAIN
+from features.issues.classifier import extract_symptom_fields
 from features.report.report_utils import (
     INSUFFICIENT_SUMMARY, _MIN_ANALYSIS_MEMOS,
     _MAIN_ORDER, _is_risk, _SYSTEM_CATEGORY, describe_gemma_failure, gemma_detail,
@@ -52,53 +53,64 @@ _CANCEL_REASON_FALLBACK_RE = re.compile(r'해지확정\s+([가-힣()\-_·]+)')
 # ── Gemma 프롬프트 (일별 전용) ───────────────────────────────────────────────
 
 _PROMPT_CATEGORY = (
-    "아래는 {date_str} [{cat_label}] CS 상담 메모입니다.\n"
-    "메모에서 반복되는 현상을 두 문장으로 분석하세요.\n"
-    "첫 문장: 어떤 현상이 반복되는지.\n"
-    "두 번째 문장: 그 현상이 사용자에게 어떤 영향을 주는지 또는 왜 심각한지.\n"
-    "건수 단순 반복('N건 접수')이나 CS 운영 조언은 쓰지 마세요.\n\n"
-    "{memos}"
+    "<date>{date_str}</date>\n"
+    "<category>{cat_label}</category>\n"
+    "<memos>\n{memos}\n</memos>"
 )
 
-# "코드 블록 없이 JSON만 출력"이라는 문구가 오히려 모델이 코드 펜스(```)를 열어야 한다는
-# 신호로 헷갈려서 여는 기호 3글자만 뱉고 끝내버리는 사례가 있었다 — "백틱을 쓰지 말라"고
-# 더 직접적으로 지시해서 이 실패를 줄여보려는 시도.
+# role/rules/example 구조 + few-shot 예시. 카테고리 나열 문장(순서·형식)은 Gemma한테 아무리
+# "기타는 항상 마지막에" 같은 엄격한 규칙을 줘도 실제로는 절반 정도만 지켜졌다 — LLM 문장
+# 생성에 100% 강제가 필요한 부분을 맡기면 안 된다는 걸 확인했다. 그래서 카테고리별 건수·순서
+# 나열은 Python이 _format_category_listing()으로 직접 조립해 미리 만들어두고(항상 정확한
+# 순서·형식 보장), Gemma한테는 "왜 그런지/영향"에 해당하는 reason 한두 문장만 맡긴다 —
+# 숫자를 옮겨 적다 순서나 형식을 틀리는 실수 자체가 구조적으로 안 생기게 책임을 나눴다.
 _SYSTEM_PEAK_BUCKET = (
-    "당신은 단비교육 공감센터 CS 분석 전문가입니다.\n"
-    "CS팀 운영이 아닌 개발·서비스 품질 관점에서 분석하세요.\n"
-    "규칙: 백틱(`)을 절대 쓰지 마세요. 마크다운 코드 블록으로 감싸지 말고 JSON 객체만 그대로 출력하세요.\n"
-    '응답 형식:\n{"pattern": "반복 패턴 키워드. 없으면 빈 문자열.", "summary": "두 문장 분석. 항상 작성."}'
+    "<role>\n"
+    "당신은 단비교육 공감센터의 CS 데이터 분석가입니다. 특정 시간대에 접수된 CS 상담 메모를 검토해서\n"
+    "그 시간대에 특이한 패턴이 있는지 판단합니다. 카테고리별 건수·비율 나열은 이미 정확히 집계되어\n"
+    "별도로 화면에 표시되므로, 당신은 그 수치를 반복하지 말고 reason에 '왜 그런지 또는 사용자에게\n"
+    "어떤 영향인지'만 작성합니다.\n"
+    "</role>\n\n"
+    "<rules>\n"
+    "- JSON 객체 하나만 출력합니다. 백틱(`)이나 마크다운 코드 블록으로 감싸지 않습니다.\n"
+    "- reason은 1~2문장입니다. 카테고리 이름이나 건수·비율을 다시 나열하지 마세요 — 그건 이미\n"
+    "  다른 곳에 정확히 표시되어 있습니다. 왜 이 시간에 몰렸을지 또는 사용자에게 어떤 영향인지만\n"
+    "  씁니다.\n"
+    "- 제공된 메모에 실제로 나타난 내용만 씁니다. 메모에 없는 새로운 사건이나 용어를 만들어내지\n"
+    "  않습니다. 해석·판단이 들어가면 '~로 보입니다', '~가능성이 있습니다' 같은 추측 표현을\n"
+    "  씁니다. 단정하지 않습니다.\n"
+    "- pattern은 같은 유형의 문제가 반복될 때만 10자 이내 키워드로 씁니다(예: '기기 전원 꺼짐·배터리 방전').\n"
+    "  특정 패턴이 없으면 빈 문자열로 둡니다.\n"
+    "- CS 운영 조언은 쓰지 않습니다.\n"
+    "- 카테고리 분포 아래 '→'로 시작하는 안내 문구가 있으면 그 지시를 그대로 따르세요. 특히\n"
+    "  '없는 원인을 지어내지 말라'는 안내가 있으면, '특정 원인 없이 여러 카테고리가 고르게\n"
+    "  접수된 시간대로 보입니다' 정도로 짧게만 쓰고 그럴듯한 이유를 상상해서 덧붙이지 마세요.\n"
+    "</rules>\n\n"
+    "<example>\n"
+    "1위가 40% 이상이라는 안내가 있다면:\n"
+    '{"pattern": "네트워크 연결 불안정", "reason": "이 시간대에 특정 지역·통신사 문의가 몰린 것으로 보입니다."}\n'
+    "\n"
+    "1위가 40% 미만이라 '원인을 지어내지 말라'는 안내가 있다면:\n"
+    '{"pattern": "", "reason": "특정 원인 없이 다양한 문의가 골고루 몰린 시간대로 보입니다."}\n'
+    "</example>\n\n"
+    "위 예시와 같은 형식으로, JSON 객체 하나만 출력하세요."
 )
 
 _PROMPT_PEAK_BUCKET = (
-    "아래는 {date_str} 피크타임(17~20시) 중 가장 많은 문의가 접수된\n"
-    "{bucket_start}~{bucket_end} 구간의 CS 상담 메모입니다.\n"
-    "이 구간에 {bucket_count}건이 접수됐으며, 피크타임 30분 평균은 {avg_count}건입니다.\n"
-    "\n"
-    "메모를 읽고 이 시간대에 특이한 패턴이 있는지 판단하세요.\n"
-    "summary는 항상 두 문장으로 작성하세요.\n"
-    "  첫 문장: 이 시간대에 어떤 현상·증상이 접수됐는지.\n"
-    "  두 번째 문장: 왜 이 시간에 집중됐을 가능성 또는 사용자 영향.\n"
-    "pattern: 같은 유형의 문제가 반복된다면 10자 이내 키워드 (예: '기기 전원 꺼짐·배터리 방전'). 특정 패턴이 없으면 빈 문자열.\n"
-    "건수 단순 반복('N건 접수됐습니다')이나 CS 운영 조언은 쓰지 마세요.\n\n"
-    "{memos}"
+    "<date>{date_str}</date>\n"
+    "<time_range>피크타임(17~20시) 중 가장 많은 문의가 접수된 {bucket_start}~{bucket_end} 구간</time_range>\n"
+    "<stats>이 구간 {bucket_count}건 / 피크타임 30분 평균 {avg_count}건</stats>\n"
+    "{breakdown}"
 )
 
 # 피크타임(17~20시) 밖인데 그날 피크타임 최다 버킷보다 인입이 많은 버킷이 있을 때만 실행된다.
 # 백필·이력 현행화로 CS 업무시간이 아닌 때 대량 유입될 경우를 포착하기 위함 (평소 패턴 지표인
-# 피크타임 분석과는 별개로, 존재할 때만 추가되는 이상탐지형 분석).
+# 피크타임 분석과는 별개로, 존재할 때만 추가되는 이상탐지형 분석). 시스템 프롬프트는 피크타임과 공용.
 _PROMPT_ANOMALY_BUCKET = (
-    "아래는 {date_str}에 피크타임(17~20시)이 아닌데도 오히려 문의가 가장 많이 접수된\n"
-    "{bucket_start}~{bucket_end} 구간의 CS 상담 메모입니다.\n"
-    "이 구간에 {bucket_count}건이 접수됐으며, 같은 날 피크타임 최다 버킷({peak_count}건)보다 많습니다.\n"
-    "\n"
-    "메모를 읽고 이 시간대에 특이한 패턴이 있는지, 왜 피크타임이 아닌데 몰렸는지 판단하세요.\n"
-    "summary는 항상 두 문장으로 작성하세요.\n"
-    "  첫 문장: 이 시간대에 어떤 현상·증상이 접수됐는지.\n"
-    "  두 번째 문장: 왜 이 시간에 집중됐을 가능성 또는 사용자 영향 (예: 이력 일괄 정리, 특정 이벤트 등).\n"
-    "pattern: 같은 유형의 문제가 반복된다면 10자 이내 키워드. 특정 패턴이 없으면 빈 문자열.\n"
-    "건수 단순 반복('N건 접수됐습니다')이나 CS 운영 조언은 쓰지 마세요.\n\n"
-    "{memos}"
+    "<date>{date_str}</date>\n"
+    "<time_range>피크타임(17~20시)이 아닌데도 문의가 가장 많이 접수된 {bucket_start}~{bucket_end} 구간</time_range>\n"
+    "<stats>이 구간 {bucket_count}건 / 같은 날 피크타임 최다 버킷 {peak_count}건</stats>\n"
+    "{breakdown}"
 )
 
 # 피크타임 버킷 키 집합 (30분 단위, 17:00~20:00 마지막 버킷까지 — _fetch_day_stats의 기존 조건과 동일)
@@ -174,10 +186,12 @@ def _fetch_day_stats(date_str: str) -> dict:
             row["call_memo"], row["hour"], row["minute"]
         )
         if main and sub and _is_risk(main, sub):
-            main_sub_memos[main][sub].append({"id": id_, "text": memo or ""})
+            main_sub_memos[main][sub].append({"id": id_, "text": memo or "", "hour": hour})
         bucket_min = 0 if minute < 30 else 30
         bucket_key = f"{hour}:{bucket_min:02d}"
-        all_bucket_rows.setdefault(bucket_key, []).append({"id": id_, "text": memo or ""})
+        all_bucket_rows.setdefault(bucket_key, []).append({
+            "id": id_, "text": memo or "", "main": main or "미분류", "sub": sub or "",
+        })
 
     peak_bucket_rows = {k: v for k, v in all_bucket_rows.items() if k in _PEAK_BUCKET_KEYS}
 
@@ -216,44 +230,72 @@ def _fetch_day_stats(date_str: str) -> dict:
     }
 
 
-def _build_keyword_groups(memos: list[dict], main_cat: str, current_sub: str, max_groups: int) -> dict:
-    """RULES 키워드로 메모를 그룹핑. SUB_TO_MAIN으로 현재 대분류의 관련 소분류만 탐색.
-    반환: {"prompt_text": str, "groups": [{"sub": str, "count": int, "memos": [...]}]}"""
-    relevant_subs = {sub for sub, main in SUB_TO_MAIN.items() if main == main_cat}
-    relevant_rules = [(sub, kws) for sub, kws in RULES if sub in relevant_subs and sub != current_sub]
+# 시간대별 균형 샘플링에 쓰는 구간·상한. 필터링된 메모가 이 상한(100건)을 넘을 때만 적용된다.
+# 예전엔 RULES 키워드로 메모를 그룹핑해서 가장 큰 그룹 1~2개만 프롬프트에 넣었는데, 실제로
+# 돌려보니 카테고리에 따라 최대 73%가 어느 그룹에도 안 걸려서 그 메모들은 통계에도 프롬프트에도
+# 아예 반영이 안 됐다. 키워드 매칭 정확도에 기대는 대신, 시간대 기준으로 골고루 뽑아서 특정
+# 시간대(예: 가장 바쁜 오후)에 쏠리지 않게 한다.
+_TIME_BUCKET_RANGES = {
+    "아침": range(9, 13),   # 09~12시
+    "오후": range(13, 18),  # 13~17시
+    "저녁": range(18, 24),  # 18~23시
+}
+_TIME_BUCKET_CAPS = {"아침": 30, "오후": 30, "저녁": 40}
+_MAX_MEMOS_WITHOUT_BUCKETING = 100
 
-    rule_memo_map: dict[str, list] = {sub: [] for sub, _ in relevant_rules}
+
+def _clean_memo_line(memo: dict) -> str | None:
+    """메모 원문을 프롬프트용 한 줄로 정제. 20자 미만이면 의미 있는 내용이 없다고 보고 제외한다."""
+    text = extract_symptom_fields(memo["text"])
+    text = " ".join(text.split())[:150]
+    return text if len(text) >= 20 else None
+
+
+def _clean_device_swap_memo_line(memo: dict) -> str | None:
+    """'기기 교체 요청' 전용 정제. 일반 _clean_memo_line은 "*교체 학습기 : 윙크 스쿨 단말기 /
+    기본형(2.0) / 동글 연결 불가능" 같은 기종 헤더 줄(모든 메모에 고정으로 박혀있는 값)을
+    못 걸러내서, "동글 연결 불가능"이 실제 증상인 것처럼 Gemma 요약에 등장한 적이 있었다.
+    classify_device_swap_reason()이 쓰는 clean_memo_for_reason()으로 먼저 헤더·boilerplate를
+    제거한 뒤 일반 추출을 적용한다."""
+    from features.issues.churn_device_insights import clean_memo_for_reason
+
+    text = clean_memo_for_reason(memo["text"])
+    text = extract_symptom_fields(text)
+    text = " ".join(text.split())[:150]
+    return text if len(text) >= 20 else None
+
+
+def _build_memo_brief(memos: list[dict], sub: str, clean_fn=_clean_memo_line) -> dict:
+    """메모를 정제·필터링한 뒤, 건수가 많으면(100건 초과) 시간대(아침/오후/저녁)별로 나눠서
+    균형 있게 샘플링한다. 필터링을 먼저 하고 시간대 분배를 나중에 해야 한다 — 순서를 바꾸면
+    시간대별로 목표 건수만큼 뽑았는데 그중 상당수가 필터에 걸려 실제 반영 건수가 목표보다
+    부족해지는 문제가 생긴다.
+    반환: {"prompt_text": str, "groups": [{"sub": str, "count": int, "memos": []}]}"""
+    filtered = []
     for m in memos:
-        for sub, keywords in relevant_rules:
-            if any(kw in m["text"] for kw in keywords):
-                rule_memo_map[sub].append(m)
+        line = clean_fn(m)
+        if line:
+            filtered.append({"hour": m["hour"], "text": line})
 
-    top_groups = sorted(
-        [(sub, ms) for sub, ms in rule_memo_map.items() if ms],
-        key=lambda x: -len(x[1]),
-    )[:max_groups]
+    if len(filtered) <= _MAX_MEMOS_WITHOUT_BUCKETING:
+        sampled = filtered
+    else:
+        buckets: dict[str, list] = {name: [] for name in _TIME_BUCKET_RANGES}
+        for m in filtered:
+            for name, hours in _TIME_BUCKET_RANGES.items():
+                if m["hour"] in hours:
+                    buckets[name].append(m)
+                    break
+        sampled = []
+        for name, cap in _TIME_BUCKET_CAPS.items():
+            sampled.extend(buckets[name][:cap])
 
-    seen_ids: set = set()
-    prompt_sections = []
-    result_groups = []
+    if not sampled:
+        return {"prompt_text": "", "groups": []}
 
-    for sub, matched_memos in top_groups:
-        lines = []
-        group_memos = []
-        for m in matched_memos[:30]:
-            if m["id"] in seen_ids:
-                continue
-            text = extract_symptom_fields(m["text"])
-            text = " ".join(text.split())[:150]
-            if len(text) >= 20:
-                lines.append(f"[{len(lines)+1}] {text}")
-                group_memos.append({"id": m["id"], "text": text})
-                seen_ids.add(m["id"])
-        if group_memos:
-            prompt_sections.append(f"# {sub} ({len(group_memos)}건)\n" + "\n".join(lines))
-            result_groups.append({"sub": sub, "count": len(group_memos), "memos": group_memos})
-
-    return {"prompt_text": "\n\n".join(prompt_sections), "groups": result_groups}
+    lines = [f"[{i + 1}] {m['text']}" for i, m in enumerate(sampled)]
+    prompt_text = f"# {sub} ({len(sampled)}건)\n" + "\n".join(lines)
+    return {"prompt_text": prompt_text, "groups": [{"sub": sub, "count": len(sampled), "memos": []}]}
 
 
 def _build_cancellation_brief(memos: list[dict]) -> dict:
@@ -299,19 +341,48 @@ def _build_cancellation_brief(memos: list[dict]) -> dict:
     return {"prompt_text": prompt_text, "groups": groups}
 
 
-def _build_raw_memo_brief(memos: list[dict], sub: str, max_memos: int = 20) -> dict:
-    """키워드 그룹핑 결과가 부족할 때 폴백. 전처리 후 메모 원문을 직접 전송용 텍스트로 변환."""
-    lines = []
-    for m in memos[:max_memos]:
-        text = extract_symptom_fields(m["text"])
-        text = " ".join(text.split())[:150]
-        if len(text) >= 20:
-            lines.append(f"[{len(lines)+1}] {text}")
-    if not lines:
-        return {"prompt_text": "", "groups": []}
-    prompt_text = f"# {sub} ({len(lines)}건)\n" + "\n".join(lines)
-    groups = [{"sub": sub, "count": len(lines), "memos": []}]
-    return {"prompt_text": prompt_text, "groups": groups}
+def _build_device_swap_brief(memos: list[dict], sub: str) -> dict:
+    """'기기 교체 요청' 카테고리 전용. Gemma한테 79건 남짓한 원문을 주고 비중을 알아서
+    세게 하면 "다수 접수되고 있습니다" 식으로 뭉뚱그려버린다 — LLM은 긴 텍스트에서 정확한
+    카운팅에 약하다. 대신 오늘 별도로 다듬은 classify_device_swap_reason()(11개 사유,
+    실측 커버리지 57.5%)으로 전체 건수를 정확히 집계해서 프롬프트 맨 위에 숫자로 박아주고,
+    Gemma는 그 숫자를 문장으로 풀어쓰는 역할만 하게 한다. 사유 불명확·이력 없음·고객
+    요청형처럼 결함이 아닌 항목은 분포 표에서 아예 제외한다(DEVICE_SWAP_DEFECT_REASONS) —
+    안 그러면 Gemma가 "상위 N개를 인용하라"는 규칙을 문자 그대로 따르다가 그런 항목까지
+    결함인 것처럼 인용해버린다. 대표 예시(시간대 균형 샘플)는 _build_memo_brief를 그대로
+    쓰되, 정제 함수만 _clean_device_swap_memo_line으로 바꿔서 기종 헤더 boilerplate가
+    예시에 그대로 노출되지 않게 한다."""
+    from features.issues.churn_device_insights import classify_device_swap_reason, DEVICE_SWAP_DEFECT_REASONS
+
+    reason_counts: dict[str, int] = {}
+    for m in memos:
+        reason = classify_device_swap_reason(m["text"])
+        reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+    total = len(memos)
+    sorted_reasons = sorted(reason_counts.items(), key=lambda kv: -kv[1])
+    # "상위 N개 사유를 인용하라"는 규칙만 믿으면 Gemma가 사유 불명확·이력 없음·고객 요청형처럼
+    # 결함이 아닌 항목도 순위가 높다는 이유로 그대로 인용해버린다(실제로 있었던 문제) — 애초에
+    # 결함 사유가 아닌 건 분포 표에서 빼서 Gemma가 고를 수조차 없게 한다.
+    defect_reasons = [(r, c) for r, c in sorted_reasons if r in DEVICE_SWAP_DEFECT_REASONS]
+    dist_lines = [f"{reason}: {cnt}건 ({round(cnt / total * 100, 1)}%)" for reason, cnt in defect_reasons]
+    dist_section = f"# 결함 사유 분포 (전체 {total}건 중 결함으로 분류된 건, 정확히 집계된 수치)\n" + "\n".join(dist_lines)
+
+    examples = _build_memo_brief(memos, sub, clean_fn=_clean_device_swap_memo_line)
+    sections = [dist_section]
+    if examples["prompt_text"]:
+        sections.append(examples["prompt_text"])
+
+    # 화면에서 요약 문장 중 1위 사유 이름·숫자를 굵게 강조하는 데 쓰는 필드. Gemma 요약은
+    # 자유 문장이라 "어디가 1위 부분인지" 코드가 알 수 없는데, 여기선 이미 정확히 계산해
+    # 두었으니 그대로 넘긴다.
+    top_category = None
+    if defect_reasons:
+        top_name, top_count = defect_reasons[0]
+        top_category = {"name": top_name, "count": top_count, "pct": round(top_count / total * 100, 1)}
+
+    groups = [{"sub": reason, "count": cnt, "memos": []} for reason, cnt in sorted_reasons]
+    return {"prompt_text": "\n\n".join(sections), "groups": groups, "top_category": top_category}
 
 
 def _prepare_category_brief(risk_rows: list) -> None:
@@ -319,13 +390,13 @@ def _prepare_category_brief(risk_rows: list) -> None:
     for row in risk_rows:
         if row["main"] == "해지·유지 상담":
             result = _build_cancellation_brief(row["memos"])
+        elif row["sub"] == "기기 교체 요청":
+            result = _build_device_swap_brief(row["memos"], row["sub"])
         else:
-            max_groups = 1 if row["count"] >= 50 else 2
-            result = _build_keyword_groups(row["memos"], row["main"], row["sub"], max_groups)
-            if sum(g["count"] for g in result["groups"]) < _MIN_ANALYSIS_MEMOS:
-                result = _build_raw_memo_brief(row["memos"], row["sub"])
+            result = _build_memo_brief(row["memos"], row["sub"])
         total = sum(g["count"] for g in result["groups"])
         row["analysis_groups"] = result["groups"]
+        row["_top_category"] = result.get("top_category")
         row["insufficient_data"] = total < _MIN_ANALYSIS_MEMOS
         if not row["insufficient_data"]:
             row["_prompt_section"] = result["prompt_text"]
@@ -353,10 +424,16 @@ async def _call_gemma_category_insights(date_str: str, risk_rows: list) -> None:
             cat_label=cat_label,
             memos=row.get("_prompt_section", ""),
         )
+        # 화면 "▼ Gemma 프롬프트 보기"에 그대로 노출되는 필드. 실패 원인을 눈으로 확인하려면
+        # 실제로 무엇을 보냈는지(시스템 지시문 포함) 봐야 해서, 요약용 _prompt_section과
+        # 별도로 시스템+유저 프롬프트 전문을 합쳐 저장한다.
+        row["_full_prompt"] = f"[SYSTEM]\n{_SYSTEM_CATEGORY}\n\n[USER]\n{prompt}"
 
         print(f"[Gemma Daily Cat - {cat_label}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
+        _start = time.time()
         try:
             raw = await call_gemma(_SYSTEM_CATEGORY, prompt)
+            row["_elapsed"] = round(time.time() - _start, 1)
             result = parse_json_response(raw)
             if result and result.get("summary"):
                 row["summary"] = result["summary"]
@@ -366,6 +443,7 @@ async def _call_gemma_category_insights(date_str: str, risk_rows: list) -> None:
                 row["gemma_error"] = describe_gemma_failure(raw)
                 print(f"[Gemma Daily Cat - {cat_label}] {row['gemma_error']}")
         except Exception as e:
+            row["_elapsed"] = round(time.time() - _start, 1)
             row["summary"] = ""
             row["gemma_error"] = str(e)
             print(f"[Gemma Daily Cat - {cat_label}] 실패 (건너뜀): {e}")
@@ -377,17 +455,77 @@ def _bucket_end(bucket_key: str) -> str:
     return f"{end_h}:{end_m:02d}"
 
 
-def _build_bucket_lines(memos: list[dict]) -> list[str]:
-    """버킷 메모를 Gemma 프롬프트용 번호 매긴 텍스트 라인으로 변환. 최대 30개."""
-    lines = []
-    for memo in memos:
-        text = extract_symptom_fields(memo["text"])
-        text = " ".join(text.split())[:150]
-        if len(text) >= 20:
-            lines.append(f"[{len(lines)+1}] {text}")
-        if len(lines) >= 30:
+_BUCKET_EXAMPLES_PER_CATEGORY = 5
+_BUCKET_MAX_EXAMPLES = 30
+# 1위 카테고리가 이 비율 이상이면 "뚜렷한 원인이 있다"고 보고 구체적으로 짚으라고 지시한다.
+# 미만이면 여러 카테고리가 고르게 섞인 것이므로, 없는 원인을 억지로 만들어내지 말라고 지시한다
+# — 실제로 8/19 14:30 버킷(1위가 26.6%뿐)에서 뚜렷한 원인 없이도 Gemma가 그럴듯한 이유를
+# 지어낼 뻔한 사례가 있었다.
+_DOMINANT_CATEGORY_THRESHOLD = 0.4
+
+
+def _format_category_listing(sorted_mains: list[tuple[str, int]], total: int) -> str:
+    """카테고리 나열 문장을 Python이 직접 조립한다. Gemma한테 "기타는 항상 마지막에
+    언급하라"고 규칙으로 못박아도 실제로는 절반 정도만 지켜졌다 — 순서·형식을 엄격히
+    지켜야 하는 부분은 LLM 문장 생성에 맡기지 않고 코드가 직접 만들어야 100% 보장된다.
+    '순으로'는 항목별 조사(이/가) 없이도 자연스러워서 받침 유무를 신경 쓸 필요가 없다."""
+    parts = [f"{name} {cnt}건({round(cnt / total * 100, 1)}%)" for name, cnt in sorted_mains]
+    return ", ".join(parts) + " 순으로 접수되었습니다."
+
+
+def _build_bucket_brief(memos: list[dict]) -> dict:
+    """30분 버킷 안에 섞인 여러 카테고리의 정확한 건수 분포를 먼저 보여주고, 카테고리별로
+    대표 예시를 몇 건씩 뽑아 붙인다. 예전엔 뒤섞인 메모를 그냥 앞에서부터 30건 잘라서
+    보냈는데, 그러면 우연히 한 카테고리가 앞쪽에 몰려 있을 때 그 카테고리만 있는 것처럼
+    편향되게 보이고, 카테고리 구성 자체를 Gemma가 텍스트만 보고 추측해야 했다.
+    반환: {"text": str, "top_category": {"name", "count", "pct"} | None, "listing": str}"""
+    total = len(memos)
+    counts: dict[str, int] = {}
+    by_main: dict[str, list] = {}
+    for m in memos:
+        counts[m["main"]] = counts.get(m["main"], 0) + 1
+        by_main.setdefault(m["main"], []).append(m)
+
+    # "기타"는 건수가 아무리 많아도 실체가 없는 잔여 분류라, 1위로 잡히면 Gemma가 "기타가
+    # 가장 많다"는 의미 없는 문장을 만들거나 없는 원인을 지어낼 위험이 있다. 정렬 자체에서
+    # 항상 맨 뒤로 보내 — 목록에도 마지막에 나오고, 1위(top_category)로도 절대 안 뽑히게 한다.
+    sorted_mains = sorted(counts.items(), key=lambda kv: (kv[0] == "기타", -kv[1]))
+    dist_lines = [f"{main}: {cnt}건 ({round(cnt / total * 100, 1)}%)" for main, cnt in sorted_mains]
+    top_main, top_count = sorted_mains[0]
+    top_pct = top_count / total
+    if top_pct >= _DOMINANT_CATEGORY_THRESHOLD:
+        guidance = (
+            f"→ 1위 카테고리('{top_main}')가 전체의 {round(top_pct * 100, 1)}%로 뚜렷하게 많습니다. "
+            "요약 마지막 문장에서 왜 이 카테고리가 몰렸을지 아래 예시 메모 내용에 근거해 구체적으로 언급하세요."
+        )
+    else:
+        guidance = (
+            "→ 특정 카테고리가 40% 이상을 차지하지 않았습니다. 없는 원인을 지어내지 말고, "
+            "여러 카테고리가 고르게 섞여 있다는 사실만 요약하세요."
+        )
+    dist_section = f"# 카테고리 분포 (전체 {total}건, 정확히 집계된 수치)\n" + "\n".join(dist_lines) + "\n" + guidance
+
+    example_lines = []
+    for main, _ in sorted_mains:
+        per_main = 0
+        for m in by_main[main]:
+            text = extract_symptom_fields(m["text"])
+            text = " ".join(text.split())[:150]
+            if len(text) >= 20:
+                example_lines.append(f"[{len(example_lines) + 1}] ({main}) {text}")
+                per_main += 1
+            if per_main >= _BUCKET_EXAMPLES_PER_CATEGORY or len(example_lines) >= _BUCKET_MAX_EXAMPLES:
+                break
+        if len(example_lines) >= _BUCKET_MAX_EXAMPLES:
             break
-    return lines
+
+    sections = [dist_section]
+    if example_lines:
+        sections.append("# 대표 예시\n" + "\n".join(example_lines))
+
+    top_category = {"name": top_main, "count": top_count, "pct": round(top_pct * 100, 1)}
+    listing = _format_category_listing(sorted_mains, total)
+    return {"text": "\n\n".join(sections), "top_category": top_category, "listing": listing}
 
 
 async def _run_bucket_gemma(label: str, prompt: str, base: dict) -> dict:
@@ -395,23 +533,34 @@ async def _run_bucket_gemma(label: str, prompt: str, base: dict) -> dict:
     호출 자체가 있었는데 실패한 경우엔 gemma_error를 채운다 (빈 dict로 뭉개면 "애초에
     분석 대상이 없었던 것"과 "분석했는데 실패한 것"을 구분할 수 없기 때문)."""
     print(f"[Gemma Daily {label}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
+    full_prompt = f"[SYSTEM]\n{_SYSTEM_PEAK_BUCKET}\n\n[USER]\n{prompt}"
+    start = time.time()
     try:
         raw = await call_gemma(_SYSTEM_PEAK_BUCKET, prompt)
+        elapsed = round(time.time() - start, 1)
         result = parse_json_response(raw)
     except Exception as e:
+        elapsed = round(time.time() - start, 1)
         print(f"[Gemma Daily {label}] 실패 (건너뜀): {e}")
-        return {**base, "gemma_error": str(e)}
+        return {**base, "gemma_error": str(e), "elapsed": elapsed, "gemma_prompt": full_prompt}
 
     if not result:
-        return {**base, "gemma_error": describe_gemma_failure(raw)}
+        return {**base, "gemma_error": describe_gemma_failure(raw), "elapsed": elapsed, "gemma_prompt": full_prompt}
 
     pattern = result.get("pattern", "")
+    reason = result.get("reason", "")
+    # 카테고리 나열 문장(순서·형식 100% 고정)은 base["listing"]으로 미리 조립해 넘어와 있다.
+    # Gemma는 그 뒤에 붙는 "왜/영향" 한두 문장(reason)만 작성 — 숫자를 다시 베껴 쓰다 순서를
+    # 틀리는 실수 자체가 안 생기게 책임을 나눴다.
+    summary = f"{base.get('listing', '')} {reason}".strip()
     return {
         **base,
         "pattern": pattern,
-        "summary": result.get("summary", ""),
+        "summary": summary,
         "has_pattern": bool(pattern),
         "gemma_error": None,
+        "elapsed": elapsed,
+        "gemma_prompt": full_prompt,
     }
 
 
@@ -428,14 +577,16 @@ async def _call_gemma_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dict
     avg_count = round(total_peak / len(peak_bucket_rows), 1)
     bucket_end = _bucket_end(max_bucket)
 
-    lines = _build_bucket_lines(memos)
-    if not lines:
+    brief = _build_bucket_brief(memos)
+    if not brief["text"]:
         return {}
 
     base = {
         "bucket_start": max_bucket, "bucket_end": bucket_end,
         "bucket_count": bucket_count, "avg_count": avg_count,
         "pattern": "", "summary": "", "has_pattern": False,
+        "top_category": brief["top_category"],
+        "listing": brief["listing"],
     }
     prompt = _PROMPT_PEAK_BUCKET.format(
         date_str=date_str,
@@ -443,7 +594,7 @@ async def _call_gemma_peak_bucket(date_str: str, peak_bucket_rows: dict) -> dict
         bucket_end=bucket_end,
         bucket_count=bucket_count,
         avg_count=avg_count,
-        memos="\n".join(lines),
+        breakdown=brief["text"],
     )
     return await _run_bucket_gemma(f"Peak {max_bucket}~{bucket_end}", prompt, base)
 
@@ -473,14 +624,16 @@ async def _call_gemma_anomaly_bucket(date_str: str, all_bucket_rows: dict, peak_
     bucket_count = len(memos)
     bucket_end = _bucket_end(anomaly_key)
 
-    lines = _build_bucket_lines(memos)
-    if not lines:
+    brief = _build_bucket_brief(memos)
+    if not brief["text"]:
         return {}
 
     base = {
         "bucket_start": anomaly_key, "bucket_end": bucket_end,
         "bucket_count": bucket_count, "peak_count": peak_max_count,
         "pattern": "", "summary": "", "has_pattern": False,
+        "top_category": brief["top_category"],
+        "listing": brief["listing"],
     }
     prompt = _PROMPT_ANOMALY_BUCKET.format(
         date_str=date_str,
@@ -488,7 +641,7 @@ async def _call_gemma_anomaly_bucket(date_str: str, all_bucket_rows: dict, peak_
         bucket_end=bucket_end,
         bucket_count=bucket_count,
         peak_count=peak_max_count,
-        memos="\n".join(lines),
+        breakdown=brief["text"],
     )
     return await _run_bucket_gemma(f"Anomaly {anomaly_key}~{bucket_end}", prompt, base)
 
@@ -517,6 +670,9 @@ def _build_content(date_str: str, stats: dict, peak_bucket: dict, anomaly_bucket
                 "analysis_groups": r.get("analysis_groups", []),
                 "insufficient_data": r.get("insufficient_data", False),
                 "gemma_error": r.get("gemma_error"),
+                "gemma_prompt": r.get("_full_prompt", ""),
+                "elapsed": r.get("_elapsed"),
+                "top_category": r.get("_top_category"),
             }
             for r in stats["risk_rows"]
         ],
@@ -564,6 +720,9 @@ async def analyze_single_category(date_str: str, main_category: str) -> dict:
                 r["analysis_groups"] = row.get("analysis_groups", [])
                 r["insufficient_data"] = row.get("insufficient_data", False)
                 r["gemma_error"] = row.get("gemma_error")
+                r["gemma_prompt"] = row.get("_full_prompt", "")
+                r["elapsed"] = row.get("_elapsed")
+                r["top_category"] = row.get("_top_category")
                 break
         _save_report(date_str, existing)
 
@@ -574,7 +733,9 @@ async def analyze_single_category(date_str: str, main_category: str) -> dict:
         "summary": row.get("summary", ""),
         "insufficient_data": row.get("insufficient_data", False),
         "gemma_error": row.get("gemma_error"),
-        "prompt_section": row.get("_prompt_section", ""),
+        "gemma_prompt": row.get("_full_prompt", ""),
+        "elapsed": row.get("_elapsed"),
+        "top_category": row.get("_top_category"),
     }
 
 
@@ -663,6 +824,9 @@ async def retry_failed_analyses(date_str: str, content: dict) -> dict:
                 r["gemma_error"] = rr.get("gemma_error")
                 r["analysis_groups"] = rr.get("analysis_groups", [])
                 r["insufficient_data"] = rr.get("insufficient_data", False)
+                r["gemma_prompt"] = rr.get("_full_prompt", "")
+                r["elapsed"] = rr.get("_elapsed")
+                r["top_category"] = rr.get("_top_category")
 
     if content.get("peak_bucket") and content["peak_bucket"].get("gemma_error"):
         stats = stats or _fetch_day_stats(date_str)

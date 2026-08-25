@@ -5,7 +5,7 @@
 //   1. 그라디언트 헤더 배너 — 날짜 표시
 //   2. KPI 카드 3개 — 총 상담 / 리스크 이슈 / 리스크 비율
 //   3. 리스크 카테고리 현황 — 수평 바 차트 (대분류별 top 소분류 건수)
-//   4. 카테고리별 AI 분석 — 소분류 + AI 2줄 요약 + 메모 드롭다운(20개씩 페이징)
+//   4. 카테고리별 AI 분석 — 소분류 + AI 요약(최대 4문장) + 메모 드롭다운(20개씩 페이징)
 //   5. 피크타임 특이사항 (17~20시) — 최다 버킷 AI 분석
 //
 // 데이터 흐름:
@@ -16,12 +16,42 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Chart from 'chart.js/auto'
-import { api, type DailyReport, type RiskRow, type BucketRow, type Issue, type PeakBucket } from '../../api/client'
+import { api, type DailyReport, type RiskRow, type BucketRow, type Issue, type PeakBucket, type TopCategory } from '../../api/client'
 import CategoryMemoModal from '../../components/CategoryMemoModal'
 
 const NAVY = '#1e3c72'
 const NAVY2 = '#2a5298'
 const RISK_RED = '#ef4444'
+
+// Gemma 요약은 자유 문장이라 "1위 카테고리가 어디 적혀있는지"를 코드가 알 수 없다 — 백엔드가
+// 이미 정확히 계산해둔 top_category(이름·건수·비율)를 문장 안에서 찾아 그 부분만 굵게·크게
+// 강조한다. Gemma가 표현을 살짝 다르게 쓰면(예: 퍼센트 생략) 못 찾을 수 있는데, 그럴 땐 그냥
+// 강조 없이 원문 그대로 보여준다 — 강조는 있으면 좋은 보너스일 뿐 필수 정보는 아니다.
+// 이름 뒤 최대 20자 이내에 건수가 나오면 그 사이(조사·괄호 등)까지 통째로 강조 범위에 포함한다.
+// "N건(P%)"을 온전히 쓰는 게 기본이지만, Gemma가 가끔 비율만 쓰고 건수를 생략한다(실측 확인됨:
+// "기타 27.7%, 해지·유지 상담 24.6%..." 처럼). 그래서 "건수+비율" 조합을 우선 찾되, 못 찾으면
+// 이름 근처의 아무 비율(%)이라도 잡는다 — 이름 자체는 이미 정확히 일치하므로 안전하다.
+export function findTopCategoryHighlightRange(text: string, top: TopCategory): [number, number] | null {
+  const escapedName = top.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const withCount = `${top.count}건(?:\\([\\d.]+%\\))?`
+  const pctOnly = `[\\d.]+%`
+  const match = text.match(new RegExp(`${escapedName}[^,.]{0,20}?(?:${withCount}|${pctOnly})`))
+  if (!match || match.index === undefined) return null
+  return [match.index, match.index + match[0].length]
+}
+
+function HighlightedSummary({ text, top }: { text: string; top?: TopCategory | null }) {
+  const range = top ? findTopCategoryHighlightRange(text, top) : null
+  if (!range) return <>{text}</>
+  const [start, end] = range
+  return (
+    <>
+      {text.slice(0, start)}
+      <strong style={{ fontSize: '1.15em' }}>{text.slice(start, end)}</strong>
+      {text.slice(end)}
+    </>
+  )
+}
 
 const RISK_MAINS = ['네트워크·앱 오류', '기기·하드웨어 오류', '교재·물류·배송']
 
@@ -278,7 +308,7 @@ function RiskRowItem({ row, aiLoading = false, isCurrent = false }: { row: RiskR
       <div style={{ padding: '10px 16px' }}>
         {row.summary ? (
           <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.7, borderLeft: `3px solid ${NAVY}`, paddingLeft: 10 }}>
-            {row.summary}
+            <HighlightedSummary text={row.summary} top={row.top_category} />
           </div>
         ) : row.gemma_error ? (
           <div style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }} title={row.gemma_error}>
@@ -871,7 +901,7 @@ export default function DailyReport() {
                     fontSize: 13, color: '#374151', lineHeight: 1.7,
                     borderLeft: `3px solid ${NAVY}`, paddingLeft: 10,
                   }}>
-                    {report.peak_bucket.summary}
+                    <HighlightedSummary text={report.peak_bucket.summary} top={report.peak_bucket.top_category} />
                   </div>
                 ) : report.peak_bucket.gemma_error ? (
                   <div style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }} title={report.peak_bucket.gemma_error}>
@@ -919,7 +949,7 @@ export default function DailyReport() {
                     fontSize: 13, color: '#374151', lineHeight: 1.7,
                     borderLeft: `3px solid ${RISK_RED}`, paddingLeft: 10,
                   }}>
-                    {report.anomaly_bucket.summary}
+                    <HighlightedSummary text={report.anomaly_bucket.summary} top={report.anomaly_bucket.top_category} />
                   </div>
                 ) : report.anomaly_bucket.gemma_error ? (
                   <div style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }} title={report.anomaly_bucket.gemma_error}>
