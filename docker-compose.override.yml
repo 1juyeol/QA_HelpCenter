@@ -1,0 +1,11 @@
+# [Docker Compose] 로컬 개발용 오버라이드. docker-compose.yml과 함께 두면 `docker compose up`
+# 실행 시 자동으로 같이 읽혀서 합쳐진다 (별도 -f 옵션 필요 없음).
+#
+# backend 소스 폴더를 컨테이너 /app에 그대로 마운트하고 uvicorn을 --reload로 띄워서,
+# .py 파일을 고치면 이미지 재빌드 없이 바로 반영되게 한다. docker-compose.yml(실제
+# 내부망 배포용 정의)은 그대로 두고, 로컬 개발 환경에서만 이 파일이 함께 적용된다.
+services:
+  backend:
+    volumes:
+      - ./backend:/app
+    command: ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
