@@ -91,7 +91,11 @@ async def _call_gemma_once(system: str, prompt: str) -> str:
                 "prompt": prompt,
                 "stream": True,
                 "think": False,
-                "options": {"num_ctx": 8192},
+                # 0.7은 RAG 게이트웨이를 거치던 시절 "매번 똑같이 1글자만 뱉고 멈추는" 결정론적
+                # 실패를 피하려고 올렸던 값 — 원본 서버로 바꾼 뒤로는 그 문제 자체가 없어졌다.
+                # 반면 CS 요약처럼 메모에 없는 내용을 지어내면 안 되는 작업엔 0.7이 오히려
+                # "그럴듯하지만 근거 없는 서술"을 만들 여지를 준다 — 0.3으로 낮춰 보수적으로 조정.
+                "options": {"num_ctx": 8192, "temperature": 0.3},
             },
         ) as resp:
             resp.raise_for_status()
@@ -123,8 +127,15 @@ async def _log_progress(start: float) -> None:
         print(f"\n[Gemma] {elapsed // 60}분 경과...", flush=True)
 
 
+_MIN_VALID_RESPONSE_LEN = 5  # 이보다 짧으면(예: "{" 1자, "```" 3자) 완성된 JSON일 수 없어 재시도 대상
+
+
 async def call_gemma(system: str, prompt: str, timeout: int = 600) -> str:
-    """Gemma /api/generate 비동기 스트리밍 호출. 빈 응답 시 1회 재시도. 동시 호출 방지 락 사용."""
+    """Gemma /api/generate 비동기 스트리밍 호출. 빈 응답·1~4자짜리 잘린 응답이면 1회 재시도.
+    동시 호출 방지 락 사용.
+    예전엔 "완전히 빈 문자열"일 때만 재시도했는데, 실제 실패는 "{" 1글자처럼 완전히 빈 건
+    아니라서 이 안전장치를 그냥 통과해버렸다 — 그래서 재시도 2번을 돌려도 매번 똑같이
+    실패하는 것처럼 보였다(사실 재시도 자체가 발동을 안 한 것)."""
     async with _gemma_lock:
         try:
             start = time.time()
@@ -141,13 +152,13 @@ async def call_gemma(system: str, prompt: str, timeout: int = 600) -> str:
             elapsed = time.time() - start
             print(f"\n[Gemma] 완료 ({elapsed:.1f}초) | 응답 길이: {len(result)}자")
 
-            if not result:
-                print("[Gemma] 경고: 빈 응답 — 1회 재시도")
+            if len(result.strip()) < _MIN_VALID_RESPONSE_LEN:
+                print(f"[Gemma] 경고: 응답이 너무 짧음({result!r}) — 1회 재시도")
                 result = await asyncio.wait_for(_call_gemma_once(system, prompt), timeout=timeout)
                 elapsed2 = time.time() - start
                 print(f"\n[Gemma] 재시도 완료 ({elapsed2:.1f}초) | 응답 길이: {len(result)}자")
-                if not result:
-                    print("[Gemma] 경고: 재시도 후에도 빈 응답")
+                if len(result.strip()) < _MIN_VALID_RESPONSE_LEN:
+                    print(f"[Gemma] 경고: 재시도 후에도 응답이 너무 짧음({result!r})")
 
             return result
         except asyncio.CancelledError:
