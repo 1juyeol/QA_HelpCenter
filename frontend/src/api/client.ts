@@ -594,8 +594,12 @@ export const api = {
     return get<CollectionDailyCount[]>(`/api/collection/daily_counts?days=${days}`)
   },
 
-  fetchCollectionLog(days = 7) {
-    return get<CollectionLogEntry[]>(`/api/collection/log?days=${days}`)
+  fetchCollectionLog() {
+    return get<CollectionLogEntry[]>('/api/collection/log')
+  },
+
+  fetchCollectionLogOverLimit() {
+    return get<CollectionLogEntry[]>('/api/collection/log/over-limit')
   },
 
   fetchCollectionLogIssues(logId: number) {
