@@ -198,6 +198,14 @@ export interface AnalysisGroup {
   memos: { id: number; text: string }[]
 }
 
+// Gemma 요약 문장 중 건수·비율 기준 1위 카테고리 — 화면에서 그 부분만 굵게 강조하는 데 쓴다.
+// 요약은 자유 문장이라 어디가 1위인지 프론트가 알 수 없어서, 백엔드가 이미 계산해둔 값을 그대로 받는다.
+export interface TopCategory {
+  name: string
+  count: number
+  pct: number
+}
+
 export interface RiskRow {
   main: string
   sub: string
@@ -209,6 +217,7 @@ export interface RiskRow {
   analysis_groups: AnalysisGroup[]
   insufficient_data: boolean
   gemma_error?: string | null
+  top_category?: TopCategory | null
 }
 
 export interface GemmaSettings {
@@ -247,6 +256,7 @@ export interface PeakBucket {
   summary: string
   has_pattern: boolean
   gemma_error?: string | null
+  top_category?: TopCategory | null
 }
 
 export interface AnomalyBucket {
@@ -258,6 +268,7 @@ export interface AnomalyBucket {
   summary: string
   has_pattern: boolean
   gemma_error?: string | null
+  top_category?: TopCategory | null
 }
 
 export interface DailyReport {
