@@ -1,11 +1,13 @@
-// 관리자 전용 로드맵 페이지. 두 종류를 묶어 보여준다:
+// 관리자 전용 "해야 할 일" 페이지 (사이드바 메뉴명, 예전엔 "인사이트 로드맵"이었으나 배포·보고서
+// 작업까지 다 모이면서 더 포괄적인 이름으로 변경). 세 종류를 묶어 보여준다:
 //   1) 배포 준비 작업 — 내부망 Docker 배포·사내 공식 인프라 이관·CS 수집 API 활성화 등
 //      (2026-08-21 기준: 프론트 Firebase 배포는 사내 정보보호팀 "외부 서비스 사용 금지" 방침으로
 //      취소, 프론트도 백엔드처럼 Docker+nginx로 전환함)
-//   2) 인사이트 로드맵 — 학습 데이터 연동을 전제로 논의됐던 인사이트 후보들
-// 둘 다 앞으로 할 일 목록이라, 구현이 끝난 항목은 여기 남겨두지 않고 삭제한다 (완료 이력은
+//   2) 보고서 개선 — 일별·주간 보고서 사이에 남은 구조 차이를 맞추는 작업
+//   3) 인사이트 로드맵 — 학습 데이터 연동을 전제로 논의됐던 인사이트 후보들
+// 셋 다 앞으로 할 일 목록이라, 구현이 끝난 항목은 여기 남겨두지 않고 삭제한다 (완료 이력은
 // git 커밋으로 남으므로 이 페이지가 changelog 역할까지 할 필요는 없음).
-// 둘 다 실시간 데이터가 아니라 이 파일 안의 정적 목록이며, API 호출 없이 상수만 렌더링한다.
+// 셋 다 실시간 데이터가 아니라 이 파일 안의 정적 목록이며, API 호출 없이 상수만 렌더링한다.
 // CS 수집 API 관련 모니터링(호출 규칙·횟수·상세 로그)은 pages/admin/ApiConsole.tsx로 분리했다
 // (이 페이지 하나에 다 몰아넣었더니 너무 길어져서 나눔).
 //
@@ -35,11 +37,24 @@ const STATUS_COLOR: Record<Status, string> = {
   todo: '#94a3b8',
 }
 
+const REPORT_TASKS: { title: string; candidates: Candidate[] }[] = [
+  {
+    title: '보고서 개선',
+    candidates: [
+      {
+        title: '주간 보고서에 일별 보고서 구조 적용',
+        note: '일별 보고서와 비교해서 우선 분석 진행하며, 가져올 수 있는 내용은 전부 동일하게 반영한다',
+        status: 'todo',
+      },
+    ],
+  },
+]
+
 const INFRA_TASKS: { title: string; candidates: Candidate[] }[] = [
   {
     title: '내부망 Docker 배포 (프론트+백엔드)',
     candidates: [
-      { title: '파트리더 컴퓨터에 실제 배포', note: '포트 충돌 등 현지 환경 확인 필요', status: 'todo' },
+      { title: '서버 컴퓨터에 실제 배포', note: '포트 충돌 등 현지 환경 확인 필요', status: 'todo' },
     ],
   },
   {
@@ -115,6 +130,34 @@ function StatusBadge({ status }: { status: Status }) {
   )
 }
 
+// INFRA_TASKS/REPORT_TASKS/AXES 세 목록이 전부 { title, candidates } 그룹 배열이라 렌더링을 공유한다.
+function TaskGroupSection({ group }: { group: { title: string; candidates: Candidate[] } }) {
+  return (
+    <div className="section-card">
+      <h2>{group.title}</h2>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {group.candidates.map(c => (
+          <div
+            key={c.title}
+            style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+              gap: 12, padding: '10px 12px', background: '#f8fafc', borderRadius: 8,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{c.title}</div>
+              {c.note && (
+                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{c.note}</div>
+              )}
+            </div>
+            <StatusBadge status={c.status} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function InsightRoadmap() {
   const { isAdmin } = useAdmin()
 
@@ -138,30 +181,9 @@ export default function InsightRoadmap() {
         </p>
       </div>
 
-      {INFRA_TASKS.map(group => (
-        <div className="section-card" key={group.title}>
-          <h2>{group.title}</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {group.candidates.map(c => (
-              <div
-                key={c.title}
-                style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                  gap: 12, padding: '10px 12px', background: '#f8fafc', borderRadius: 8,
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{c.title}</div>
-                  {c.note && (
-                    <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{c.note}</div>
-                  )}
-                </div>
-                <StatusBadge status={c.status} />
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
+      {INFRA_TASKS.map(group => <TaskGroupSection key={group.title} group={group} />)}
+
+      {REPORT_TASKS.map(group => <TaskGroupSection key={group.title} group={group} />)}
 
       <div className="section-card">
         <h2>인사이트 로드맵</h2>
@@ -171,30 +193,7 @@ export default function InsightRoadmap() {
         </p>
       </div>
 
-      {AXES.map(axis => (
-        <div className="section-card" key={axis.title}>
-          <h2>{axis.title}</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {axis.candidates.map(c => (
-              <div
-                key={c.title}
-                style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                  gap: 12, padding: '10px 12px', background: '#f8fafc', borderRadius: 8,
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{c.title}</div>
-                  {c.note && (
-                    <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{c.note}</div>
-                  )}
-                </div>
-                <StatusBadge status={c.status} />
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
+      {AXES.map(axis => <TaskGroupSection key={axis.title} group={axis} />)}
     </div>
   )
 }
