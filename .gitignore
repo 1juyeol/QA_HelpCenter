@@ -6,3 +6,5 @@ __pycache__/
 venv/
 frontend/node_modules/
 frontend/dist/
+backend/collection_settings.json
+backend/*.log
