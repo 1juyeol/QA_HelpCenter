@@ -155,7 +155,7 @@ const STATUS_LABEL: Record<string, string> = {
   no_data: '분석 대상 없음',
 }
 
-// status/error를 제외한 key=value 하나를 사람이 읽는 문구 조각으로 바꾼다.
+// status/error/prompt를 제외한 key=value 하나를 사람이 읽는 문구 조각으로 바꾼다.
 export function formatField(key: string, value: string): string | null {
   switch (key) {
     case 'date': return value
@@ -166,46 +166,81 @@ export function formatField(key: string, value: string): string | null {
     case 'resolved': return `재시도로 해결됨: ${value}`
     case 'summary_error': return `요약 분석 오류: ${value}`
     case 'attempt': return `재시도 ${value}회차`
+    case 'elapsed': return `${value}초 소요`
     default: return null // 알 수 없는 키는 조용히 생략 (미래에 필드가 늘어도 깨지지 않게)
   }
 }
 
+// prompt는 실제로 Gemma에 보낸 시스템+유저 프롬프트 전문이라 줄바꿈·쉼표를 그대로 포함할 수
+// 있다 — 그래서 항상 detail 문자열 맨 끝에 붙는다는 전제로, error보다 먼저(문자열 뒤쪽부터)
+// 잘라낸 다음 남은 부분에서 error를 뽑는다. error 먼저 자르면 뒤에 붙은 ", prompt=..."가
+// error 값에 통째로 딸려 들어간다.
 export function parseDetail(detail: string): [string, string][] {
-  const errorIdx = detail.indexOf(', error=')
-  const before = errorIdx === -1 ? detail : detail.slice(0, errorIdx)
-  const errorValue = errorIdx === -1 ? null : detail.slice(errorIdx + ', error='.length)
+  const promptIdx = detail.indexOf(', prompt=')
+  const promptValue = promptIdx === -1 ? null : detail.slice(promptIdx + ', prompt='.length)
+  const rest = promptIdx === -1 ? detail : detail.slice(0, promptIdx)
+
+  const errorIdx = rest.indexOf(', error=')
+  const before = errorIdx === -1 ? rest : rest.slice(0, errorIdx)
+  const errorValue = errorIdx === -1 ? null : rest.slice(errorIdx + ', error='.length)
   const pairs: [string, string][] = before.split(', ').map(part => {
     const eq = part.indexOf('=')
     return eq === -1 ? [part, ''] : [part.slice(0, eq), part.slice(eq + 1)]
   })
   if (errorValue !== null) pairs.push(['error', errorValue])
+  if (promptValue !== null) pairs.push(['prompt', promptValue])
   return pairs
 }
 
-function renderDetail(detail: string) {
+function DetailLine({ detail, link }: { detail: string; link?: React.ReactNode }) {
+  const [promptOpen, setPromptOpen] = useState(false)
   const pairs = parseDetail(detail)
   const status = pairs.find(([k]) => k === 'status')?.[1]
   const errorValue = pairs.find(([k]) => k === 'error')?.[1]
+  const promptValue = pairs.find(([k]) => k === 'prompt')?.[1]
   const statusStyle = status === 'failed' ? FAIL_STYLE : status === 'partial_failure' ? WARN_STYLE : undefined
   const words = pairs
-    .filter(([k]) => k !== 'status' && k !== 'error')
+    .filter(([k]) => k !== 'status' && k !== 'error' && k !== 'prompt')
     .map(([k, v]) => formatField(k, v))
     .filter((v): v is string => v !== null)
 
   return (
     <>
-      {words.join(' · ')}
-      {status && (
-        <>
-          {words.length > 0 && ' · '}
-          <span style={statusStyle}>{STATUS_LABEL[status] ?? status}</span>
-        </>
-      )}
-      {errorValue && (
-        <>
-          {' — '}
-          <span style={statusStyle ?? FAIL_STYLE}>{errorValue}</span>
-        </>
+      <div>
+        {words.join(' · ')}
+        {status && (
+          <>
+            {words.length > 0 && ' · '}
+            <span style={statusStyle}>{STATUS_LABEL[status] ?? status}</span>
+          </>
+        )}
+        {errorValue && (
+          <>
+            {' — '}
+            <span style={statusStyle ?? FAIL_STYLE}>{errorValue}</span>
+          </>
+        )}
+        {promptValue && (
+          <>
+            {' · '}
+            <button
+              onClick={() => setPromptOpen(v => !v)}
+              style={{ fontSize: 12, color: '#64748b', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginRight: 12 }}
+            >
+              {promptOpen ? '▲' : '▼'} Gemma 프롬프트 보기
+            </button>
+          </>
+        )}
+        {link}
+      </div>
+      {promptOpen && promptValue && (
+        <pre style={{
+          marginTop: 6, fontSize: 11, lineHeight: 1.6, color: '#334155', background: '#fff',
+          border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word', maxHeight: 400, overflowY: 'auto',
+        }}>
+          {promptValue}
+        </pre>
       )}
     </>
   )
@@ -324,15 +359,17 @@ export default function AuditLog() {
                   </div>
                   {e.detail && (
                     <div style={{ fontSize: 13, color: '#94a3b8' }}>
-                      {renderDetail(e.detail)}
-                      {link && (
-                        <>
-                          {' · '}
-                          <Link to={link} style={{ color: '#1a56db', fontWeight: 600, textDecoration: 'none' }}>
-                            {link.includes('&highlight=') ? '해당 위치 바로 보기 →' : '보고서 보기 →'}
-                          </Link>
-                        </>
-                      )}
+                      <DetailLine
+                        detail={e.detail}
+                        link={link && (
+                          <>
+                            {' · '}
+                            <Link to={link} style={{ color: '#1a56db', fontWeight: 600, textDecoration: 'none' }}>
+                              {link.includes('&highlight=') ? '해당 위치 바로 보기 →' : '보고서 보기 →'}
+                            </Link>
+                          </>
+                        )}
+                      />
                     </div>
                   )}
                 </div>
