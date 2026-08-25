@@ -70,6 +70,25 @@ describe('parseDetail', () => {
       ['status', 'success'],
     ])
   })
+
+  it('prompt 값은 줄바꿈·쉼표가 있어도 끝까지 통째로 하나의 필드로 유지한다', () => {
+    expect(parseDetail('date=2026-08-19, status=success, elapsed=12.3, prompt=[SYSTEM]\n규칙: a, b\n\n[USER]\n메모')).toEqual([
+      ['date', '2026-08-19'],
+      ['status', 'success'],
+      ['elapsed', '12.3'],
+      ['prompt', '[SYSTEM]\n규칙: a, b\n\n[USER]\n메모'],
+    ])
+  })
+
+  it('error와 prompt가 둘 다 있어도 각각 끝까지 올바르게 분리된다', () => {
+    expect(parseDetail('date=2026-08-19, status=failed, elapsed=1.0, error=실패, 사유 있음, prompt=전문, 내용')).toEqual([
+      ['date', '2026-08-19'],
+      ['status', 'failed'],
+      ['elapsed', '1.0'],
+      ['error', '실패, 사유 있음'],
+      ['prompt', '전문, 내용'],
+    ])
+  })
 })
 
 describe('formatField', () => {
@@ -95,5 +114,9 @@ describe('formatField', () => {
 
   it('알 수 없는 키는 null을 반환해 조용히 생략된다', () => {
     expect(formatField('unknown_key', 'x')).toBeNull()
+  })
+
+  it('elapsed는 "N초 소요"로 바꾼다', () => {
+    expect(formatField('elapsed', '12.3')).toBe('12.3초 소요')
   })
 })

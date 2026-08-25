@@ -52,15 +52,26 @@ def gemma_detail(base: str, result: dict) -> str:
     """analyze-category/analyze-peak/analyze-anomaly 결과의 gemma_error·insufficient_data를
     감사 로그 detail 문자열에 반영한다. 실패해도 print()로만 사라지지 않고 여기 남는다.
     result가 빈 dict(예: 피크타임에 분석할 데이터 자체가 없음)면 실패가 아니라 "분석 대상 없음"으로
-    구분해서 남긴다 — 안 그러면 "성공"으로 잘못 표시된다."""
+    구분해서 남긴다 — 안 그러면 "성공"으로 잘못 표시된다.
+    elapsed(호출 소요시간)와 gemma_prompt(실제로 보낸 시스템+유저 프롬프트 전문)를 항상 같이
+    남긴다 — RAG 게이트웨이가 프롬프트에 무관한 내용을 덧씌우는지 등은 감사 로그만 보고도
+    확인할 수 있어야 docker 로그를 뒤질 필요가 없다. prompt는 줄바꿈·쉼표를 포함할 수 있어
+    반드시 detail 문자열의 맨 끝에 둔다(프론트 parseDetail이 끝까지를 통째로 읽는다)."""
     if not result:
         return f"{base}, status=no_data"
+    elapsed = result.get("elapsed")
+    elapsed_part = f", elapsed={elapsed}" if elapsed is not None else ""
     err = result.get("gemma_error")
     if err:
-        return f"{base}, status=failed, error={err}"
-    if result.get("insufficient_data"):
-        return f"{base}, status=insufficient_data"
-    return f"{base}, status=success"
+        detail = f"{base}, status=failed{elapsed_part}, error={err}"
+    elif result.get("insufficient_data"):
+        detail = f"{base}, status=insufficient_data{elapsed_part}"
+    else:
+        detail = f"{base}, status=success{elapsed_part}"
+    prompt = result.get("gemma_prompt")
+    if prompt:
+        detail += f", prompt={prompt}"
+    return detail
 
 
 # 카테고리별 최대 4문장 분석 시스템 프롬프트 — 일별(daily_client)과 주간(weekly_client) 공용.
