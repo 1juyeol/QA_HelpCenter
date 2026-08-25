@@ -1,14 +1,20 @@
-// 관리자 전용 "CS 수집 API" 콘솔. 세 가지를 보여준다:
+// 관리자 전용 "CS 수집 API" 콘솔. 네 가지를 보여준다:
 //   1) 승인된 API 호출 규칙 — 회사에 승인받은 호출 스펙을 코드 주석이 아닌 화면에 고정 기록
 //   2) CS 수집 호출 횟수 모니터링 — 날짜별 실제 호출 횟수 (GET /api/collection/daily_counts)
-//   3) 오늘 호출별 상세 로그 — 호출 하나하나 클릭하면 실제로 가져온 이슈 목록까지 확인 가능
+//   3) 한도 초과일 호출 이력 — 하루 최대 DAILY_CALL_LIMIT회를 넘긴 날짜의 호출만 모아서 보여줌
+//      (GET /api/collection/log/over-limit). 평소엔 절대 안 넘는 게 정상이라 대부분 빈 목록.
+//   4) 오늘 호출별 상세 로그 — 호출 하나하나 클릭하면 실제로 가져온 이슈 목록까지 확인 가능
 //      (GET /api/collection/log, GET /api/collection/log/{id}/issues)
-// 1)은 이 파일 안의 정적 목록, 2)·3)은 API를 호출한다.
-// 원래 인사이트 로드맵 페이지에 다 몰려있던 걸, 내용이 많아져서 이 페이지로 분리했다.
+// 1)은 이 파일 안의 정적 목록, 나머지는 API를 호출한다.
+// 원래 "해야 할 일" 페이지에 다 몰려있던 걸, 내용이 많아져서 이 페이지로 분리했다.
 // 감사 로그 페이지와 텍스트 크기·뱃지 스타일(components/Badge.tsx 공용)을 맞춰 통일감을 줬다.
 //
+// 스케줄을 벗어난 호출(source가 정기/아침보정/심야보정이 아닌 경우 — 예: 서버 재시작 시
+// 한 번 도는 "서버시작")은 SCHEDULED_SOURCES에 없으면 빨간 배지로 강조해서, 예정에 없던
+// 호출이 섞여 있는지 한눈에 알아볼 수 있게 한다.
+//
 // 접근 제어: useAdmin()의 isAdmin이 false면 본문 대신 잠금 안내만 보여준다.
-// 3)이 보여주는 call_memo·student_id 등은 이미 /api/issues로 앱 전체에서 인증 없이
+// 3)·4)가 보여주는 call_memo·student_id 등은 이미 /api/issues로 앱 전체에서 인증 없이
 // 노출되는 데이터라(내부 CS 도구 전제) 이 엔드포인트도 별도 보호를 두지 않았다.
 import { useEffect, useState, type ReactNode } from 'react'
 import { api, type CollectionDailyCount, type CollectionLogEntry, type Issue } from '../../api/client'
@@ -16,6 +22,9 @@ import { useAdmin } from '../../hooks/useAdmin'
 import Badge from '../../components/Badge'
 
 const DAILY_CALL_LIMIT = 146
+// 스케줄러가 실제로 등록하는 트리거 라벨(features/collection/scheduler.py 참고). 이 셋 외에는
+// 고정된 시각 없이 발생하는 호출(서버 재시작 등)이라 "스케줄을 벗어난 호출"로 표시한다.
+const SCHEDULED_SOURCES = new Set(['정기', '아침보정', '심야보정'])
 
 // 실제 구현(features/collection/scheduler.py, helpdesk_client.py)과 반드시 같이 업데이트할 것.
 // 여기 적힌 스펙이 승인받은 최종본이며, 코드가 이걸 정확히 따르는지는 아래 모니터링 표로 확인한다.
@@ -151,7 +160,11 @@ function LogRow({ entry }: { entry: CollectionLogEntry }) {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 15, color: '#1e293b' }}>{entry.collected_at}</span>
-            {entry.source && <Badge>{entry.source}</Badge>}
+            {entry.source && (
+              <Badge color={SCHEDULED_SOURCES.has(entry.source) ? undefined : '#ef4444'}>
+                {entry.source}{!SCHEDULED_SOURCES.has(entry.source) && ' · 스케줄 외'}
+              </Badge>
+            )}
           </div>
           {entry.count_fetched > 0 && (
             <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
@@ -185,11 +198,38 @@ function LogRow({ entry }: { entry: CollectionLogEntry }) {
   )
 }
 
+function CollectionLogOverLimit() {
+  const [entries, setEntries] = useState<CollectionLogEntry[] | null>(null)
+
+  useEffect(() => {
+    api.fetchCollectionLogOverLimit().then(setEntries).catch(() => setEntries([]))
+  }, [])
+
+  return (
+    <div className="section-card">
+      <h2 style={{ fontSize: 16 }}>한도 초과일 호출 이력</h2>
+      <p style={{ color: '#64748b', fontSize: 14, marginTop: -6, marginBottom: 14 }}>
+        하루 최대 {DAILY_CALL_LIMIT}회를 넘긴 날짜의 호출만 모아서 보여준다. 평소엔 넘을 일이
+        없어 비어있는 게 정상이다.
+      </p>
+      {entries === null ? (
+        <div style={{ fontSize: 14, color: '#94a3b8' }}>불러오는 중...</div>
+      ) : entries.length === 0 ? (
+        <div style={{ fontSize: 14, color: '#94a3b8' }}>한도를 초과한 날짜 없음</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {entries.map(e => <LogRow key={e.id} entry={e} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function CollectionLogList() {
   const [entries, setEntries] = useState<CollectionLogEntry[] | null>(null)
 
   useEffect(() => {
-    api.fetchCollectionLog(1).then(setEntries).catch(() => setEntries([]))
+    api.fetchCollectionLog().then(setEntries).catch(() => setEntries([]))
   }, [])
 
   return (
@@ -229,6 +269,7 @@ export default function ApiConsole() {
     <div>
       <ApiRuleReference />
       <CollectionCallCounts />
+      <CollectionLogOverLimit />
       <CollectionLogList />
     </div>
   )
