@@ -151,11 +151,25 @@ export interface DeviceSwapModel {
   examples: DeviceSwapExample[]
 }
 
+export interface DeviceSwapReasonExample {
+  id: number
+  created_date: string
+  reason: string
+}
+
+export interface DeviceSwapReason {
+  name: string
+  count: number
+  tier: 'clear' | 'needs_review'
+  examples: DeviceSwapReasonExample[]
+}
+
 export interface DeviceSwapStats {
   total: number
   seonchulgo_count: number
   normal_count: number
   models: DeviceSwapModel[]
+  reasons: DeviceSwapReason[]
 }
 
 export interface RetentionOfferExample {
