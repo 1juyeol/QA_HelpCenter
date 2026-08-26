@@ -34,8 +34,11 @@ class VerifyBody(BaseModel):
 
 @router.post("/api/admin/verify")
 def verify_admin(body: VerifyBody):
-    if not _ADMIN_PASSCODE or body.passcode != _ADMIN_PASSCODE:
-        log_action("admin_login_failed")
+    if not _ADMIN_PASSCODE:
+        log_action("admin_login_failed", "reason=서버에 ADMIN_PASSCODE 미설정")
+        return {"ok": False}
+    if body.passcode != _ADMIN_PASSCODE:
+        log_action("admin_login_failed", "reason=비밀번호 불일치")
         return {"ok": False}
     token = secrets.token_urlsafe(24)
     _valid_tokens.add(token)
