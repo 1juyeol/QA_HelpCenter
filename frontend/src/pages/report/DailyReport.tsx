@@ -705,8 +705,10 @@ export default function DailyReport() {
     ? report.prev_risk_total / Math.max(report.prev_total_count, 1) * 100 : null
   const riskPctDelta = prevRiskPct != null ? Math.round((Number(riskPct) - prevRiskPct) * 10) / 10 : null
 
+  // id는 사이드바·헤더 없이 이 영역만 스크린샷 찍을 수 있도록 backend/features/mailer/
+  // report_screenshot.py가 Playwright로 지정해서 찾는 대상이다.
   return (
-    <div className="container" style={{ fontFamily: "'Pretendard', 'Segoe UI', system-ui, sans-serif" }}>
+    <div id="daily-report-capture-root" className="container" style={{ fontFamily: "'Pretendard', 'Segoe UI', system-ui, sans-serif" }}>
 
       {/* 날짜 선택 + 생성 버튼 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginBottom: 16 }}>

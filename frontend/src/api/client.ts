@@ -247,6 +247,20 @@ export interface AuditLogEntry {
   mode: 'manual' | 'auto'
 }
 
+// 보고서 메일링 설정. report_type별로 하나씩(daily/weekly) 관리 페이지("메일링 관리")에서
+// 조회·저장한다. deadline_*는 "그 시각까지 보고서가 만들어져 있어야 발송" 기준,
+// send_*는 실제 발송 시각 — 서로 다른 시각으로 따로 설정 가능하다.
+export interface MailSettings {
+  report_type: 'daily' | 'weekly'
+  enabled: boolean
+  deadline_hour: number
+  deadline_minute: number
+  send_hour: number
+  send_minute: number
+  sender_email: string
+  recipients: string[]
+}
+
 export interface PeakBucket {
   bucket_start: string
   bucket_end: string
@@ -388,6 +402,14 @@ async function postJsonAdmin<T>(url: string, body: unknown, token: string): Prom
 // 관리자 전용 GET 엔드포인트 호출용 (예: 감사 로그 조회).
 async function getAdmin<T>(url: string, token: string): Promise<T> {
   const r = await fetch(`${API_BASE}${url}`, { headers: { 'X-Admin-Token': token } })
+  if (r.status === 401 || r.status === 403) onAdminAuthError?.()
+  if (!r.ok) throw new Error(await r.text())
+  return r.json() as Promise<T>
+}
+
+// 관리자 전용 DELETE 엔드포인트 호출용 (예: 메일링 설정 초기화).
+async function deleteAdmin<T>(url: string, token: string): Promise<T> {
+  const r = await fetch(`${API_BASE}${url}`, { method: 'DELETE', headers: { 'X-Admin-Token': token } })
   if (r.status === 401 || r.status === 403) onAdminAuthError?.()
   if (!r.ok) throw new Error(await r.text())
   return r.json() as Promise<T>
@@ -619,5 +641,23 @@ export const api = {
 
   fetchAuditLog(token: string, limit = 200) {
     return getAdmin<AuditLogEntry[]>(`/api/audit/log?limit=${limit}`, token)
+  },
+
+  fetchMailSettings(reportType: 'daily' | 'weekly', token: string) {
+    return getAdmin<MailSettings>(`/api/mail-settings?report_type=${reportType}`, token)
+  },
+
+  saveMailSettings(settings: MailSettings, token: string) {
+    return postJsonAdmin<MailSettings>('/api/mail-settings', settings, token)
+  },
+
+  resetMailSettings(reportType: 'daily' | 'weekly', token: string) {
+    return deleteAdmin<MailSettings>(`/api/mail-settings?report_type=${reportType}`, token)
+  },
+
+  testMailSend(reportType: 'daily' | 'weekly', token: string, recipients: string[], date?: string) {
+    const dateQ = date ? `&date=${date}` : ''
+    const toQ = `&to=${encodeURIComponent(recipients.join(','))}`
+    return postJsonAdmin<{ triggered: boolean }>(`/api/mail-settings/test?report_type=${reportType}${dateQ}${toQ}`, {}, token)
   },
 }

@@ -16,6 +16,8 @@
 # week_start는 반드시 월요일 날짜(ISO 형식)여야 한다.
 # 주간은 아직 generate-stats → generate 2단계 방식이다(일별처럼 백그라운드+진행 상태 표시로
 # 통합 안 됨 — 다음 작업으로 예정).
+#
+# 보고서 메일 발송 설정·수동 테스트 발송은 features/mailer/mail_endpoints.py로 분리되어 있다.
 
 import asyncio
 from fastapi import APIRouter, HTTPException, Query

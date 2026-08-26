@@ -1,9 +1,11 @@
-// AuditLog.tsx의 getReportLink()/parseDetail()/formatField() 유닛 테스트.
+// AuditLog.tsx의 getReportLink()/parseDetail()/formatField()/translateMailError() 유닛 테스트.
 // getReportLink: 감사 로그의 보고서 관련 action+detail에서 해당 보고서 화면 링크를 정확히 뽑아내는지 검증.
 // parseDetail/formatField: "date=2026-08-19, main=X, status=success" 같은 key=value 나열을
 // renderDetail()이 사람이 읽는 문장으로 바꿀 때 쓰는 파싱·변환 단계가 올바른지 검증.
+// translateMailError: mail_client.py가 그대로 넘기는 영어 smtplib 예외 원문을 한국어 문장으로
+// 바꾸는 함수 — 메일링 관리 페이지의 발신 이력도 AuditLogRow를 그대로 재사용하므로 여기서만 검증한다.
 import { describe, it, expect } from 'vitest'
-import { getReportLink, parseDetail, formatField } from './AuditLog'
+import { getReportLink, parseDetail, formatField, translateMailError } from './AuditLog'
 
 describe('getReportLink', () => {
   it('일별 카테고리 분석은 date+highlight(카테고리명)를 담은 링크를 만든다', () => {
@@ -92,8 +94,8 @@ describe('parseDetail', () => {
 })
 
 describe('formatField', () => {
-  it('date는 값 그대로 보여준다', () => {
-    expect(formatField('date', '2026-08-19')).toBe('2026-08-19')
+  it('date는 "보고서 날짜"를 붙여서 보여준다', () => {
+    expect(formatField('date', '2026-08-19')).toBe('보고서 날짜: 2026-08-19')
   })
 
   it('week_start는 "주"를 붙인다', () => {
@@ -118,5 +120,35 @@ describe('formatField', () => {
 
   it('elapsed는 "N초 소요"로 바꾼다', () => {
     expect(formatField('elapsed', '12.3')).toBe('12.3초 소요')
+  })
+
+  it('reason은 알려진 사유면 전체 문장으로, "사유: " 접두사와 함께 바꾼다', () => {
+    expect(formatField('reason', '보고서 없음')).toBe('사유: 대상 날짜의 보고서가 아직 만들어지지 않아 발송하지 않았습니다.')
+  })
+
+  it('reason이 알려지지 않은 값이면 "사유: " 접두사만 붙이고 원문을 그대로 둔다', () => {
+    expect(formatField('reason', '새로운 사유')).toBe('사유: 새로운 사유')
+  })
+})
+
+describe('translateMailError', () => {
+  it('타임아웃 에러를 한국어로 바꾼다', () => {
+    const result = translateMailError('TimeoutError: timed out')
+    expect(result).toContain('시간 초과')
+    expect(result).toContain('VPN')
+  })
+
+  it('SMTP 인증 실패(535)를 한국어로 바꾼다', () => {
+    const result = translateMailError("(535, b'5.7.8 Error: authentication failed: UGFzc3dvcmQ6')")
+    expect(result).toContain('인증에 실패')
+  })
+
+  it('연결 거부 에러를 한국어로 바꾼다', () => {
+    const result = translateMailError('Connection refused')
+    expect(result).toContain('연결을 거부')
+  })
+
+  it('알 수 없는 에러는 원문을 그대로 보여준다', () => {
+    expect(translateMailError('이상한 에러 메시지')).toBe('이상한 에러 메시지')
   })
 })

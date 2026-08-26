@@ -21,6 +21,7 @@ import WeeklyReport from './pages/report/WeeklyReport'
 import InsightRoadmap from './pages/admin/InsightRoadmap'
 import ApiConsole from './pages/admin/ApiConsole'
 import AuditLog from './pages/admin/AuditLog'
+import MailingSettings from './pages/admin/MailingSettings'
 
 function headerDate() {
   const d = new Date()
@@ -60,6 +61,7 @@ export default function App() {
             <Route path="/admin/insights" element={<InsightRoadmap />} />
             <Route path="/admin/api" element={<ApiConsole />} />
             <Route path="/admin/audit" element={<AuditLog />} />
+            <Route path="/admin/mailing" element={<MailingSettings />} />
           </Routes>
         </div>
       </div>
