@@ -31,7 +31,7 @@ def _last_monday(today: date) -> str:
 
 def _build_html_body(week_start: str, report_link: str) -> str:
     return (
-        f"<p>안녕하세요. {_SERVICE_NAME}입니다.</p>"
+        f"<p>안녕하세요.</p>"
         f"<p>{week_start} 주 CS 보고서 전달드립니다.</p>"
         f'<p><a href="{report_link}">{report_link}</a></p>'
         f'<p><img src="cid:{_IMAGE_CID}" style="max-width:100%;"></p>'
