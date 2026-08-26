@@ -18,6 +18,7 @@ import { useSearchParams } from 'react-router-dom'
 import Chart from 'chart.js/auto'
 import { api, type DailyReport, type RiskRow, type BucketRow, type Issue, type PeakBucket, type TopCategory } from '../../api/client'
 import CategoryMemoModal from '../../components/CategoryMemoModal'
+import AlertModal from '../../components/AlertModal'
 
 const NAVY = '#1e3c72'
 const NAVY2 = '#2a5298'
@@ -182,7 +183,7 @@ function CategoryTestPanel({
 
 function DeltaBadge({ delta, unit, invert, neutral }: { delta: number | null | undefined; unit: string; invert?: boolean; neutral?: boolean }) {
   if (delta == null) return null
-  if (delta === 0) return <div style={{ fontSize: 16, color: '#94a3b8', marginTop: 5 }}>전일 동일</div>
+  if (delta === 0) return <div style={{ fontSize: 16, color: '#94a3b8', marginTop: 5 }}>직전 영업일 동일</div>
   const isPositive = delta > 0
   const color = neutral
     ? '#64748b'
@@ -193,7 +194,7 @@ function DeltaBadge({ delta, unit, invert, neutral }: { delta: number | null | u
   return (
     <div style={{ fontSize: 18, color, fontWeight: 600, marginTop: 5 }}>
       {arrow} {isPositive ? '+' : ''}{delta}{unit}
-      <span style={{ fontSize: 14, color: '#94a3b8', fontWeight: 400, marginLeft: 4 }}>전일 대비</span>
+      <span style={{ fontSize: 14, color: '#94a3b8', fontWeight: 400, marginLeft: 4 }}>직전 영업일 대비</span>
     </div>
   )
 }
@@ -545,6 +546,10 @@ function yesterday() {
   return d.toISOString().slice(0, 10)
 }
 
+function today() {
+  return new Date().toISOString().slice(0, 10)
+}
+
 async function requestNotificationPermission(): Promise<boolean> {
   if (!('Notification' in window)) return false
   if (Notification.permission === 'granted') return true
@@ -579,6 +584,7 @@ export default function DailyReport() {
   const [aiGenerating, setAiGenerating] = useState(false)
   const [progress, setProgress] = useState<{ label: string | null; step: number; total: number } | null>(null)
   const [notFound, setNotFound] = useState(false)
+  const [alertMsg, setAlertMsg] = useState<string | null>(null)
   const [aiPanelOpen, setAiPanelOpen] = useState(false)
   const [modalState, setModalState] = useState<{ main: string; initialSubs?: string[]; allowedSubs?: string[] } | null>(null)
   const [peakModalBuckets, setPeakModalBuckets] = useState<string[] | null>(null)
@@ -687,6 +693,10 @@ export default function DailyReport() {
   // 처리 안 된 나머지 단계가 통째로 유실됐다 — 이제는 서버가 순서를 관리하므로 새로고침해도
   // 이어서 진행되고, resumeGenerationIfRunning()이 그 진행 상태를 다시 보여준다.
   async function handleGenerate() {
+    if (date >= today()) {
+      setAlertMsg('아직 지나지 않은 날짜는 데이터가 다 쌓이지 않아 보고서를 만들 수 없습니다. 어제 이전 날짜를 선택해주세요.')
+      return
+    }
     setGenerating(true)
     try {
       const result = await api.startDailyReportGeneration(date)
@@ -724,7 +734,14 @@ export default function DailyReport() {
         <input
           type="date"
           value={date}
-          onChange={e => setDate(e.target.value)}
+          max={yesterday()}
+          onChange={e => {
+            if (e.target.value >= today()) {
+              setAlertMsg('아직 지나지 않은 날짜는 데이터가 다 쌓이지 않아 보고서를 만들 수 없습니다. 어제 이전 날짜를 선택해주세요.')
+              return
+            }
+            setDate(e.target.value)
+          }}
           style={{
             padding: '7px 12px', border: '1px solid #e2e8f0', borderRadius: 8,
             fontSize: 17, color: '#374151', background: '#fff',
@@ -1016,6 +1033,8 @@ export default function DailyReport() {
           onClose={() => setPeakModalBuckets(null)}
         />
       )}
+
+      {alertMsg && <AlertModal message={alertMsg} onClose={() => setAlertMsg(null)} />}
     </div>
   )
 }

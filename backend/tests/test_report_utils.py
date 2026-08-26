@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from features.report.report_utils import describe_gemma_failure, gemma_detail
+from features.report.report_utils import describe_gemma_failure, gemma_detail, INSUFFICIENT_SUMMARY, _MIN_ANALYSIS_MEMOS
 
 
 class TestDescribeGemmaFailure:
@@ -50,6 +50,13 @@ class TestGemmaDetail:
         result = gemma_detail("date=2026-08-19", {"summary": "요약"})
         assert result == "date=2026-08-19, status=success"
 
-    def test_insufficient_data(self):
+    def test_insufficient_data_without_count_uses_generic_reason(self):
         result = gemma_detail("date=2026-08-19", {"insufficient_data": True, "elapsed": 0.5})
-        assert result == "date=2026-08-19, status=insufficient_data, elapsed=0.5"
+        assert result == f"date=2026-08-19, status=insufficient_data, reason={INSUFFICIENT_SUMMARY}, elapsed=0.5"
+
+    def test_insufficient_data_with_count_includes_specific_reason(self):
+        result = gemma_detail("date=2026-08-19", {"insufficient_data": True, "analysis_count": 2, "elapsed": 0.5})
+        assert result == (
+            f"date=2026-08-19, status=insufficient_data, "
+            f"reason=구체적 증상 데이터가 2건으로 분석 최소 기준({_MIN_ANALYSIS_MEMOS}건)에 못 미쳐 제외되었습니다., elapsed=0.5"
+        )
