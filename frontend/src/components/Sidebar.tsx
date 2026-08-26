@@ -4,7 +4,7 @@
 // / 이탈·교체 원인 분석(하위: 해지 사유 분석, 기기 교체 분석, 해지 방어 성과)
 // 관리자 모드: 하단 자물쇠 아이콘 클릭 → 암호 입력 모달 → useAdmin().verify()로 확인.
 //   통과하면 다음이 추가로 노출된다:
-//   - 인사이트 서브메뉴에 관리자 전용 페이지 3개(해야 할 일 / API 관리 / 감사 로그)
+//   - 인사이트 서브메뉴에 관리자 전용 페이지 4개(해야 할 일 / API 관리 / 감사 로그 / 메일링 관리)
 //   - "리스크율 기준" 안내, "설정"(Gemma 서버 URL 변경 — GET/POST /api/settings/gemma) 섹션
 //     → 둘 다 일반 사용자에게는 불필요한 내부 정보라 관리자 전용으로 숨겨뒀다.
 //   - CS 상담 수집 API 호출 on/off 토글 버튼 (GET/POST /api/collection/status,enabled)
@@ -193,6 +193,14 @@ export default function Sidebar() {
             className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
           >
             🔒 감사 로그
+          </NavLink>
+        )}
+        {isAdmin && (
+          <NavLink
+            to="/admin/mailing"
+            className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
+          >
+            🔒 메일링 관리
           </NavLink>
         )}
       </div>

@@ -5,7 +5,10 @@
 #
 # 핸들러 목록 (실제 로직):
 #   _generate_yesterday_report()    : 전날 일별 보고서 자동 생성
+#   _send_daily_report_mail()       : 직전 영업일 일별 보고서 메일 발송 (features/mailer/)
+#   _send_weekly_report_mail()      : 직전 주 주간 보고서 메일 발송 (features/mailer/)
 #   _generate_last_week_report()    : 직전 주 주간 보고서 자동 생성
+#   reschedule_mail_job(report_type): 메일링 설정 저장 직후 해당 발송 시각을 즉시 재등록
 #   _cache_keyword_trend_today()    : 오늘 keyword_trend 미리 계산해 캐시 저장 (탐지 이력 누락 방지)
 #   collect_new(trigger)            : 실제 수집 로직 — 마지막 저장 id 이후 신규분을 id 커서 방식으로
 #                                      가져오고, 어떤 트리거가 호출했는지(collection_log.source)를 남긴다.
@@ -241,6 +244,66 @@ async def _generate_yesterday_report():
         print(f"[{now}] 일별 보고서 생성 실패: {e}")
 
 
+async def _send_daily_report_mail():
+    """관리자 페이지("메일링 관리")에서 설정한 시각에, 직전 영업일 일별 보고서를 메일로
+    발송한다. 실제 로직은 features/mailer/daily_report_mailer.py가 담당하고(on/off·휴무일·
+    보고서 없음·마감시간 초과 스킵 포함), 여기서는 예외가 새어나가 스케줄러 자체가 죽지
+    않도록 감싸기만 한다."""
+    from features.mailer.daily_report_mailer import send_daily_report_mail
+    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        await send_daily_report_mail()
+        print(f"[{now}] 일별 보고서 메일 발송 처리 완료")
+    except Exception as e:
+        log_action("daily_report_mail", f"status=failed, error={e}", mode="auto")
+        print(f"[{now}] 일별 보고서 메일 발송 실패: {e}")
+
+
+async def _send_weekly_report_mail():
+    """관리자 페이지("메일링 관리")에서 설정한 시각에, 직전 주 주간 보고서를 메일로 발송한다.
+    실제 로직은 features/mailer/weekly_report_mailer.py가 담당한다."""
+    from features.mailer.weekly_report_mailer import send_weekly_report_mail
+    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        await send_weekly_report_mail()
+        print(f"[{now}] 주간 보고서 메일 발송 처리 완료")
+    except Exception as e:
+        log_action("weekly_report_mail", f"status=failed, error={e}", mode="auto")
+        print(f"[{now}] 주간 보고서 메일 발송 실패: {e}")
+
+
+# report_type('daily'/'weekly') → 그 메일링의 cron job id·핸들러. mail_endpoints.py가
+# 설정 저장 직후 reschedule_mail_job()을 불러 이 job의 시각을 즉시 새로 등록한다 —
+# 서버 재시작 없이 바로 다음 발송부터 바뀐 시각이 반영되게 하기 위함.
+_MAIL_JOB_IDS = {"daily": "daily_report_mail_job", "weekly": "weekly_report_mail_job"}
+_MAIL_JOB_HANDLERS = {"daily": _send_daily_report_mail, "weekly": _send_weekly_report_mail}
+
+_scheduler_instance: AsyncIOScheduler | None = None
+
+
+def _register_mail_jobs(scheduler: AsyncIOScheduler) -> None:
+    from core.mail_settings import get_mail_settings
+    for report_type, handler in _MAIL_JOB_HANDLERS.items():
+        settings = get_mail_settings(report_type)
+        scheduler.add_job(
+            handler, "cron", hour=settings["send_hour"], minute=settings["send_minute"],
+            id=_MAIL_JOB_IDS[report_type],
+        )
+
+
+def reschedule_mail_job(report_type: str) -> None:
+    """메일링 관리 설정 저장 직후 호출한다. 저장된 새 send_hour/send_minute으로 해당
+    report_type의 cron job을 다시 등록한다."""
+    from core.mail_settings import get_mail_settings
+    if _scheduler_instance is None:
+        return
+    settings = get_mail_settings(report_type)
+    _scheduler_instance.reschedule_job(
+        _MAIL_JOB_IDS[report_type], trigger="cron",
+        hour=settings["send_hour"], minute=settings["send_minute"],
+    )
+
+
 async def _generate_last_week_report():
     """직전 주 월요일 날짜를 계산해 주간 보고서를 자동 생성한다. COLLECTION_ENABLED 무관하게 실행.
     일별과 동일하게 카테고리별 부분 실패를 반환값에서 확인해 감사 로그에 남긴다."""
@@ -277,6 +340,10 @@ def _register_jobs(scheduler: AsyncIOScheduler) -> None:
     # 주간 보고서: 매주 월요일 00:30 KST (직전 주 월~금 기준)
     scheduler.add_job(_generate_last_week_report, "cron", day_of_week="mon", hour=0, minute=30)
 
+    # 일별/주간 보고서 메일 발송: 시각은 관리자 페이지("메일링 관리")에서 설정한 값을 그대로
+    # 읽어와 등록한다 (기본 11:00). 설정이 바뀌면 reschedule_mail_job()이 즉시 다시 등록한다.
+    _register_mail_jobs(scheduler)
+
     # 승인된 호출 빈도(하루 최대 146회). 트리거는 항상 등록해두고, 실제 실행 여부는
     # collect_new()가 매번 get_collection_enabled()를 확인해 판단한다 — 관리자 모드에서
     # 서버 재시작 없이 켜고 끄면 바로 다음 트리거부터 반영되게 하기 위함.
@@ -299,7 +366,9 @@ def _register_jobs(scheduler: AsyncIOScheduler) -> None:
 # ── 스케줄러 시작 ──────────────────────────────────────────────────────────────
 
 def start_scheduler() -> AsyncIOScheduler:
+    global _scheduler_instance
     scheduler = AsyncIOScheduler(timezone=KST)
     _register_jobs(scheduler)
     scheduler.start()
+    _scheduler_instance = scheduler
     return scheduler

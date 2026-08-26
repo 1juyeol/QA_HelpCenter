@@ -4,6 +4,7 @@
 # 제공 함수:
 #   is_holiday(date_str)  : 공휴일 여부 (법정공휴일 + 임시공휴일). 주말은 포함하지 않는다.
 #   is_off_day(date_str)  : 통계 제외 대상 여부 — 주말 또는 공휴일이면 True.
+#   previous_business_day(date_str) : date_str 하루 전부터 거슬러 올라가 처음 만나는 영업일.
 #
 # 법정공휴일(대체공휴일 포함)은 holidays 패키지가 자동 처리한다.
 # 선거일 등 임시공휴일은 _EXTRA_HOLIDAYS에 수동 추가한다.
@@ -12,7 +13,7 @@
 # 의존: holidays 패키지 (requirements.txt)
 
 import holidays as _holidays_lib
-from datetime import date
+from datetime import date, timedelta
 from functools import lru_cache
 
 # holidays 패키지가 인식하지 못하는 임시공휴일 (선거일, 특별공휴일 등)
@@ -36,3 +37,12 @@ def is_off_day(date_str: str) -> bool:
     """통계 제외 대상 여부. 주말 또는 공휴일이면 True."""
     d = date.fromisoformat(date_str)
     return d.weekday() >= 5 or is_holiday(date_str)
+
+
+def previous_business_day(date_str: str) -> str:
+    """date_str 하루 전부터 거슬러 올라가 처음 만나는 영업일을 반환한다.
+    예: 월요일이면 금요일(주말 건너뜀), 연휴 다음 날이면 연휴 전 영업일."""
+    d = date.fromisoformat(date_str) - timedelta(days=1)
+    while is_off_day(d.isoformat()):
+        d -= timedelta(days=1)
+    return d.isoformat()
