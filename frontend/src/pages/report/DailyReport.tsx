@@ -104,12 +104,12 @@ function CategoryTestPanel({
 
   return (
     <div style={{ marginTop: 16, padding: '16px 20px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#166534', marginBottom: 12 }}>AI 분석 실행</div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: '#166534', marginBottom: 12 }}>AI 분석 실행</div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
         <select
           value={target}
           onChange={e => { setTarget(e.target.value); resetResults() }}
-          style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, flex: 1 }}
+          style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 16, flex: 1 }}
         >
           {TEST_TARGETS.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
@@ -119,17 +119,17 @@ function CategoryTestPanel({
           style={{
             padding: '6px 16px', background: running ? '#94a3b8' : '#166534',
             color: '#fff', border: 'none', borderRadius: 6,
-            fontSize: 13, fontWeight: 600, cursor: running ? 'default' : 'pointer', whiteSpace: 'nowrap',
+            fontSize: 16, fontWeight: 600, cursor: running ? 'default' : 'pointer', whiteSpace: 'nowrap',
           }}
         >
           {running ? '분석 중...' : '분석 실행'}
         </button>
       </div>
 
-      {error && <div style={{ fontSize: 12, color: RISK_RED }}>{error}</div>}
+      {error && <div style={{ fontSize: 15, color: RISK_RED }}>{error}</div>}
 
       {catResult && (
-        <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.6 }}>
+        <div style={{ fontSize: 15, color: '#374151', lineHeight: 1.6 }}>
           <div style={{ marginBottom: 6 }}>
             <span style={{ fontWeight: 700 }}>{catResult.sub}</span>
             <span style={{ color: '#64748b', marginLeft: 6 }}>{catResult.count}건</span>
@@ -139,13 +139,13 @@ function CategoryTestPanel({
           {catResult.prompt_section && (
             <details style={{ marginBottom: 8 }}>
               <summary style={{ cursor: 'pointer', color: '#64748b', marginBottom: 4 }}>프롬프트 보기</summary>
-              <pre style={{ fontSize: 11, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, overflowX: 'auto', whiteSpace: 'pre-wrap', border: '1px solid #e2e8f0' }}>
+              <pre style={{ fontSize: 14, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, overflowX: 'auto', whiteSpace: 'pre-wrap', border: '1px solid #e2e8f0' }}>
                 {catResult.prompt_section}
               </pre>
             </details>
           )}
           {catResult.summary && (
-            <div style={{ background: '#f0f4fb', borderRadius: 6, padding: '7px 12px', borderLeft: `3px solid ${NAVY}`, fontSize: 13 }}>
+            <div style={{ background: '#f0f4fb', borderRadius: 6, padding: '7px 12px', borderLeft: `3px solid ${NAVY}`, fontSize: 16 }}>
               {catResult.summary}
             </div>
           )}
@@ -153,7 +153,7 @@ function CategoryTestPanel({
       )}
 
       {peakResult && (
-        <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.6 }}>
+        <div style={{ fontSize: 15, color: '#374151', lineHeight: 1.6 }}>
           <div style={{ marginBottom: 6 }}>
             <span style={{ fontWeight: 700 }}>{peakResult.bucket_start}~{peakResult.bucket_end}</span>
             <span style={{ color: '#64748b', marginLeft: 6 }}>{peakResult.bucket_count}건 (평균 {peakResult.avg_count}건)</span>
@@ -165,7 +165,7 @@ function CategoryTestPanel({
             )}
           </div>
           {peakResult.summary && (
-            <div style={{ background: '#f0f4fb', borderRadius: 6, padding: '7px 12px', borderLeft: `3px solid ${NAVY}`, fontSize: 13 }}>
+            <div style={{ background: '#f0f4fb', borderRadius: 6, padding: '7px 12px', borderLeft: `3px solid ${NAVY}`, fontSize: 16 }}>
               {peakResult.summary}
             </div>
           )}
@@ -182,7 +182,7 @@ function CategoryTestPanel({
 
 function DeltaBadge({ delta, unit, invert, neutral }: { delta: number | null | undefined; unit: string; invert?: boolean; neutral?: boolean }) {
   if (delta == null) return null
-  if (delta === 0) return <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 5 }}>전일 동일</div>
+  if (delta === 0) return <div style={{ fontSize: 16, color: '#94a3b8', marginTop: 5 }}>전일 동일</div>
   const isPositive = delta > 0
   const color = neutral
     ? '#64748b'
@@ -191,9 +191,9 @@ function DeltaBadge({ delta, unit, invert, neutral }: { delta: number | null | u
       : (isPositive ? '#3b82f6' : '#f59e0b')
   const arrow = isPositive ? '↑' : '↓'
   return (
-    <div style={{ fontSize: 13, color, fontWeight: 600, marginTop: 5 }}>
+    <div style={{ fontSize: 18, color, fontWeight: 600, marginTop: 5 }}>
       {arrow} {isPositive ? '+' : ''}{delta}{unit}
-      <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: 4 }}>전일 대비</span>
+      <span style={{ fontSize: 14, color: '#94a3b8', fontWeight: 400, marginLeft: 4 }}>전일 대비</span>
     </div>
   )
 }
@@ -207,17 +207,17 @@ function KpiCard({
   return (
     <div style={{
       background: '#fff', borderRadius: 14,
-      padding: isSecondary ? '16px 20px' : '22px 26px',
+      padding: isSecondary ? '22px 20px 16px' : '22px 26px',
       boxShadow: isSecondary ? '0 1px 4px rgba(0,0,0,.06)' : '0 2px 10px rgba(0,0,0,.09)',
       borderTop: `${isSecondary ? 3 : 5}px solid ${color}`,
     }}>
       <div style={{
-        fontSize: 11, fontWeight: 700, color: '#94a3b8',
+        fontSize: 17, fontWeight: 700, color: '#94a3b8',
         textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8,
       }}>
         {label}
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 48 }}>
         <span style={{ fontSize: isSecondary ? 36 : 48, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
         <span style={{ fontSize: isSecondary ? 17 : 22, color: '#64748b', fontWeight: 600 }}>{unit}</span>
       </div>
@@ -247,9 +247,9 @@ function RiskBarChart({ rows, onBarClick }: {
           borderLeft: '4px solid #ef4444',
           display: 'flex', alignItems: 'center', gap: 10,
         }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>오늘의 주요 리스크</span>
-          <span style={{ fontSize: 16, fontWeight: 700, color: '#ef4444' }}>{topRow.main} › {topRow.sub}</span>
-          <span style={{ fontSize: 15, fontWeight: 700, color: '#ef4444' }}>({topRow.count.toLocaleString()}건)</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>오늘의 주요 리스크</span>
+          <span style={{ fontSize: 19, fontWeight: 700, color: '#ef4444' }}>{topRow.main} › {topRow.sub}</span>
+          <span style={{ fontSize: 18, fontWeight: 700, color: '#ef4444' }}>({topRow.count.toLocaleString()}건)</span>
         </div>
       )}
       {sorted.map((row, i) => {
@@ -260,8 +260,8 @@ function RiskBarChart({ rows, onBarClick }: {
               onClick={() => onBarClick(row.main, null)}
               style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, cursor: 'pointer' }}
             >
-              <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{row.main}</span>
-              <span style={{ fontSize: 14, color: '#94a3b8' }}>총 {(row.main_total ?? row.count).toLocaleString()}건</span>
+              <span style={{ fontWeight: 700, fontSize: 18, color: '#1e293b' }}>{row.main}</span>
+              <span style={{ fontSize: 17, color: '#94a3b8' }}>총 {(row.main_total ?? row.count).toLocaleString()}건</span>
             </div>
             {subs.map((s, si) => {
               const isTop = si === 0
@@ -272,10 +272,10 @@ function RiskBarChart({ rows, onBarClick }: {
                   style={{ paddingLeft: 12, marginBottom: si < subs.length - 1 ? 10 : 0, cursor: 'pointer' }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 16, fontWeight: isTop ? 700 : 400, color: isTop ? '#ef4444' : '#374151' }}>
+                    <span style={{ fontSize: isTop ? 23 : 19, fontWeight: isTop ? 700 : 400, color: isTop ? '#ef4444' : '#374151' }}>
                       {s.sub}
                     </span>
-                    <span style={{ fontSize: 17, fontWeight: isTop ? 700 : 500, color: isTop ? '#ef4444' : '#64748b', flexShrink: 0, marginLeft: 8 }}>
+                    <span style={{ fontSize: isTop ? 24 : 20, fontWeight: isTop ? 700 : 500, color: isTop ? '#ef4444' : '#64748b', flexShrink: 0, marginLeft: 8 }}>
                       {s.count.toLocaleString()}건
                     </span>
                   </div>
@@ -298,28 +298,28 @@ function RiskRowItem({ row, aiLoading = false, isCurrent = false }: { row: RiskR
   return (
     <div id={`risk-row-${row.main}`} style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', marginBottom: 12, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-        <span style={{ fontSize: 12, color: '#94a3b8' }}>{row.main}</span>
-        <span style={{ fontSize: 12, color: '#cbd5e1' }}>›</span>
-        <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>{row.sub}</span>
-        <span style={{ fontSize: 15, fontWeight: 700, color: RISK_RED, background: '#fef2f2', borderRadius: 6, padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0 }}>
+        <span style={{ fontSize: 18, color: '#94a3b8' }}>{row.main}</span>
+        <span style={{ fontSize: 18, color: '#cbd5e1' }}>›</span>
+        <span style={{ fontWeight: 700, fontSize: 22, color: '#1e293b' }}>{row.sub}</span>
+        <span style={{ fontSize: 22, fontWeight: 700, color: RISK_RED, background: '#fef2f2', borderRadius: 6, padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0 }}>
           {row.count}건
         </span>
       </div>
       <div style={{ padding: '10px 16px' }}>
         {row.summary ? (
-          <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.7, borderLeft: `3px solid ${NAVY}`, paddingLeft: 10 }}>
+          <div style={{ fontSize: 17, color: '#374151', lineHeight: 1.7, borderLeft: `3px solid ${NAVY}`, paddingLeft: 10 }}>
             <HighlightedSummary text={row.summary} top={row.top_category} />
           </div>
         ) : row.gemma_error ? (
-          <div style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }} title={row.gemma_error}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: RISK_RED }} title={row.gemma_error}>
             AI 분석 실패 — 다시 시도해주세요
           </div>
         ) : isCurrent ? (
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
         ) : aiLoading ? (
-          <div style={{ fontSize: 14, color: '#64748b' }}>대기 중...</div>
+          <div style={{ fontSize: 17, color: '#64748b' }}>대기 중...</div>
         ) : (
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>AI 분석 없음</div>
+          <div style={{ fontSize: 15, color: '#94a3b8' }}>AI 분석 없음</div>
         )}
       </div>
     </div>
@@ -371,7 +371,16 @@ function HourlyBucketChart({ buckets, onBarClick }: {
         },
         scales: {
           y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 } } },
-          x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0 } },
+          x: {
+            grid: { display: false },
+            ticks: {
+              maxRotation: 0,
+              font: (ctx: any) => {
+                const emphasis = bgColors[ctx.index] !== '#e2e8f0'
+                return { size: emphasis ? 16 : 13, weight: emphasis ? 'bold' : 'normal' }
+              },
+            },
+          },
         },
       },
     })
@@ -440,10 +449,10 @@ function PeakMemoModal({ buckets, date, onClose }: { buckets: string[]; date: st
   const allChecked = checkedMains.length === availableMains.length
 
   const pager = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#64748b' }}>
-      <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 14px', background: '#fff', fontSize: 13, cursor: page <= 1 ? 'default' : 'pointer', color: page <= 1 ? '#cbd5e1' : '#374151' }}>이전</button>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 16, color: '#64748b' }}>
+      <button disabled={page <= 1} onClick={() => setPage(p => p - 1)} style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 14px', background: '#fff', fontSize: 16, cursor: page <= 1 ? 'default' : 'pointer', color: page <= 1 ? '#cbd5e1' : '#374151' }}>이전</button>
       <span>{page} / {totalPages} 페이지 (총 {total.toLocaleString()}건)</span>
-      <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 14px', background: '#fff', fontSize: 13, cursor: page >= totalPages ? 'default' : 'pointer', color: page >= totalPages ? '#cbd5e1' : '#374151' }}>다음</button>
+      <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)} style={{ border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 14px', background: '#fff', fontSize: 16, cursor: page >= totalPages ? 'default' : 'pointer', color: page >= totalPages ? '#cbd5e1' : '#374151' }}>다음</button>
     </div>
   )
 
@@ -457,10 +466,10 @@ function PeakMemoModal({ buckets, date, onClose }: { buckets: string[]; date: st
         {/* 헤더 */}
         <div style={{ padding: '18px 32px', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#1e293b' }}>피크타임 메모 — {bucketsToKstRange(buckets)}</div>
-            <div style={{ marginTop: 4, fontSize: 15, color: '#475569', fontWeight: 500 }}>{date}</div>
+            <div style={{ fontSize: 23, fontWeight: 700, color: '#1e293b' }}>피크타임 메모 — {bucketsToKstRange(buckets)}</div>
+            <div style={{ marginTop: 4, fontSize: 18, color: '#475569', fontWeight: 500 }}>{date}</div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#94a3b8', lineHeight: 1, padding: 4 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 25, color: '#94a3b8', lineHeight: 1, padding: 4 }}>✕</button>
         </div>
 
         {/* 대분류 체크박스 */}
@@ -468,12 +477,12 @@ function PeakMemoModal({ buckets, date, onClose }: { buckets: string[]; date: st
           <div style={{ padding: '10px 32px', borderBottom: '1px solid #f1f5f9', display: 'flex', flexWrap: 'wrap', gap: '6px 20px', alignItems: 'center', flexShrink: 0, background: '#fafafa' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
               <input type="checkbox" checked={allChecked} onChange={toggleAll} style={{ cursor: 'pointer', accentColor: '#1e3c72' }} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>전체</span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#374151' }}>전체</span>
             </label>
             {availableMains.map(main => (
               <label key={main} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
                 <input type="checkbox" checked={checkedMains.includes(main)} onChange={() => toggleMain(main)} style={{ cursor: 'pointer', accentColor: '#1e3c72' }} />
-                <span style={{ fontSize: 13, fontWeight: 700, color: checkedMains.includes(main) ? '#1e293b' : '#cbd5e1', transition: 'color 0.15s' }}>{main}</span>
+                <span style={{ fontSize: 16, fontWeight: 700, color: checkedMains.includes(main) ? '#1e293b' : '#cbd5e1', transition: 'color 0.15s' }}>{main}</span>
               </label>
             ))}
           </div>
@@ -485,15 +494,15 @@ function PeakMemoModal({ buckets, date, onClose }: { buckets: string[]; date: st
         {/* 테이블 */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px' }}>
           {loading ? (
-            <div style={{ padding: '60px 0', textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>조회 중...</div>
+            <div style={{ padding: '60px 0', textAlign: 'center', color: '#94a3b8', fontSize: 17 }}>조회 중...</div>
           ) : pageMemos.length === 0 ? (
-            <div style={{ padding: '60px 0', textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>메모 없음</div>
+            <div style={{ padding: '60px 0', textAlign: 'center', color: '#94a3b8', fontSize: 17 }}>메모 없음</div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
                 <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
                   {['대분류', '소분류', '학생번호', '학부모번호', '내용', '등록일'].map(h => (
-                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 15, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -501,17 +510,17 @@ function PeakMemoModal({ buckets, date, onClose }: { buckets: string[]; date: st
                 {pageMemos.map(m => (
                   <tr key={m.id} style={{ borderBottom: '1px solid #f8fafc' }}>
                     <td style={{ padding: '9px 12px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: '#374151', background: '#f1f5f9', borderRadius: 4, padding: '2px 7px' }}>{m.new_category_main ?? '—'}</span>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: '#374151', background: '#f1f5f9', borderRadius: 4, padding: '2px 7px' }}>{m.new_category_main ?? '—'}</span>
                     </td>
                     <td style={{ padding: '9px 12px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
-                      {m.new_category_sub ? <span style={{ fontSize: 12, fontWeight: 700, color: '#374151', background: '#f1f5f9', borderRadius: 4, padding: '2px 7px' }}>{m.new_category_sub}</span> : <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span>}
+                      {m.new_category_sub ? <span style={{ fontSize: 15, fontWeight: 700, color: '#374151', background: '#f1f5f9', borderRadius: 4, padding: '2px 7px' }}>{m.new_category_sub}</span> : <span style={{ color: '#cbd5e1', fontSize: 15 }}>—</span>}
                     </td>
-                    <td style={{ padding: '9px 12px', fontSize: 12, color: '#64748b', verticalAlign: 'top', whiteSpace: 'nowrap' }}>{m.student_id || '—'}</td>
-                    <td style={{ padding: '9px 12px', fontSize: 12, color: '#64748b', verticalAlign: 'top', whiteSpace: 'nowrap' }}>{m.parent_id ?? '—'}</td>
-                    <td style={{ padding: '9px 12px', fontSize: 13, color: '#374151', lineHeight: 1.6, verticalAlign: 'top' }}>
+                    <td style={{ padding: '9px 12px', fontSize: 15, color: '#64748b', verticalAlign: 'top', whiteSpace: 'nowrap' }}>{m.student_id || '—'}</td>
+                    <td style={{ padding: '9px 12px', fontSize: 15, color: '#64748b', verticalAlign: 'top', whiteSpace: 'nowrap' }}>{m.parent_id ?? '—'}</td>
+                    <td style={{ padding: '9px 12px', fontSize: 16, color: '#374151', lineHeight: 1.6, verticalAlign: 'top' }}>
                       {m.call_memo ? m.call_memo.split('\n').map((line: string, i: number) => <span key={i}>{i > 0 && <br />}{line}</span>) : <span style={{ color: '#cbd5e1' }}>—</span>}
                     </td>
-                    <td style={{ padding: '9px 12px', fontSize: 12, color: '#94a3b8', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '9px 12px', fontSize: 18, color: '#94a3b8', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
                       {m.created_date ? m.created_date.slice(0, 16).replace('T', ' ') : '—'}
                     </td>
                   </tr>
@@ -718,7 +727,7 @@ export default function DailyReport() {
           onChange={e => setDate(e.target.value)}
           style={{
             padding: '7px 12px', border: '1px solid #e2e8f0', borderRadius: 8,
-            fontSize: 14, color: '#374151', background: '#fff',
+            fontSize: 17, color: '#374151', background: '#fff',
           }}
         />
         <button
@@ -729,7 +738,7 @@ export default function DailyReport() {
             background: generating || aiGenerating ? '#94a3b8' : NAVY,
             color: '#fff', border: 'none', borderRadius: 8,
             cursor: generating ? 'default' : 'pointer',
-            fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
+            fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap',
           }}
         >
           {generating
@@ -752,8 +761,8 @@ export default function DailyReport() {
         <div className="section-card">
           <div style={{ padding: '40px 0', textAlign: 'center', color: '#94a3b8' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>📄</div>
-            <div style={{ fontSize: 14, marginBottom: 8, color: '#475569' }}>{date} 보고서가 없습니다.</div>
-            <div style={{ fontSize: 13, color: '#cbd5e1' }}>
+            <div style={{ fontSize: 17, marginBottom: 8, color: '#475569' }}>{date} 보고서가 없습니다.</div>
+            <div style={{ fontSize: 16, color: '#cbd5e1' }}>
               "보고서 생성" 버튼을 클릭해 Gemma 분석을 시작하세요.
             </div>
           </div>
@@ -764,8 +773,8 @@ export default function DailyReport() {
       {(generating || aiGenerating) && !report && (
         <div className="section-card">
           <div style={{ padding: '40px 0', textAlign: 'center', color: '#64748b' }}>
-            <div style={{ fontSize: 13, marginBottom: 8 }}>통계 집계 중...</div>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>DB 조회 중입니다</div>
+            <div style={{ fontSize: 16, marginBottom: 8 }}>통계 집계 중...</div>
+            <div style={{ fontSize: 15, color: '#94a3b8' }}>DB 조회 중입니다</div>
           </div>
         </div>
       )}
@@ -779,17 +788,12 @@ export default function DailyReport() {
             borderRadius: 16, padding: '28px 32px', marginBottom: 16,
             color: '#fff', boxShadow: '0 4px 20px rgba(30,60,114,.25)',
           }}>
-            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.5px', marginBottom: 6 }}>
+            <div style={{ fontSize: 25, fontWeight: 800, letterSpacing: '-0.5px', marginBottom: 6 }}>
               일별 CS 보고서
             </div>
-            <div style={{ fontSize: 15, opacity: 0.85 }}>
+            <div style={{ fontSize: 18, opacity: 0.85 }}>
               보고서 기준일 {report.report_date}
             </div>
-            {report.generated_at && (
-              <div style={{ fontSize: 12, opacity: 0.55, marginTop: 4 }}>
-                스냅샷 생성 {report.generated_at.slice(0, 16).replace('T', ' ')}
-              </div>
-            )}
           </div>
 
           {/* KPI 카드 3개 */}
@@ -815,8 +819,8 @@ export default function DailyReport() {
                 display: 'flex', alignItems: 'center', gap: 10,
                 marginBottom: 20, paddingBottom: 14, borderBottom: '1px solid #f1f5f9',
               }}>
-                <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>리스크 카테고리 현황</h3>
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>해지·장애 등 위험 징후로 분류된 상담 유형별 건수입니다</span>
+                <h3 style={{ margin: 0, color: NAVY, fontSize: 25 }}>리스크 카테고리 현황</h3>
+                <span style={{ fontSize: 15, color: '#94a3b8' }}>해지·장애 등 위험 징후로 분류된 상담 유형별 건수입니다</span>
               </div>
               <RiskBarChart
                 rows={report.risk_rows}
@@ -835,11 +839,11 @@ export default function DailyReport() {
               display: 'flex', alignItems: 'center', gap: 10,
               marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9',
             }}>
-              <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>카테고리별 AI 분석</h3>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>위험 유형마다 당일 가장 많이 접수된 항목을 AI가 분석합니다</span>
+              <h3 style={{ margin: 0, color: NAVY, fontSize: 25 }}>카테고리별 AI 분석</h3>
+              <span style={{ fontSize: 15, color: '#94a3b8' }}>위험 유형마다 당일 가장 많이 접수된 항목을 AI가 분석합니다</span>
             </div>
             {report.risk_rows.length === 0 ? (
-              <div style={{ color: '#94a3b8', fontSize: 13 }}>리스크 카테고리 데이터 없음</div>
+              <div style={{ color: '#94a3b8', fontSize: 16 }}>리스크 카테고리 데이터 없음</div>
             ) : (
               [...report.risk_rows].sort((a, b) => (b.main_total ?? b.count) - (a.main_total ?? a.count)).map((row, i) => (
                 <RiskRowItem key={i} row={row} aiLoading={aiGenerating} isCurrent={aiGenerating && progress?.label === row.main} />
@@ -853,14 +857,14 @@ export default function DailyReport() {
               display: 'flex', alignItems: 'center', gap: 10,
               marginBottom: 6, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
             }}>
-              <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>피크타임 패턴 분석</h3>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>17시~20시 30분 구간에서 상담이 집중된 시간대를 찾아 AI가 패턴을 분석합니다</span>
+              <h3 style={{ margin: 0, color: NAVY, fontSize: 25 }}>피크타임 패턴 분석</h3>
+              <span style={{ fontSize: 15, color: '#94a3b8' }}>17시~20시 30분 구간에서 상담이 집중된 시간대를 찾아 AI가 패턴을 분석합니다</span>
             </div>
             {peakBuckets.length > 0 && (
               <div style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', gap: 14, fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
-                  <span><span style={{ color: '#ef4444', fontWeight: 700 }}>■</span> 최다 시간대</span>
-                  <span><span style={{ color: '#3b82f6', fontWeight: 700 }}>■</span> 피크타임 구간 (17~20시)</span>
+                <div style={{ display: 'flex', gap: 14, fontSize: 17, color: '#94a3b8', marginBottom: 6 }}>
+                  <span style={{ color: '#1e293b' }}><span style={{ color: '#ef4444', fontWeight: 700 }}>■</span> 최다 시간대</span>
+                  <span style={{ color: '#1e293b' }}><span style={{ color: '#3b82f6', fontWeight: 700 }}>■</span> 피크타임 구간 (17~20시)</span>
                   <span><span style={{ color: '#e2e8f0', fontWeight: 700 }}>■</span> 기타</span>
                 </div>
                 <div style={{ height: 160, position: 'relative' }}>
@@ -871,27 +875,27 @@ export default function DailyReport() {
             {!report.peak_bucket ? (
               aiGenerating
                 ? (progress?.label === '피크타임'
-                  ? <div style={{ fontSize: 15, fontWeight: 700, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
-                  : <div style={{ fontSize: 15, color: '#64748b' }}>대기 중...</div>)
-                : <div style={{ fontSize: 13, color: '#94a3b8' }}>데이터 없음</div>
+                  ? <div style={{ fontSize: 18, fontWeight: 700, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
+                  : <div style={{ fontSize: 18, color: '#64748b' }}>대기 중...</div>)
+                : <div style={{ fontSize: 16, color: '#94a3b8' }}>데이터 없음</div>
             ) : (
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                   <span style={{
-                    fontSize: 14, fontWeight: 700, color: '#fff',
+                    fontSize: 21, fontWeight: 700, color: '#fff',
                     background: NAVY, borderRadius: 20, padding: '4px 14px',
                   }}>
                     {report.peak_bucket.bucket_start}~{report.peak_bucket.bucket_end}
                   </span>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }}>
+                  <span style={{ fontSize: 21, fontWeight: 700, color: RISK_RED }}>
                     {report.peak_bucket.bucket_count}건
                   </span>
-                  <span style={{ fontSize: 13, color: '#64748b' }}>
-                    집중 (당일 피크타임 30분 구간 평균 {report.peak_bucket.avg_count}건)
+                  <span style={{ fontSize: 16, color: '#64748b' }}>
+                    (당일 피크타임 30분 구간 평균 {report.peak_bucket.avg_count}건)
                   </span>
                   {report.peak_bucket.pattern && (
                     <span style={{
-                      fontSize: 12, fontWeight: 700, color: NAVY,
+                      fontSize: 18, fontWeight: 700, color: NAVY,
                       background: '#dbeafe', borderRadius: 20, padding: '3px 10px',
                     }}>
                       {report.peak_bucket.pattern} 반복
@@ -900,13 +904,13 @@ export default function DailyReport() {
                 </div>
                 {report.peak_bucket.summary ? (
                   <div style={{
-                    fontSize: 13, color: '#374151', lineHeight: 1.7,
+                    fontSize: 17, color: '#374151', lineHeight: 1.7,
                     borderLeft: `3px solid ${NAVY}`, paddingLeft: 10,
                   }}>
                     <HighlightedSummary text={report.peak_bucket.summary} top={report.peak_bucket.top_category} />
                   </div>
                 ) : report.peak_bucket.gemma_error ? (
-                  <div style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }} title={report.peak_bucket.gemma_error}>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: RISK_RED }} title={report.peak_bucket.gemma_error}>
                     AI 분석 실패 — 다시 시도해주세요
                   </div>
                 ) : null}
@@ -920,26 +924,26 @@ export default function DailyReport() {
                 display: 'flex', alignItems: 'center', gap: 10,
                 marginBottom: 6, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
               }}>
-                <h3 style={{ margin: 0, color: NAVY, fontSize: 22 }}>이상 시간대 분석</h3>
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>피크타임(17~20시)이 아닌데도 그보다 상담이 더 몰린 시간대가 있어 AI가 패턴을 분석합니다</span>
+                <h3 style={{ margin: 0, color: NAVY, fontSize: 25 }}>이상 시간대 분석</h3>
+                <span style={{ fontSize: 15, color: '#94a3b8' }}>피크타임(17~20시)이 아닌데도 그보다 상담이 더 몰린 시간대가 있어 AI가 패턴을 분석합니다</span>
               </div>
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                   <span style={{
-                    fontSize: 14, fontWeight: 700, color: '#fff',
+                    fontSize: 21, fontWeight: 700, color: '#fff',
                     background: RISK_RED, borderRadius: 20, padding: '4px 14px',
                   }}>
                     {report.anomaly_bucket.bucket_start}~{report.anomaly_bucket.bucket_end}
                   </span>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }}>
+                  <span style={{ fontSize: 21, fontWeight: 700, color: RISK_RED }}>
                     {report.anomaly_bucket.bucket_count}건
                   </span>
-                  <span style={{ fontSize: 13, color: '#64748b' }}>
-                    집중 (당일 피크타임 최다 구간 {report.anomaly_bucket.peak_count}건보다 많음)
+                  <span style={{ fontSize: 16, color: '#64748b' }}>
+                    (당일 피크타임 최다 구간 {report.anomaly_bucket.peak_count}건보다 많음)
                   </span>
                   {report.anomaly_bucket.pattern && (
                     <span style={{
-                      fontSize: 12, fontWeight: 700, color: NAVY,
+                      fontSize: 18, fontWeight: 700, color: NAVY,
                       background: '#dbeafe', borderRadius: 20, padding: '3px 10px',
                     }}>
                       {report.anomaly_bucket.pattern} 반복
@@ -948,13 +952,13 @@ export default function DailyReport() {
                 </div>
                 {report.anomaly_bucket.summary ? (
                   <div style={{
-                    fontSize: 13, color: '#374151', lineHeight: 1.7,
+                    fontSize: 17, color: '#374151', lineHeight: 1.7,
                     borderLeft: `3px solid ${RISK_RED}`, paddingLeft: 10,
                   }}>
                     <HighlightedSummary text={report.anomaly_bucket.summary} top={report.anomaly_bucket.top_category} />
                   </div>
                 ) : report.anomaly_bucket.gemma_error ? (
-                  <div style={{ fontSize: 14, fontWeight: 700, color: RISK_RED }} title={report.anomaly_bucket.gemma_error}>
+                  <div style={{ fontSize: 17, fontWeight: 700, color: RISK_RED }} title={report.anomaly_bucket.gemma_error}>
                     AI 분석 실패 — 다시 시도해주세요
                   </div>
                 ) : null}
@@ -968,7 +972,7 @@ export default function DailyReport() {
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 background: 'none', border: '1px solid #e2e8f0', borderRadius: 8,
-                padding: '6px 14px', fontSize: 12, color: '#64748b',
+                padding: '6px 14px', fontSize: 15, color: '#64748b',
                 cursor: 'pointer', marginBottom: aiPanelOpen ? 8 : 0,
               }}
             >
