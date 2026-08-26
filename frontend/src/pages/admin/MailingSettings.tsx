@@ -1,6 +1,6 @@
-// 관리자 전용 "메일링 관리" 페이지. 일별/주간 보고서 자동 메일 발송을 설정한다.
-// 탭으로 일별/주간을 나누되(둘 다 UI·로직이 거의 같아서 같은 컴포넌트를 report_type만
-// 바꿔 재사용한다), 실제로는 한 화면에 한 섹션만 보여준다.
+// 일별/주간 보고서 자동 메일 발송 설정 화면. "자동화 관리" 페이지(AutomationManagement.tsx)의
+// "일별 보고서 발송"/"주간 보고서 발송" 탭이 이 파일이 내보내는 MailSettingsSection을
+// report_type만 바꿔 그대로 가져다 쓴다 — 둘 다 UI·로직이 거의 같아서 한 컴포넌트를 재사용한다.
 //
 // 섹션 안에서: on/off, 보고서 마감 시각(이 시각까지 보고서가 만들어져 있어야 발송), 발송
 // 시각, 발신자, 수신자(여러 명, 태그 형태로 입력), 날짜를 골라 즉시 테스트 발송, 발신
@@ -20,10 +20,13 @@
 // 발신은 회사 그룹웨어 SMTP(backend/features/mailer/mail_client.py, gm.danbiedu.co.kr)로
 // 나간다 — 사내망 전용 서버라 VPN이 연결되어 있지 않으면 연결 자체가 타임아웃나서 발송이
 // 실패한다. 이 페이지 상단에 그 사실을 눈에 띄게 안내한다(VpnNotice).
-import { useEffect, useState, type ReactNode, type KeyboardEvent } from 'react'
+import { useEffect, useState, type KeyboardEvent } from 'react'
 import { api, type MailSettings, type AuditLogEntry } from '../../api/client'
 import { useAdmin } from '../../hooks/useAdmin'
-import { AuditLogRow } from './AuditLog'
+import FieldRow from '../../components/FieldRow'
+import WarningBanner from '../../components/WarningBanner'
+import HistoryList from '../../components/HistoryList'
+import TimePicker from '../../components/TimePicker'
 
 const REPORT_LABEL: Record<MailSettings['report_type'], string> = {
   daily: '일별 보고서',
@@ -80,22 +83,9 @@ export function hasMinDeadlineGap(deadlineHour: number, deadlineMinute: number, 
 
 function VpnNotice() {
   return (
-    <div style={{
-      background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8,
-      padding: '12px 16px', fontSize: 14, color: '#92400e', marginBottom: 20, lineHeight: 1.6,
-    }}>
+    <WarningBanner>
       ⚠️ 이 메일은 <strong>사내망 전용 서버(gm.danbiedu.co.kr)</strong>로 발송됩니다. <strong>VPN이 연결되어 있지 않으면 발송이 실패합니다.</strong> 재택 등 사외에서는 먼저 VPN을 켜주세요.
-    </div>
-  )
-}
-
-function FieldRow({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 15, color: '#0f172a', fontWeight: 700, marginBottom: 8 }}>{label}</div>
-      <div>{children}</div>
-      {hint && <div style={{ fontSize: 15, color: '#334155', marginTop: 6, maxWidth: 640, lineHeight: 1.7 }}>{hint}</div>}
-    </div>
+    </WarningBanner>
   )
 }
 
@@ -228,7 +218,7 @@ function TestSendControl({ reportType, adminToken, onSent }: { reportType: MailS
   )
 }
 
-function MailSettingsSection({ reportType }: { reportType: MailSettings['report_type'] }) {
+export function MailSettingsSection({ reportType }: { reportType: MailSettings['report_type'] }) {
   const { adminToken } = useAdmin()
   const [settings, setSettings] = useState<MailSettings | null>(null)
   const [history, setHistory] = useState<AuditLogEntry[] | null>(null)
@@ -293,18 +283,10 @@ function MailSettingsSection({ reportType }: { reportType: MailSettings['report_
     )
   }
 
-  const deadlineTime = `${pad2(settings.deadline_hour)}:${pad2(settings.deadline_minute)}`
   const sendTime = `${pad2(settings.send_hour)}:${pad2(settings.send_minute)}`
   const gapValid = hasMinDeadlineGap(settings.deadline_hour, settings.deadline_minute, settings.send_hour, settings.send_minute)
-  // 발송 시각보다 최소 간격만큼 앞선 시각 — 마감 시각 입력칸의 max로 써서 브라우저가
-  // 미리 못 넘어가게 막아준다 (최종 검증은 save()와 서버가 한다).
-  const latestDeadline = (() => {
-    const total = Math.max(0, settings.send_hour * 60 + settings.send_minute - MIN_DEADLINE_SEND_GAP_MINUTES)
-    return `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`
-  })()
 
-  function updateTime(field: 'deadline' | 'send', time: string) {
-    const [h, m] = time.split(':').map(Number)
+  function updateTime(field: 'deadline' | 'send', h: number, m: number) {
     setSettings(s => s && { ...s, [`${field}_hour`]: h, [`${field}_minute`]: m })
   }
 
@@ -327,9 +309,10 @@ function MailSettingsSection({ reportType }: { reportType: MailSettings['report_
         label="보고서 마감 시각"
         hint={`이 시각까지 대상 날짜의 보고서가 만들어져 있어야 발송합니다. 이 시각을 넘겨서 보고서가 생성되면 그날은 발송하지 않고 건너뜁니다. 발송 시각보다 최소 ${MIN_DEADLINE_SEND_GAP_MINUTES}분 이상 앞서 있어야 합니다.`}
       >
-        <input
-          type="time" value={deadlineTime} max={latestDeadline} onChange={e => updateTime('deadline', e.target.value)}
-          style={{ padding: '8px 12px', border: `1px solid ${gapValid ? '#e2e8f0' : '#ef4444'}`, borderRadius: 6, fontSize: 14 }}
+        <TimePicker
+          hour={settings.deadline_hour} minute={settings.deadline_minute}
+          onChange={(h, m) => updateTime('deadline', h, m)}
+          invalid={!gapValid}
         />
         {!gapValid && (
           <span style={{ fontSize: 15, color: '#ef4444', fontWeight: 700, marginLeft: 10 }}>
@@ -339,10 +322,7 @@ function MailSettingsSection({ reportType }: { reportType: MailSettings['report_
       </FieldRow>
 
       <FieldRow label="발송 시각" hint="메일이 실제로 발송되는 시각입니다. 저장하면 바로 이 시각으로 다음 발송부터 반영됩니다.">
-        <input
-          type="time" value={sendTime} onChange={e => updateTime('send', e.target.value)}
-          style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 14 }}
-        />
+        <TimePicker hour={settings.send_hour} minute={settings.send_minute} onChange={(h, m) => updateTime('send', h, m)} />
       </FieldRow>
 
       <FieldRow label="발신자" hint={`여기 입력한 주소가 그대로 발신자로 표시됩니다 (그룹웨어 계정 주소). 아이디만 입력해도 ${DEFAULT_EMAIL_DOMAIN}이 자동으로 붙습니다.`}>
@@ -395,84 +375,9 @@ function MailSettingsSection({ reportType }: { reportType: MailSettings['report_
       ) : history.length === 0 ? (
         <div style={{ fontSize: 14, color: '#94a3b8' }}>이력 없음</div>
       ) : (
-        <MailHistoryList history={history} />
+        <HistoryList history={history} />
       )}
     </div>
   )
 }
 
-const HISTORY_PAGE_SIZE = 5
-
-function MailHistoryList({ history }: { history: AuditLogEntry[] }) {
-  const [page, setPage] = useState(1)
-  const totalPages = Math.max(1, Math.ceil(history.length / HISTORY_PAGE_SIZE))
-  const current = Math.min(page, totalPages)
-  const paged = history.slice((current - 1) * HISTORY_PAGE_SIZE, current * HISTORY_PAGE_SIZE)
-
-  return (
-    <div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {paged.map(e => <AuditLogRow key={e.id} entry={e} />)}
-      </div>
-      {totalPages > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 12 }}>
-          <button
-            onClick={() => setPage(p => Math.max(1, p - 1))} disabled={current === 1}
-            style={{ padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', fontSize: 13, cursor: current === 1 ? 'default' : 'pointer', color: current === 1 ? '#cbd5e1' : '#475569' }}
-          >
-            이전
-          </button>
-          <span style={{ fontSize: 13, color: '#64748b' }}>{current} / {totalPages}</span>
-          <button
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={current === totalPages}
-            style={{ padding: '6px 12px', border: '1px solid #e2e8f0', borderRadius: 6, background: '#fff', fontSize: 13, cursor: current === totalPages ? 'default' : 'pointer', color: current === totalPages ? '#cbd5e1' : '#475569' }}
-          >
-            다음
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer',
-        fontSize: 14, fontWeight: 700,
-        background: active ? '#4338ca' : '#f1f5f9',
-        color: active ? '#fff' : '#475569',
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
-export default function MailingSettings() {
-  const { isAdmin } = useAdmin()
-  const [tab, setTab] = useState<MailSettings['report_type']>('daily')
-
-  if (!isAdmin) {
-    return (
-      <div className="section-card">
-        <h2>🔒 관리자 전용 페이지</h2>
-        <p style={{ color: '#64748b', fontSize: 14 }}>
-          사이드바 하단의 잠금 아이콘에서 관리자 암호를 입력해야 볼 수 있습니다.
-        </p>
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <TabButton active={tab === 'daily'} onClick={() => setTab('daily')}>일별 보고서</TabButton>
-        <TabButton active={tab === 'weekly'} onClick={() => setTab('weekly')}>주간 보고서</TabButton>
-      </div>
-      <MailSettingsSection reportType={tab} />
-    </div>
-  )
-}

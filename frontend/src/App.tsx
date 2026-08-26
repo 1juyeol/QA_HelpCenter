@@ -1,6 +1,6 @@
 // 앱의 최상위 레이아웃 컴포넌트이자 라우터. 헤더(제목·날짜·마지막 수집 시각)와 사이드바를 렌더링하고
 // URL 경로에 따라 Dashboard / WingsTickets / RepeatParents / JiraBugs / KeywordTrend / 보고서 /
-// 관리자 페이지(인사이트 로드맵·API 관리·감사 로그)를 교체한다 (정책 7).
+// 관리자 페이지(인사이트 로드맵·감사 로그·자동화 관리)를 교체한다 (정책 7).
 // 마지막 수집 시각 표시를 위해 /api/collection/latest를 60초 간격으로 폴링하는 것만 여기서 담당하며,
 // 그 외 기능 로직은 모두 각 페이지 컴포넌트 안에 있다.
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
@@ -19,9 +19,8 @@ import RetentionInsight from './pages/insights/RetentionInsight'
 import DailyReport from './pages/report/DailyReport'
 import WeeklyReport from './pages/report/WeeklyReport'
 import InsightRoadmap from './pages/admin/InsightRoadmap'
-import ApiConsole from './pages/admin/ApiConsole'
 import AuditLog from './pages/admin/AuditLog'
-import MailingSettings from './pages/admin/MailingSettings'
+import AutomationManagement from './pages/admin/AutomationManagement'
 
 function headerDate() {
   const d = new Date()
@@ -59,9 +58,8 @@ export default function App() {
             <Route path="/report/daily" element={<DailyReport />} />
             <Route path="/report/weekly" element={<WeeklyReport />} />
             <Route path="/admin/insights" element={<InsightRoadmap />} />
-            <Route path="/admin/api" element={<ApiConsole />} />
             <Route path="/admin/audit" element={<AuditLog />} />
-            <Route path="/admin/mailing" element={<MailingSettings />} />
+            <Route path="/admin/automation" element={<AutomationManagement />} />
           </Routes>
         </div>
       </div>

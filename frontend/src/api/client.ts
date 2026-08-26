@@ -261,6 +261,16 @@ export interface MailSettings {
   recipients: string[]
 }
 
+// 보고서 자동 생성 설정. report_type별로 하나씩(daily/weekly) 관리 페이지("자동화 관리")에서
+// 조회·저장한다. 메일링과 달리 마감 시각·발신자·수신자 개념이 없어(생성은 그 자체가 첫
+// 단계라 기다릴 대상이 없다) on/off + 생성 시각만 있다.
+export interface GenerationSettings {
+  report_type: 'daily' | 'weekly'
+  enabled: boolean
+  generate_hour: number
+  generate_minute: number
+}
+
 export interface PeakBucket {
   bucket_start: string
   bucket_end: string
@@ -659,5 +669,17 @@ export const api = {
     const dateQ = date ? `&date=${date}` : ''
     const toQ = `&to=${encodeURIComponent(recipients.join(','))}`
     return postJsonAdmin<{ triggered: boolean }>(`/api/mail-settings/test?report_type=${reportType}${dateQ}${toQ}`, {}, token)
+  },
+
+  fetchGenerationSettings(reportType: 'daily' | 'weekly', token: string) {
+    return getAdmin<GenerationSettings>(`/api/generation-settings?report_type=${reportType}`, token)
+  },
+
+  saveGenerationSettings(settings: GenerationSettings, token: string) {
+    return postJsonAdmin<GenerationSettings>('/api/generation-settings', settings, token)
+  },
+
+  resetGenerationSettings(reportType: 'daily' | 'weekly', token: string) {
+    return deleteAdmin<GenerationSettings>(`/api/generation-settings?report_type=${reportType}`, token)
   },
 }

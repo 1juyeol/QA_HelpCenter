@@ -5,7 +5,8 @@
 # 관리하는 테이블: issues(CS 이슈), collection_log(수집 이력), insights_cache(인사이트 집계 캐시),
 #                  jira_issues(JIRA 미해결 버그 캐시 — CS 메모 매칭 건수 포함),
 #                  audit_log(관리자 제어 액션·보고서 생성 이력 — core/audit_log.py가 기록·조회 담당),
-#                  mail_settings(보고서 메일링 설정 — core/mail_settings.py가 기록·조회 담당).
+#                  mail_settings(보고서 메일링 설정 — core/mail_settings.py가 기록·조회 담당),
+#                  report_generation_settings(보고서 자동 생성 설정 — core/report_generation_settings.py가 기록·조회 담당).
 import sqlite3
 from pathlib import Path
 
@@ -125,6 +126,15 @@ def init_db():
                 sender_email    TEXT NOT NULL DEFAULT '',
                 recipients      TEXT NOT NULL DEFAULT '',
                 updated_at      TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS report_generation_settings (
+                report_type      TEXT PRIMARY KEY,
+                enabled          INTEGER NOT NULL DEFAULT 1,
+                generate_hour    INTEGER NOT NULL DEFAULT 0,
+                generate_minute  INTEGER NOT NULL DEFAULT 30,
+                updated_at       TEXT
             )
         """)
         conn.commit()

@@ -4,11 +4,13 @@
 # ★ 스케줄 약속은 _register_jobs()에만 등록한다. 시간 변경·신규 작업 추가 시 그 함수만 수정.
 #
 # 핸들러 목록 (실제 로직):
-#   _generate_yesterday_report()    : 전날 일별 보고서 자동 생성
+#   _generate_yesterday_report()    : 전날 일별 보고서 자동 생성 (생성 시각은 관리자 페이지
+#                                      "자동화 관리"에서 설정, core/report_generation_settings.py)
 #   _send_daily_report_mail()       : 직전 영업일 일별 보고서 메일 발송 (features/mailer/)
 #   _send_weekly_report_mail()      : 직전 주 주간 보고서 메일 발송 (features/mailer/)
-#   _generate_last_week_report()    : 직전 주 주간 보고서 자동 생성
-#   reschedule_mail_job(report_type): 메일링 설정 저장 직후 해당 발송 시각을 즉시 재등록
+#   _generate_last_week_report()    : 직전 주 주간 보고서 자동 생성 (매주 월요일, 생성 시각은 위와 동일하게 설정)
+#   reschedule_mail_job(report_type)      : 메일링 설정 저장 직후 해당 발송 시각을 즉시 재등록
+#   reschedule_generation_job(report_type): 생성 설정 저장 직후 해당 생성 시각을 즉시 재등록
 #   _cache_keyword_trend_today()    : 오늘 keyword_trend 미리 계산해 캐시 저장 (탐지 이력 누락 방지)
 #   collect_new(trigger)            : 실제 수집 로직 — 마지막 저장 id 이후 신규분을 id 커서 방식으로
 #                                      가져오고, 어떤 트리거가 호출했는지(collection_log.source)를 남긴다.
@@ -234,8 +236,12 @@ async def _generate_yesterday_report():
     로직 자체가 갈라질 이유가 없다 (예전엔 자동만 이상시간대 분석·5분 간격 재시도가 있는 등
     따로 구현되어 있어서 계속 어긋났었다)."""
     from features.report.report_daily import generate_report_full, get_report, has_gemma_failures
+    from core.report_generation_settings import get_generation_settings
     yesterday = str(date.today() - timedelta(days=1))
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    if not get_generation_settings("daily")["enabled"]:
+        log_action("daily_report_auto_generate_skipped", f"date={yesterday}, reason=자동 생성 꺼짐", mode="auto")
+        return
     existing = get_report(yesterday)
     if existing and not has_gemma_failures(existing):
         log_action("daily_report_auto_generate_skipped", f"date={yesterday}, reason=이미 완성된 보고서 있음", mode="auto")
@@ -313,9 +319,13 @@ async def _generate_last_week_report():
     """직전 주 월요일 날짜를 계산해 주간 보고서를 자동 생성한다. COLLECTION_ENABLED 무관하게 실행.
     일별과 동일하게 카테고리별 부분 실패를 반환값에서 확인해 감사 로그에 남긴다."""
     from features.report.report_weekly import generate_weekly_report
+    from core.report_generation_settings import get_generation_settings
     today = date.today()
     last_monday = str(today - timedelta(days=today.weekday() + 7))
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    if not get_generation_settings("weekly")["enabled"]:
+        log_action("weekly_report_auto_generate_skipped", f"week_start={last_monday}, reason=자동 생성 꺼짐", mode="auto")
+        return
     try:
         content = await generate_weekly_report(last_monday)
         failed = [r["main"] for r in content.get("risk_rows", []) if r.get("gemma_error")]
@@ -331,21 +341,53 @@ async def _generate_last_week_report():
         print(f"[{now}] 주간 보고서 생성 실패: {e}")
 
 
+# report_type('daily'/'weekly') → 그 자동 생성의 cron job id·핸들러·요일 제약.
+# generation_settings_endpoints.py가 설정 저장 직후 reschedule_generation_job()을 불러
+# 이 job의 시각을 즉시 새로 등록한다 — reschedule_mail_job()과 동일한 방식.
+# 주간은 "직전 주 월~금"이 대상이라 매주 월요일에만 돌아야 해서 day_of_week가 고정이다.
+_GENERATION_JOB_IDS = {"daily": "daily_report_generate_job", "weekly": "weekly_report_generate_job"}
+_GENERATION_JOB_HANDLERS = {"daily": _generate_yesterday_report, "weekly": _generate_last_week_report}
+_GENERATION_JOB_DAY_OF_WEEK = {"daily": None, "weekly": "mon"}
+
+
+def _register_generation_jobs(scheduler: AsyncIOScheduler) -> None:
+    from core.report_generation_settings import get_generation_settings
+    for report_type, handler in _GENERATION_JOB_HANDLERS.items():
+        settings = get_generation_settings(report_type)
+        scheduler.add_job(
+            handler, "cron", hour=settings["generate_hour"], minute=settings["generate_minute"],
+            day_of_week=_GENERATION_JOB_DAY_OF_WEEK[report_type],
+            id=_GENERATION_JOB_IDS[report_type],
+        )
+
+
+def reschedule_generation_job(report_type: str) -> None:
+    """자동화 관리 화면의 생성 설정 저장 직후 호출한다. 저장된 새 generate_hour/minute으로
+    해당 report_type의 cron job을 다시 등록한다."""
+    from core.report_generation_settings import get_generation_settings
+    if _scheduler_instance is None:
+        return
+    settings = get_generation_settings(report_type)
+    _scheduler_instance.reschedule_job(
+        _GENERATION_JOB_IDS[report_type], trigger="cron",
+        hour=settings["generate_hour"], minute=settings["generate_minute"],
+        day_of_week=_GENERATION_JOB_DAY_OF_WEEK[report_type],
+    )
+
+
 # ── 스케줄 약속 ────────────────────────────────────────────────────────────────
 # 언제 무엇을 실행할지 여기서만 등록한다.
 # 시간 변경·신규 작업 추가는 이 함수만 수정하면 된다.
 
 def _register_jobs(scheduler: AsyncIOScheduler) -> None:
-    # 일별 보고서: 매일 00:30 KST (전날 데이터 기준)
-    scheduler.add_job(_generate_yesterday_report, "cron", hour=0, minute=30)
+    # 일별/주간 보고서 생성: 시각은 관리자 페이지("자동화 관리")에서 설정한 값을 그대로
+    # 읽어와 등록한다 (기본 00:30). 설정이 바뀌면 reschedule_generation_job()이 즉시 다시 등록한다.
+    _register_generation_jobs(scheduler)
 
     # keyword_trend 캐시: 매일 08:00 KST (탐지 이력 누락 방지 — 접속 여부와 무관하게 저장)
     scheduler.add_job(_cache_keyword_trend_today, "cron", hour=8, minute=0)
 
-    # 주간 보고서: 매주 월요일 00:30 KST (직전 주 월~금 기준)
-    scheduler.add_job(_generate_last_week_report, "cron", day_of_week="mon", hour=0, minute=30)
-
-    # 일별/주간 보고서 메일 발송: 시각은 관리자 페이지("메일링 관리")에서 설정한 값을 그대로
+    # 일별/주간 보고서 메일 발송: 시각은 관리자 페이지("자동화 관리")에서 설정한 값을 그대로
     # 읽어와 등록한다 (기본 11:00). 설정이 바뀌면 reschedule_mail_job()이 즉시 다시 등록한다.
     _register_mail_jobs(scheduler)
 
