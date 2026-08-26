@@ -65,7 +65,12 @@ def gemma_detail(base: str, result: dict) -> str:
     if err:
         detail = f"{base}, status=failed{elapsed_part}, error={err}"
     elif result.get("insufficient_data"):
-        detail = f"{base}, status=insufficient_data{elapsed_part}"
+        count = result.get("analysis_count")
+        if count is not None:
+            reason = f"구체적 증상 데이터가 {count}건으로 분석 최소 기준({_MIN_ANALYSIS_MEMOS}건)에 못 미쳐 제외되었습니다."
+        else:
+            reason = INSUFFICIENT_SUMMARY
+        detail = f"{base}, status=insufficient_data, reason={reason}{elapsed_part}"
     else:
         detail = f"{base}, status=success{elapsed_part}"
     prompt = result.get("gemma_prompt")

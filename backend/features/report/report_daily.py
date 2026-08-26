@@ -35,7 +35,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 from core.db import get_conn
-from core.holidays import is_off_day
+from core.holidays import is_off_day, previous_business_day
 from core.gemma_client import call_gemma, parse_json_response
 from core.audit_log import log_action
 from core import report_progress
@@ -398,6 +398,7 @@ def _prepare_category_brief(risk_rows: list) -> None:
         row["analysis_groups"] = result["groups"]
         row["_top_category"] = result.get("top_category")
         row["insufficient_data"] = total < _MIN_ANALYSIS_MEMOS
+        row["_analysis_count"] = total
         if not row["insufficient_data"]:
             row["_prompt_section"] = result["prompt_text"]
 
@@ -649,8 +650,7 @@ async def _call_gemma_anomaly_bucket(date_str: str, all_bucket_rows: dict, peak_
 
 
 def _build_content(date_str: str, stats: dict, peak_bucket: dict, anomaly_bucket: dict | None = None) -> dict:
-    from datetime import date as _date, timedelta as _td
-    prev_date = str(_date.fromisoformat(date_str) - _td(days=1))
+    prev_date = previous_business_day(date_str)
     prev = get_report(prev_date)
     return {
         "report_date": date_str,
@@ -732,6 +732,7 @@ async def analyze_single_category(date_str: str, main_category: str) -> dict:
         "count": row["count"],
         "summary": row.get("summary", ""),
         "insufficient_data": row.get("insufficient_data", False),
+        "analysis_count": row.get("_analysis_count"),
         "gemma_error": row.get("gemma_error"),
         "gemma_prompt": row.get("_full_prompt", ""),
         "elapsed": row.get("_elapsed"),
