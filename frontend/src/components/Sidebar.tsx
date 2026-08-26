@@ -181,14 +181,6 @@ export default function Sidebar() {
         )}
         {isAdmin && (
           <NavLink
-            to="/admin/api"
-            className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
-          >
-            🔒 API 관리
-          </NavLink>
-        )}
-        {isAdmin && (
-          <NavLink
             to="/admin/audit"
             className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
           >
@@ -197,10 +189,10 @@ export default function Sidebar() {
         )}
         {isAdmin && (
           <NavLink
-            to="/admin/mailing"
+            to="/admin/automation"
             className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
           >
-            🔒 메일링 관리
+            🔒 자동화 관리
           </NavLink>
         )}
       </div>

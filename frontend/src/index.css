@@ -17,10 +17,10 @@ header {
   box-shadow: 0 2px 8px rgba(26,86,219,.25);
   flex-shrink: 0;
 }
-.header-left h1 { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
-.header-left p  { font-size: 12px; opacity: .7; margin-top: 3px; }
+.header-left h1 { font-size: 20px; font-weight: 700; letter-spacing: -.3px; }
+.header-left p  { font-size: 15px; opacity: .9; margin-top: 3px; }
 #last-collected {
-  font-size: 12px;
+  font-size: 15px;
   background: rgba(255,255,255,.15);
   padding: 5px 14px;
   border-radius: 20px;
