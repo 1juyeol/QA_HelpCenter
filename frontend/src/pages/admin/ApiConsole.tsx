@@ -1,9 +1,11 @@
-// 관리자 전용 "CS 수집 API" 콘솔. 네 가지를 보여준다:
+// 관리자 전용 "CS 수집 API" 콘솔. 세 가지를 보여준다:
 //   1) 승인된 API 호출 규칙 — 회사에 승인받은 호출 스펙을 코드 주석이 아닌 화면에 고정 기록
-//   2) CS 수집 호출 횟수 모니터링 — 날짜별 실제 호출 횟수 (GET /api/collection/daily_counts)
-//   3) 한도 초과일 호출 이력 — 하루 최대 DAILY_CALL_LIMIT회를 넘긴 날짜의 호출만 모아서 보여줌
-//      (GET /api/collection/log/over-limit). 평소엔 절대 안 넘는 게 정상이라 대부분 빈 목록.
-//   4) 오늘 호출별 상세 로그 — 호출 하나하나 클릭하면 실제로 가져온 이슈 목록까지 확인 가능
+//   2) CS 수집 호출 횟수 모니터링 — 최근 CALL_COUNT_DAYS일간 날짜별 실제 호출 횟수
+//      (GET /api/collection/daily_counts). 하루 최대 DAILY_CALL_LIMIT회를 넘긴 날은 그 자리에서
+//      펼쳐서 개별 호출 내역까지 볼 수 있다(GET /api/collection/log/over-limit, 날짜별로 접힘/
+//      5개씩 페이지네이션) — 예전엔 "한도 초과일 호출 이력"이 별도 섹션으로 날짜를 다시
+//      나열했는데, 같은 날짜가 두 곳에 쪼개져 보이는 게 불필요해서 이 표 안으로 합쳤다.
+//   3) 오늘 호출별 상세 로그 — 호출 하나하나 클릭하면 실제로 가져온 이슈 목록까지 확인 가능
 //      (GET /api/collection/log, GET /api/collection/log/{id}/issues)
 // 1)은 이 파일 안의 정적 목록, 나머지는 API를 호출한다.
 // 원래 "해야 할 일" 페이지에 다 몰려있던 걸, 내용이 많아져서 이 페이지로 분리했다.
@@ -14,12 +16,13 @@
 // 호출이 섞여 있는지 한눈에 알아볼 수 있게 한다.
 //
 // 접근 제어: useAdmin()의 isAdmin이 false면 본문 대신 잠금 안내만 보여준다.
-// 3)·4)가 보여주는 call_memo·student_id 등은 이미 /api/issues로 앱 전체에서 인증 없이
+// 2)·3)이 보여주는 call_memo·student_id 등은 이미 /api/issues로 앱 전체에서 인증 없이
 // 노출되는 데이터라(내부 CS 도구 전제) 이 엔드포인트도 별도 보호를 두지 않았다.
 import { useEffect, useState, type ReactNode } from 'react'
 import { api, type CollectionDailyCount, type CollectionLogEntry, type Issue } from '../../api/client'
 import { useAdmin } from '../../hooks/useAdmin'
 import Badge from '../../components/Badge'
+import PaginatedList from '../../components/PaginatedList'
 
 const DAILY_CALL_LIMIT = 146
 // 스케줄러가 실제로 등록하는 트리거 라벨(features/collection/scheduler.py 참고). 이 셋 외에는
@@ -85,19 +88,29 @@ function ApiRuleReference() {
   )
 }
 
+const CALL_COUNT_DAYS = 30
+
 function CollectionCallCounts() {
   const [counts, setCounts] = useState<CollectionDailyCount[] | null>(null)
+  const [overLimitEntries, setOverLimitEntries] = useState<CollectionLogEntry[] | null>(null)
 
   useEffect(() => {
-    api.fetchCollectionDailyCounts(7).then(setCounts).catch(() => setCounts([]))
+    api.fetchCollectionDailyCounts(CALL_COUNT_DAYS).then(setCounts).catch(() => setCounts([]))
+    api.fetchCollectionLogOverLimit().then(setOverLimitEntries).catch(() => setOverLimitEntries([]))
   }, [])
+
+  // 한도를 넘긴 날짜(day) → 그날의 개별 호출 목록. 위 30일 목록에서 한도 초과 표시가 뜬
+  // 날을 클릭하면 이 목록을 그대로 펼쳐서 보여준다(OverLimitDateGroup 재사용) — 날짜를
+  // 두 번 나열하지 않고 한 표 안에서 접었다 펼 수 있게 하기 위함.
+  const overLimitByDay = new Map((overLimitEntries ? groupByDay(overLimitEntries) : []).map(g => [g.day, g.entries]))
 
   return (
     <div className="section-card">
-      <h2 style={{ fontSize: 16 }}>CS 수집 호출 횟수 (최근 7일)</h2>
+      <h2 style={{ fontSize: 16 }}>CS 수집 호출 횟수 (최근 {CALL_COUNT_DAYS}일)</h2>
       <p style={{ color: '#64748b', fontSize: 14, marginTop: -6, marginBottom: 14 }}>
         collection_log는 실제로 API를 호출했을 때만 기록되므로, 이 표의 횟수가 곧 승인된
-        하루 최대 {DAILY_CALL_LIMIT}회를 지키고 있는지 그대로 보여준다.
+        하루 최대 {DAILY_CALL_LIMIT}회를 지키고 있는지 그대로 보여준다. 한도를 넘긴 날은
+        펼쳐서 개별 호출 내역을 볼 수 있다.
       </p>
       {counts === null ? (
         <div style={{ fontSize: 14, color: '#94a3b8' }}>불러오는 중...</div>
@@ -107,6 +120,10 @@ function CollectionCallCounts() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {counts.map(c => {
             const over = c.count > DAILY_CALL_LIMIT
+            const entries = overLimitByDay.get(c.day)
+            if (over && entries) {
+              return <OverLimitDateGroup key={c.day} day={c.day} entries={entries} />
+            }
             return (
               <div
                 key={c.day}
@@ -198,27 +215,40 @@ function LogRow({ entry }: { entry: CollectionLogEntry }) {
   )
 }
 
-function CollectionLogOverLimit() {
-  const [entries, setEntries] = useState<CollectionLogEntry[] | null>(null)
+// 같은 날짜의 로그끼리 묶는다. entries는 항상 id 내림차순(최신 먼저)으로 오고, id는
+// 시간순으로 늘어나므로 같은 날짜의 행은 항상 연속으로 붙어 있다 — 그룹 경계만 찾으면 된다.
+export function groupByDay(entries: CollectionLogEntry[]): Array<{ day: string; entries: CollectionLogEntry[] }> {
+  const groups: Array<{ day: string; entries: CollectionLogEntry[] }> = []
+  for (const e of entries) {
+    const day = e.collected_at.slice(0, 10)
+    const last = groups[groups.length - 1]
+    if (last && last.day === day) last.entries.push(e)
+    else groups.push({ day, entries: [e] })
+  }
+  return groups
+}
 
-  useEffect(() => {
-    api.fetchCollectionLogOverLimit().then(setEntries).catch(() => setEntries([]))
-  }, [])
+function OverLimitDateGroup({ day, entries }: { day: string; entries: CollectionLogEntry[] }) {
+  const [open, setOpen] = useState(false)
 
   return (
-    <div className="section-card">
-      <h2 style={{ fontSize: 16 }}>한도 초과일 호출 이력</h2>
-      <p style={{ color: '#64748b', fontSize: 14, marginTop: -6, marginBottom: 14 }}>
-        하루 최대 {DAILY_CALL_LIMIT}회를 넘긴 날짜의 호출만 모아서 보여준다. 평소엔 넘을 일이
-        없어 비어있는 게 정상이다.
-      </p>
-      {entries === null ? (
-        <div style={{ fontSize: 14, color: '#94a3b8' }}>불러오는 중...</div>
-      ) : entries.length === 0 ? (
-        <div style={{ fontSize: 14, color: '#94a3b8' }}>한도를 초과한 날짜 없음</div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {entries.map(e => <LogRow key={e.id} entry={e} />)}
+    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '12px 14px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
+        }}
+      >
+        <span style={{ fontSize: 15, color: '#1e293b', fontWeight: 700 }}>{day}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Badge color="#ef4444">{entries.length}회 · 한도 {DAILY_CALL_LIMIT}회 초과</Badge>
+          <span style={{ fontSize: 14, color: '#94a3b8' }}>{open ? '▲' : '▼'}</span>
+        </span>
+      </button>
+      {open && (
+        <div style={{ padding: '0 14px 14px' }}>
+          <PaginatedList items={entries} pageSize={5} getKey={e => e.id} renderItem={e => <LogRow entry={e} />} />
         </div>
       )}
     </div>
@@ -269,7 +299,6 @@ export default function ApiConsole() {
     <div>
       <ApiRuleReference />
       <CollectionCallCounts />
-      <CollectionLogOverLimit />
       <CollectionLogList />
     </div>
   )
