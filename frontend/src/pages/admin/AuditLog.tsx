@@ -2,7 +2,9 @@
 // 검색어·카테고리·수동/자동·날짜 범위로 필터링한다 (GET /api/audit/log, require_admin 보호).
 // 기록 대상(core/audit_log.py의 log_action 호출 지점 기준):
 //   admin_login / admin_login_failed, collection_toggle, gemma_url_change, jira_sync,
-//   insights_refresh(수동 /api/insights/refresh + 자동 아침보정 공통), keyword_trend_cache(자동, 매일 08:00),
+//   wings_cache_refresh(수동 /api/insights/refresh/wings + 자동, 자동화 관리에서 시각 설정),
+//   repeat_parents_cache_refresh(수동 /api/insights/refresh/repeat_parents + 자동, 자동화 관리에서 시각 설정),
+//   keyword_trend_cache(자동, 매일 08:00),
 //   daily_report_*(수동 API), daily_report_auto_generate(자동, 매일 00:30),
 //   weekly_report_*(수동 API), weekly_report_auto_generate(자동, 매주 월 00:30)
 // 조회(GET)성 액션은 남기지 않는다 — 상태를 바꾸는 작업만 기록 대상.
@@ -64,7 +66,10 @@ const ACTION_LABEL: Record<string, string> = {
   collection_toggle: 'CS 수집 on/off 전환',
   gemma_url_change: 'Gemma 서버 주소 변경',
   jira_sync: 'JIRA 동기화',
-  insights_refresh: '인사이트 캐시 갱신',
+  wings_cache_refresh: 'Wings 티켓 캐시 갱신',
+  wings_cache_refresh_skipped: 'Wings 티켓 캐시 갱신 건너뜀',
+  repeat_parents_cache_refresh: '학부모 반복 인입 캐시 갱신',
+  repeat_parents_cache_refresh_skipped: '학부모 반복 인입 캐시 갱신 건너뜀',
   keyword_trend_cache: '키워드 트렌드 캐시 저장',
   keyword_trend_cache_failed: '키워드 트렌드 캐시 저장 실패',
   daily_report_generate_stats: '일별 보고서 통계 생성',
@@ -83,6 +88,10 @@ const ACTION_LABEL: Record<string, string> = {
   weekly_report_auto_generate_failed: '주간 보고서 자동 생성 실패',
   daily_report_mail: '일별 보고서 메일 발송',
   weekly_report_mail: '주간 보고서 메일 발송',
+  generation_settings_save: '자동 생성·갱신 설정 저장',
+  generation_settings_reset: '자동 생성·갱신 설정 초기화',
+  prompt_save: 'Gemma 프롬프트 저장',
+  prompt_reset: 'Gemma 프롬프트 초기화',
 }
 
 const ACTION_CATEGORY: Record<string, Category> = {
@@ -91,7 +100,10 @@ const ACTION_CATEGORY: Record<string, Category> = {
   collection_toggle: 'collection',
   gemma_url_change: 'settings',
   jira_sync: 'settings',
-  insights_refresh: 'report',
+  wings_cache_refresh: 'report',
+  wings_cache_refresh_skipped: 'report',
+  repeat_parents_cache_refresh: 'report',
+  repeat_parents_cache_refresh_skipped: 'report',
   keyword_trend_cache: 'report',
   keyword_trend_cache_failed: 'report',
   daily_report_generate_stats: 'report',
@@ -110,6 +122,10 @@ const ACTION_CATEGORY: Record<string, Category> = {
   weekly_report_auto_generate_failed: 'report',
   daily_report_mail: 'report',
   weekly_report_mail: 'report',
+  generation_settings_save: 'settings',
+  generation_settings_reset: 'settings',
+  prompt_save: 'settings',
+  prompt_reset: 'settings',
 }
 
 const CATEGORY_LABEL: Record<Category, string> = {
@@ -184,6 +200,11 @@ export function formatField(key: string, value: string): string | null {
     case 'summary_error': return `요약 분석 오류: ${value}`
     case 'attempt': return `재시도 ${value}회차`
     case 'elapsed': return `${value}초 소요`
+    case 'prompt_key': return `프롬프트: ${value}`
+    case 'report_type': return `대상: ${value}`
+    case 'enabled': return value === 'True' ? '자동 실행 켜짐' : '자동 실행 꺼짐'
+    case 'hour': return `${value}시로 설정`
+    case 'minute': return `${value}분으로 설정`
     default: return null // 알 수 없는 키는 조용히 생략 (미래에 필드가 늘어도 깨지지 않게)
   }
 }

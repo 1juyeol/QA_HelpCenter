@@ -45,7 +45,7 @@ from features.collection.helpdesk_client import HelpdeskClient
 from core.db import get_conn
 from features.issues.classifier import classify
 from features.insights.insight_aggregations import compute_wings_tickets, compute_repeat_parents
-from features.insights.insights_cache import _save_insights_cache
+from features.insights.insights_cache import _save_wings_cache, _save_repeat_parents_cache
 from core.collection_settings import get_collection_enabled
 from core.audit_log import log_action
 
@@ -184,9 +184,11 @@ async def collect_regular():
 
 
 async def collect_morning_catchup():
-    """09:00 수집: collect_new()와 동일하게 신규분을 수집하고, 추가로 인사이트 캐시를 갱신한다."""
+    """09:00 수집: collect_new()와 동일하게 신규분을 수집한다.
+    예전엔 여기서 인사이트 캐시도 같이 갱신했는데, Wings 티켓·학부모 반복 인입을 각자 다른
+    시각에 독립적으로 자동 갱신할 수 있게 분리하면서(자동화 관리에서 설정) 이 함수에서는 뺐다
+    — wings_refresh_job/repeat_parents_refresh_job이 각자 등록된 시각에 알아서 돈다."""
     await collect_new(trigger="아침보정")
-    await update_insights_cache(mode="auto")
 
 
 async def collect_night_catchup():
@@ -194,23 +196,63 @@ async def collect_night_catchup():
     await collect_new(trigger="심야보정")
 
 
-async def update_insights_cache(mode: str = "manual"):
-    """수동(/api/insights/refresh)·자동(collect_morning_catchup) 양쪽에서 호출되는 공용 함수라
-    감사 로그 기록도 여기 한 곳에서만 남긴다 (호출부마다 따로 남기면 중복된다).
-    mode는 호출부가 명시해서 감사 로그의 수동/자동 구분에 쓰인다."""
+async def update_wings_cache(mode: str = "manual"):
+    """Wings 티켓 캐시(wings_tickets·wings_summary)만 갱신한다. 수동(관리자의 반복 Wings 티켓
+    페이지 새로고침)·자동(자동화 관리에서 설정한 시각) 양쪽에서 호출되는 공용 함수라 감사
+    로그 기록도 여기 한 곳에서만 남긴다. mode는 호출부가 명시해서 수동/자동을 구분한다.
+    조회 기간을 180일로 잡는다 — "장기미해결(30일+)"까지 놓치지 않으려면 30일보다 넉넉하게
+    봐야 한다."""
     end = str(date.today())
-    start = str(date.today() - timedelta(days=30))
+    start = str(date.today() - timedelta(days=180))
     wings = compute_wings_tickets(start, end)
-    parents = compute_repeat_parents(start, end)
     if wings:
         states = await _fetch_wings_states([t["ticket_id"] for t in wings])
         for t in wings:
             t["state"] = states.get(str(t["ticket_id"]), "확인불가")
-        wings = [t for t in wings if t["state"] not in ("해결", "요청취소", "merged")]
-    _save_insights_cache(wings, parents)
-    log_action("insights_refresh", mode=mode)
+        # "전체 티켓" 카드는 해결된 것까지 포함해서 보여줘야 하니, 걸러내기 전 스냅샷(전체·해결
+        # 건수)을 따로 남긴다 — Wings API를 또 호출하지 않고 방금 조회한 상태를 그대로 쓴다.
+        closed_states = ("해결", "요청취소", "merged")
+        summary = {"total": len(wings), "resolved": sum(1 for t in wings if t["state"] in closed_states)}
+        wings = [t for t in wings if t["state"] not in closed_states]
+    else:
+        summary = {"total": 0, "resolved": 0}
+    _save_wings_cache(wings, summary)
+    log_action("wings_cache_refresh", mode=mode)
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{now}] insights cache updated")
+    print(f"[{now}] wings cache updated")
+
+
+async def update_repeat_parents_cache(mode: str = "manual"):
+    """학부모 반복 인입 캐시(repeat_parents)만 갱신한다. 수동(관리자의 학부모 반복 인입 페이지
+    새로고침)·자동(자동화 관리에서 설정한 시각) 양쪽에서 호출되는 공용 함수다."""
+    end = str(date.today())
+    start = str(date.today() - timedelta(days=180))
+    parents = compute_repeat_parents(start, end)
+    _save_repeat_parents_cache(parents)
+    log_action("repeat_parents_cache_refresh", mode=mode)
+    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{now}] repeat parents cache updated")
+
+
+async def _wings_refresh_job():
+    """자동화 관리에서 설정한 시각에 도는 Wings 캐시 자동 갱신. daily/weekly 보고서 자동
+    생성과 같은 on/off 설정(report_generation_settings 테이블, report_type='wings_refresh')을
+    재사용한다 — 테이블·컬럼 이름은 "보고서 생성" 전용으로 지어졌지만 on/off + 시각이라는
+    형태 자체는 그대로 맞아서 새 테이블을 만들지 않고 재사용하기로 했다."""
+    from core.report_generation_settings import get_generation_settings
+    if not get_generation_settings("wings_refresh")["enabled"]:
+        log_action("wings_cache_refresh_skipped", "자동 갱신 꺼짐", mode="auto")
+        return
+    await update_wings_cache(mode="auto")
+
+
+async def _repeat_parents_refresh_job():
+    """자동화 관리에서 설정한 시각에 도는 학부모 반복 인입 캐시 자동 갱신."""
+    from core.report_generation_settings import get_generation_settings
+    if not get_generation_settings("repeat_parents_refresh")["enabled"]:
+        log_action("repeat_parents_cache_refresh_skipped", "자동 갱신 꺼짐", mode="auto")
+        return
+    await update_repeat_parents_cache(mode="auto")
 
 
 async def _cache_keyword_trend_today():
@@ -341,13 +383,23 @@ async def _generate_last_week_report():
         print(f"[{now}] 주간 보고서 생성 실패: {e}")
 
 
-# report_type('daily'/'weekly') → 그 자동 생성의 cron job id·핸들러·요일 제약.
-# generation_settings_endpoints.py가 설정 저장 직후 reschedule_generation_job()을 불러
-# 이 job의 시각을 즉시 새로 등록한다 — reschedule_mail_job()과 동일한 방식.
-# 주간은 "직전 주 월~금"이 대상이라 매주 월요일에만 돌아야 해서 day_of_week가 고정이다.
-_GENERATION_JOB_IDS = {"daily": "daily_report_generate_job", "weekly": "weekly_report_generate_job"}
-_GENERATION_JOB_HANDLERS = {"daily": _generate_yesterday_report, "weekly": _generate_last_week_report}
-_GENERATION_JOB_DAY_OF_WEEK = {"daily": None, "weekly": "mon"}
+# report_type('daily'/'weekly'/'wings_refresh'/'repeat_parents_refresh') → 그 자동 실행의
+# cron job id·핸들러·요일 제약. generation_settings_endpoints.py가 설정 저장 직후
+# reschedule_generation_job()을 불러 이 job의 시각을 즉시 새로 등록한다 — reschedule_mail_job()과
+# 동일한 방식. 주간 보고서는 "직전 주 월~금"이 대상이라 매주 월요일에만 돌아야 해서
+# day_of_week가 고정이다.
+# wings_refresh/repeat_parents_refresh는 "보고서 생성"이 아니라 인사이트 캐시 갱신이지만,
+# on/off + 시각이라는 설정 형태 자체는 report_generation_settings 테이블과 완전히 같아서
+# 새 테이블·새 스케줄링 코드를 만들지 않고 이 메커니즘을 그대로 재사용한다.
+_GENERATION_JOB_IDS = {
+    "daily": "daily_report_generate_job", "weekly": "weekly_report_generate_job",
+    "wings_refresh": "wings_refresh_job", "repeat_parents_refresh": "repeat_parents_refresh_job",
+}
+_GENERATION_JOB_HANDLERS = {
+    "daily": _generate_yesterday_report, "weekly": _generate_last_week_report,
+    "wings_refresh": _wings_refresh_job, "repeat_parents_refresh": _repeat_parents_refresh_job,
+}
+_GENERATION_JOB_DAY_OF_WEEK = {"daily": None, "weekly": "mon", "wings_refresh": None, "repeat_parents_refresh": None}
 
 
 def _register_generation_jobs(scheduler: AsyncIOScheduler) -> None:

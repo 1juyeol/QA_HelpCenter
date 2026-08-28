@@ -41,6 +41,9 @@ export interface Issue {
 
 export interface IssueList { total: number; items: Issue[] }
 
+// Wings 티켓 하나 = 한 가정의 개별 A/S 건 (여러 고객이 공유하지 않음). cs_count가 큰 건
+// "이 가정이 이 문제로 CS를 여러 번 거쳤는데도 안 풀렸다"는 신호 — 미해결 버그 트래킹(원래
+// 표)과 가정별 이탈 위험 섹션(카테고리 분포·주간 추이) 양쪽에서 이 타입을 그대로 같이 쓴다.
 export interface InsightWings {
   ticket_id: string
   cs_count: number
@@ -48,6 +51,8 @@ export interface InsightWings {
   memos: { memo: string; date: string }[]
   first_date: string
   latest_date: string
+  parent_id: number | null
+  category: string | null
 }
 
 export interface InsightParent {
@@ -264,11 +269,42 @@ export interface MailSettings {
 // 보고서 자동 생성 설정. report_type별로 하나씩(daily/weekly) 관리 페이지("자동화 관리")에서
 // 조회·저장한다. 메일링과 달리 마감 시각·발신자·수신자 개념이 없어(생성은 그 자체가 첫
 // 단계라 기다릴 대상이 없다) on/off + 생성 시각만 있다.
+export type GenerationJobType = 'daily' | 'weekly' | 'wings_refresh' | 'repeat_parents_refresh'
+
 export interface GenerationSettings {
-  report_type: 'daily' | 'weekly'
+  report_type: GenerationJobType
   enabled: boolean
   generate_hour: number
   generate_minute: number
+}
+
+// Gemma 프롬프트 편집. prompt_key별로(daily_category/daily_peak/weekly_category/weekly_summary)
+// 관리 페이지("자동화 관리")에서 조회·저장한다. fields는 이 프롬프트에 실제로 전달되는 데이터
+// 목록과, 프롬프트 규칙이 그 데이터를 쓰라고 지시하는지 여부(used: true=명시적 지시,
+// 'partial'=포괄적 지시 범위 안, false=지시 없음)를 담는다 — 백엔드가 코드와 대조해서
+// 미리 정리해둔 값이라 그대로 표시만 한다.
+export interface PromptField {
+  field: string
+  desc: string
+  used: boolean | 'partial'
+  note?: string
+}
+
+export interface PromptCatalogItem {
+  key: string
+  report_type: 'daily' | 'weekly'
+  order: number
+  label: string
+  description: string
+  fields: PromptField[]
+  customized: boolean
+}
+
+export interface PromptSettingsData {
+  prompt_key: string
+  prompt_text: string
+  default_text: string
+  customized: boolean
 }
 
 export interface PeakBucket {
@@ -325,6 +361,8 @@ export interface WeeklyRiskRow   { main: string; count: number; summary: string;
 // risk_stack: [{ date, "네트워크·앱 오류": number, "기기·하드웨어 오류": number, ... }]
 export type WeeklyRiskStackDay = { date: string } & Record<string, number>
 
+export interface WingsRepeatTrendPoint { week_start: string; new_count: number; stale_count: number }
+
 export interface WeeklyMemoItem  { date: string; sub: string; text: string }
 export interface WeeklyMemosPage {
   memos: WeeklyMemoItem[]
@@ -351,6 +389,10 @@ export interface WeeklyReport {
   risk_sub_stack_prev?: Record<string, Array<{ date: string } & Record<string, number>>>
   peak_daily: WeeklyPeakDay[]
   risk_rows: WeeklyRiskRow[]
+  wings_repeat_new_count?: number | null
+  wings_repeat_stale_count?: number | null
+  prev_wings_repeat_new_count?: number | null
+  prev_wings_repeat_stale_count?: number | null
   weekly_summary: string
   weekly_summary_error?: string | null
 }
@@ -369,12 +411,6 @@ export const adminParentUrl = (parentId: string) =>
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(`${API_BASE}${url}`)
-  if (!r.ok) throw new Error(await r.text())
-  return r.json() as Promise<T>
-}
-
-async function post<T>(url: string): Promise<T> {
-  const r = await fetch(`${API_BASE}${url}`, { method: 'POST' })
   if (!r.ok) throw new Error(await r.text())
   return r.json() as Promise<T>
 }
@@ -404,6 +440,14 @@ async function postJsonAdmin<T>(url: string, body: unknown, token: string): Prom
     headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
     body: JSON.stringify(body),
   })
+  if (r.status === 401 || r.status === 403) onAdminAuthError?.()
+  if (!r.ok) throw new Error(await r.text())
+  return r.json() as Promise<T>
+}
+
+// 관리자 전용 POST 엔드포인트(요청 본문 없음) 호출용 (예: 보고서 생성 시작).
+async function postAdmin<T>(url: string, token: string): Promise<T> {
+  const r = await fetch(`${API_BASE}${url}`, { method: 'POST', headers: { 'X-Admin-Token': token } })
   if (r.status === 401 || r.status === 403) onAdminAuthError?.()
   if (!r.ok) throw new Error(await r.text())
   return r.json() as Promise<T>
@@ -501,12 +545,20 @@ export const api = {
     return get<{ data: InsightWings[]; updated_at: string | null }>('/api/insights/wings_tickets')
   },
 
+  fetchWingsSummary() {
+    return get<{ total: number; resolved: number; updated_at: string | null }>('/api/insights/wings_summary')
+  },
+
   fetchRepeatParents() {
     return get<{ data: InsightParent[]; updated_at: string | null }>('/api/insights/repeat_parents')
   },
 
-  refreshInsights() {
-    return post<{ status: string }>('/api/insights/refresh')
+  refreshWingsInsights(token: string) {
+    return postAdmin<{ status: string }>('/api/insights/refresh/wings', token)
+  },
+
+  refreshRepeatParentsInsights(token: string) {
+    return postAdmin<{ status: string }>('/api/insights/refresh/repeat_parents', token)
   },
 
   fetchLatestCollection() {
@@ -553,26 +605,26 @@ export const api = {
     return get<{ data: JiraBugMemo[] }>(`/api/jira/bugs/${encodeURIComponent(key)}/memos`)
   },
 
-  syncJiraBugs() {
-    return post<{ status: string }>('/api/jira/sync')
+  syncJiraBugs(token: string) {
+    return postAdmin<{ status: string }>('/api/jira/sync', token)
   },
 
   fetchDailyReport(date: string) {
     return get<DailyReport>(`/api/report/daily?date=${date}`)
   },
 
-  analyzeDailyCategory(date: string, main: string) {
-    return post<{ main: string; sub: string; count: number; summary: string; insufficient_data: boolean; gemma_error?: string | null; prompt_section: string }>(
-      `/api/report/daily/analyze-category?date=${date}&main=${encodeURIComponent(main)}`
+  analyzeDailyCategory(date: string, main: string, token: string) {
+    return postAdmin<{ main: string; sub: string; count: number; summary: string; insufficient_data: boolean; gemma_error?: string | null; prompt_section: string }>(
+      `/api/report/daily/analyze-category?date=${date}&main=${encodeURIComponent(main)}`, token
     )
   },
 
-  analyzeDailyPeak(date: string) {
-    return post<PeakBucket | null>(`/api/report/daily/analyze-peak?date=${date}`)
+  analyzeDailyPeak(date: string, token: string) {
+    return postAdmin<PeakBucket | null>(`/api/report/daily/analyze-peak?date=${date}`, token)
   },
 
-  startDailyReportGeneration(date: string) {
-    return post<{ started: boolean; reason?: string }>(`/api/report/daily/generate?date=${date}`)
+  startDailyReportGeneration(date: string, token: string) {
+    return postAdmin<{ started: boolean; reason?: string }>(`/api/report/daily/generate?date=${date}`, token)
   },
 
   fetchDailyReportGenerateStatus(date: string) {
@@ -587,23 +639,23 @@ export const api = {
     return get<WeeklyReport>('/api/report/weekly/latest')
   },
 
-  generateWeeklyReportStats(weekStart: string) {
-    return post<WeeklyReport>(`/api/report/weekly/generate-stats?week_start=${weekStart}`)
+  generateWeeklyReportStats(weekStart: string, token: string) {
+    return postAdmin<WeeklyReport>(`/api/report/weekly/generate-stats?week_start=${weekStart}`, token)
   },
 
-  generateWeeklyReport(weekStart: string) {
-    return post<WeeklyReport>(`/api/report/weekly/generate?week_start=${weekStart}`)
+  generateWeeklyReport(weekStart: string, token: string) {
+    return postAdmin<WeeklyReport>(`/api/report/weekly/generate?week_start=${weekStart}`, token)
   },
 
-  analyzeWeeklyCategory(weekStart: string, main: string) {
-    return post<{ main: string; count: number; summary: string; insufficient_data: boolean; gemma_error?: string | null }>(
-      `/api/report/weekly/analyze-category?week_start=${weekStart}&main=${encodeURIComponent(main)}`
+  analyzeWeeklyCategory(weekStart: string, main: string, token: string) {
+    return postAdmin<{ main: string; count: number; summary: string; insufficient_data: boolean; gemma_error?: string | null }>(
+      `/api/report/weekly/analyze-category?week_start=${weekStart}&main=${encodeURIComponent(main)}`, token
     )
   },
 
-  analyzeWeeklySummary(weekStart: string) {
-    return post<{ summary: string; gemma_error?: string | null }>(
-      `/api/report/weekly/analyze-summary?week_start=${weekStart}`
+  analyzeWeeklySummary(weekStart: string, token: string) {
+    return postAdmin<{ summary: string; gemma_error?: string | null }>(
+      `/api/report/weekly/analyze-summary?week_start=${weekStart}`, token
     )
   },
 
@@ -611,6 +663,10 @@ export const api = {
     const p = new URLSearchParams({ week_start: weekStart, main, page: String(page) })
     if (sub) p.set('sub', sub)
     return get<WeeklyMemosPage>(`/api/report/weekly/memos?${p}`)
+  },
+
+  fetchWingsRepeatTrend(limitWeeks = 8) {
+    return get<WingsRepeatTrendPoint[]>(`/api/report/weekly/wings_repeat_trend?limit_weeks=${limitWeeks}`)
   },
 
   fetchGemmaSettings() {
@@ -671,7 +727,7 @@ export const api = {
     return postJsonAdmin<{ triggered: boolean }>(`/api/mail-settings/test?report_type=${reportType}${dateQ}${toQ}`, {}, token)
   },
 
-  fetchGenerationSettings(reportType: 'daily' | 'weekly', token: string) {
+  fetchGenerationSettings(reportType: GenerationJobType, token: string) {
     return getAdmin<GenerationSettings>(`/api/generation-settings?report_type=${reportType}`, token)
   },
 
@@ -679,7 +735,23 @@ export const api = {
     return postJsonAdmin<GenerationSettings>('/api/generation-settings', settings, token)
   },
 
-  resetGenerationSettings(reportType: 'daily' | 'weekly', token: string) {
+  resetGenerationSettings(reportType: GenerationJobType, token: string) {
     return deleteAdmin<GenerationSettings>(`/api/generation-settings?report_type=${reportType}`, token)
+  },
+
+  fetchPromptCatalog(reportType: 'daily' | 'weekly', token: string) {
+    return getAdmin<PromptCatalogItem[]>(`/api/prompt-settings/catalog?report_type=${reportType}`, token)
+  },
+
+  fetchPromptSettings(promptKey: string, token: string) {
+    return getAdmin<PromptSettingsData>(`/api/prompt-settings?prompt_key=${promptKey}`, token)
+  },
+
+  savePromptSettings(promptKey: string, promptText: string, token: string) {
+    return postJsonAdmin<PromptSettingsData>('/api/prompt-settings', { prompt_key: promptKey, prompt_text: promptText }, token)
+  },
+
+  resetPromptSettings(promptKey: string, token: string) {
+    return deleteAdmin<PromptSettingsData>(`/api/prompt-settings?prompt_key=${promptKey}`, token)
   },
 }

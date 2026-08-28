@@ -6,7 +6,9 @@
 #                  jira_issues(JIRA 미해결 버그 캐시 — CS 메모 매칭 건수 포함),
 #                  audit_log(관리자 제어 액션·보고서 생성 이력 — core/audit_log.py가 기록·조회 담당),
 #                  mail_settings(보고서 메일링 설정 — core/mail_settings.py가 기록·조회 담당),
-#                  report_generation_settings(보고서 자동 생성 설정 — core/report_generation_settings.py가 기록·조회 담당).
+#                  report_generation_settings(보고서 자동 생성 설정 — core/report_generation_settings.py가 기록·조회 담당),
+#                  prompt_settings(Gemma 시스템 프롬프트 커스텀 값 — core/prompt_settings.py가 기록·조회 담당,
+#                  없으면 코드의 기본 프롬프트 상수를 그대로 씀).
 import sqlite3
 from pathlib import Path
 
@@ -135,6 +137,13 @@ def init_db():
                 generate_hour    INTEGER NOT NULL DEFAULT 0,
                 generate_minute  INTEGER NOT NULL DEFAULT 30,
                 updated_at       TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS prompt_settings (
+                prompt_key   TEXT PRIMARY KEY,
+                prompt_text  TEXT NOT NULL,
+                updated_at   TEXT
             )
         """)
         conn.commit()

@@ -23,8 +23,10 @@ import {
   api,
   type WeeklyReport as WeeklyReportType,
   type WeeklyDayCount,
+  type WingsRepeatTrendPoint,
 } from '../../api/client'
 import CategoryMemoModal from '../../components/CategoryMemoModal'
+import { useAdmin } from '../../hooks/useAdmin'
 
 const NAVY = '#1e3c72'
 const NAVY2 = '#2a5298'
@@ -58,6 +60,35 @@ function fmtDate(dateStr: string): string {
   const dow = new Date(dateStr + 'T12:00:00').getDay()
   const idx = (dow + 6) % 7
   return `${dateStr.slice(5).replace('-', '/')}(${DAYS_KO[idx]})`
+}
+
+// dateStr(YYYY-MM-DD)의 하루 전날을 같은 형식으로 반환. toISOString()은 KST 자정 근처
+// 날짜를 UTC 기준으로 하루 밀리므로 로컬 날짜 구성요소로 직접 조립한다.
+function dayBefore(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00')
+  d.setDate(d.getDate() - 1)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function signedCount(delta: number): string {
+  if (delta === 0) return '±0건'
+  return delta > 0 ? `+${delta}건` : `${delta}건`
+}
+
+// "반복 Wings 티켓" 섹션의 카드 아래 문장. 카드가 이미 보여주는 현재 건수를 그대로
+// 반복하지 않고, 카드에 없는 정보(지난주 대비 증감)만 담는다 — Gemma 없이 규칙 기반으로
+// 계산되고 실제 숫자가 바뀌는 대로 매주 자연스럽게 달라지므로, 매번 똑같이 뜨는 상시
+// 문구(해결방안에서 뺐던 것과 같은 문제)가 되지 않는다. 지난주 보고서가 없어 델타를
+// 알 수 없으면(newDelta/staleDelta가 null) 비교 없이 현재 값만 말한다 — 다른 KPI
+// 카드의 delta=null 처리(배지 없음)와 같은 원칙.
+export function formatWingsRepeatTrend(staleCount: number, newDelta: number | null, staleDelta: number | null): string {
+  if (newDelta == null || staleDelta == null) {
+    return `현재 방치 중인 반복 미해결 케이스는 ${staleCount}건입니다.`
+  }
+  return `지난주 대비 신규 케이스는 ${signedCount(newDelta)}, 방치 케이스는 ${signedCount(staleDelta)} 변동했습니다. 현재 누적 방치 건수는 ${staleCount}건입니다.`
 }
 
 function getWeekLabel(weekStart: string): string {
@@ -294,10 +325,12 @@ const WEEKLY_TEST_TARGETS = [...RISK_MAINS, '종합 브리핑']
 
 function WeeklyTestPanel({
   weekStart,
+  adminToken,
   onCategoryResult,
   onSummaryResult,
 }: {
   weekStart: string
+  adminToken: string
   onCategoryResult: (main: string, summary: string, gemmaError?: string | null) => void
   onSummaryResult: (summary: string, gemmaError?: string | null) => void
 }) {
@@ -312,11 +345,11 @@ function WeeklyTestPanel({
     setError('')
     try {
       if (target === '종합 브리핑') {
-        const r = await api.analyzeWeeklySummary(weekStart)
+        const r = await api.analyzeWeeklySummary(weekStart, adminToken)
         setResult({ label: '종합 브리핑', summary: r.summary, gemma_error: r.gemma_error })
         onSummaryResult(r.summary, r.gemma_error)
       } else {
-        const r = await api.analyzeWeeklyCategory(weekStart, target)
+        const r = await api.analyzeWeeklyCategory(weekStart, target, adminToken)
         setResult({ label: target, summary: r.summary, insufficient_data: r.insufficient_data, gemma_error: r.gemma_error })
         onCategoryResult(target, r.summary, r.gemma_error)
       }
@@ -372,6 +405,7 @@ function WeeklyTestPanel({
 // ── 메인 페이지 ───────────────────────────────────────────────────────────────
 
 export default function WeeklyReport() {
+  const { isAdmin, adminToken } = useAdmin()
   const mondays = getRecentMondays()
   const [searchParams] = useSearchParams()
   // 감사 로그의 "보고서 보기" 링크(?week_start=)로 들어온 경우 그 주를 바로 보여준다.
@@ -384,6 +418,8 @@ export default function WeeklyReport() {
   const [generating, setGenerating] = useState(false)
   const [aiGenerating, setAiGenerating] = useState(false)
   const [notFound, setNotFound] = useState(false)
+  // 선택한 주와 무관하게(특정 week_start 하나가 아니라 최근 N주 전체) 딱 한 번만 불러온다.
+  const [wingsTrend, setWingsTrend] = useState<WingsRepeatTrendPoint[]>([])
 
   type ModalState = { main: string; dateStart: string; dateEnd: string; initialSubs?: string[]; fullDateStart?: string; fullDateEnd?: string; allowedSubs?: string[] }
   const [hiddenDonutItems, setHiddenDonutItems] = useState<Set<number>>(new Set())
@@ -393,12 +429,19 @@ export default function WeeklyReport() {
   // Chart.js 캔버스 및 인스턴스
   const sqiRef      = useRef<HTMLCanvasElement>(null)
   const donutRef    = useRef<HTMLCanvasElement>(null)
+  const wingsTrendRef = useRef<HTMLCanvasElement>(null)
   const sqiChart    = useRef<Chart | null>(null)
   const donutChart  = useRef<Chart | null>(null)
+  const wingsTrendChart = useRef<Chart | null>(null)
 
   useEffect(() => {
     loadReport()
   }, [weekStart])
+
+  // 반복 Wings 티켓 추이는 선택한 주와 무관하게 최근 몇 주 전체를 한 번만 불러온다.
+  useEffect(() => {
+    api.fetchWingsRepeatTrend(8).then(setWingsTrend).catch(() => setWingsTrend([]))
+  }, [])
 
   useEffect(() => {
     if (!highlightTarget || !report || hasScrolledToHighlight.current) return
@@ -416,7 +459,45 @@ export default function WeeklyReport() {
   useEffect(() => () => {
     sqiChart.current?.destroy()
     donutChart.current?.destroy()
+    wingsTrendChart.current?.destroy()
   }, [])
+
+  // 장기미해결 CS 추이 차트 — 방치(누적 백로그)는 추세가 중요하니 선으로, 신규(주별 발생량)는
+  // 막대로 섞은 콤보 차트다. 막대 2개보다 "쌓이고 있는지 줄고 있는지"가 한눈에 들어온다.
+  useEffect(() => {
+    if (!wingsTrendRef.current) return
+    wingsTrendChart.current?.destroy()
+    if (wingsTrend.length === 0) return
+    wingsTrendChart.current = new Chart(wingsTrendRef.current, {
+      type: 'bar',
+      data: {
+        labels: wingsTrend.map(t => getWeekLabel(t.week_start)),
+        datasets: [
+          {
+            type: 'bar', label: '신규', data: wingsTrend.map(t => t.new_count),
+            backgroundColor: NAVY, order: 2,
+          },
+          {
+            type: 'line', label: '방치', data: wingsTrend.map(t => t.stale_count),
+            borderColor: RISK_RED, backgroundColor: RISK_RED, pointRadius: 4,
+            tension: 0.3, order: 1,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 } } },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw}건` } },
+        },
+        scales: {
+          x: { ticks: { font: { size: 11 } } },
+          y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 } } },
+        },
+      },
+    })
+  }, [wingsTrend])
 
   // 보고서 변경 시 차트 재생성
   useEffect(() => {
@@ -455,17 +536,18 @@ export default function WeeklyReport() {
   }
 
   async function handleGenerate() {
+    if (!adminToken) return
     setGenerating(true)
     try {
       // 1단계: 통계만 생성 → 차트 바로 렌더링
-      const statsData = await api.generateWeeklyReportStats(weekStart)
+      const statsData = await api.generateWeeklyReportStats(weekStart, adminToken)
       setReport(statsData)
       setNotFound(false)
       setGenerating(false)
 
       // 2단계: AI 분석 → 요약 채움
       setAiGenerating(true)
-      const fullData = await api.generateWeeklyReport(weekStart)
+      const fullData = await api.generateWeeklyReport(weekStart, adminToken)
       setReport(fullData)
     } catch (e) {
       console.error('보고서 생성 실패:', e)
@@ -604,6 +686,17 @@ export default function WeeklyReport() {
     ? report.daily_counts.filter(d => !d.is_weekend && d.count > 0).length
     : 0
 
+  // wings_repeat는 insights_cache(현재 열려있는 티켓만 남는 스냅샷) 기반이라 지난주 값을
+  // 실시간 재계산할 수 없다 — report_weekly.py가 지난주 생성 시점에 저장해둔 값을 그대로
+  // 내려준다. 지난주 보고서가 없으면 prev_*가 null이라 delta도 null → 다른 KPI 카드와
+  // 똑같이 배지 자체가 안 뜬다(DeltaBadge: delta==null → null 반환).
+  const wingsNewDelta = report?.prev_wings_repeat_new_count != null
+    ? (report.wings_repeat_new_count ?? 0) - report.prev_wings_repeat_new_count
+    : null
+  const wingsStaleDelta = report?.prev_wings_repeat_stale_count != null
+    ? (report.wings_repeat_stale_count ?? 0) - report.prev_wings_repeat_stale_count
+    : null
+
   const sortedBreakdown = report ? [...report.category_breakdown].sort((a, b) => b.count - a.count) : []
   const totalCatCount = sortedBreakdown.reduce((s, c) => s + c.count, 0)
 
@@ -626,19 +719,23 @@ export default function WeeklyReport() {
             <option key={m} value={m}>{getWeekLabel(m)} ({m} ~ {addDays(m, 6)})</option>
           ))}
         </select>
-        <button
-          onClick={handleGenerate}
-          disabled={generating || aiGenerating || loading}
-          style={{
-            padding: '8px 18px',
-            background: generating || aiGenerating ? '#94a3b8' : NAVY,
-            color: '#fff', border: 'none', borderRadius: 8,
-            cursor: generating || aiGenerating ? 'default' : 'pointer',
-            fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
-          }}
-        >
-          {generating ? '집계 중...' : aiGenerating ? 'AI 분석 중...' : report ? '↻ 재생성' : '보고서 생성'}
-        </button>
+        {isAdmin ? (
+          <button
+            onClick={handleGenerate}
+            disabled={generating || aiGenerating || loading}
+            style={{
+              padding: '8px 18px',
+              background: generating || aiGenerating ? '#94a3b8' : NAVY,
+              color: '#fff', border: 'none', borderRadius: 8,
+              cursor: generating || aiGenerating ? 'default' : 'pointer',
+              fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
+            }}
+          >
+            {generating ? '집계 중...' : aiGenerating ? 'AI 분석 중...' : report ? '↻ 재생성' : '보고서 생성'}
+          </button>
+        ) : (
+          <span style={{ fontSize: 14, color: '#94a3b8' }}>🔒 관리자 로그인 후 생성 가능</span>
+        )}
       </div>
 
       {/* 로딩 */}
@@ -667,7 +764,7 @@ export default function WeeklyReport() {
               {weekStart} ~ {weekEnd} 보고서가 없습니다.
             </div>
             <div style={{ fontSize: 13, color: '#cbd5e1' }}>
-              "보고서 생성" 버튼을 클릭해 Gemma 분석을 시작하세요.
+              {isAdmin ? '"보고서 생성" 버튼을 클릭해 Gemma 분석을 시작하세요.' : '관리자 로그인 후 보고서를 생성할 수 있습니다.'}
             </div>
           </div>
         </div>
@@ -923,6 +1020,35 @@ export default function WeeklyReport() {
           </div>
           )}
 
+          {/* 장기미해결 CS 현황 — 같은 건으로 CS가 여러 차례 이어지는 케이스의 신규/방치 건수.
+              카테고리 비중은 위 "리스크 카테고리별 AI 분석"과 겹쳐서 다루지 않고, 개별
+              학부모를 짚는 내용도 넣지 않는다(그건 인사이트 페이지의 반복 Wings 티켓
+              표에서만 다룬다) — 순수 집계는 report_weekly.py의 _wings_repeat_counts. */}
+          <div className="section-card" style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
+              <h2 style={{ margin: 0, fontSize: 22, color: NAVY }}>장기미해결 CS 현황</h2>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>같은 건으로 CS가 여러 차례 이어질수록 해당 가정의 이탈(해지) 위험이 커집니다</span>
+            </div>
+            <div style={{ display: 'flex', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
+              <KpiCard
+                label="신규 (이번 주)" value={(report.wings_repeat_new_count ?? 0).toLocaleString()} unit="건"
+                color={NAVY} isSecondary delta={wingsNewDelta} deltaUnit="건" deltaInvert
+              />
+              <KpiCard
+                label={`방치 (${fmtDate(dayBefore(report.week_start))} 이전부터)`} value={(report.wings_repeat_stale_count ?? 0).toLocaleString()} unit="건"
+                color={RISK_RED} isSecondary delta={wingsStaleDelta} deltaUnit="건" deltaInvert
+              />
+            </div>
+            <div style={{ fontSize: 14, color: '#374151', lineHeight: 1.7, marginBottom: wingsTrend.length > 0 ? 14 : 0 }}>
+              {formatWingsRepeatTrend(report.wings_repeat_stale_count ?? 0, wingsNewDelta, wingsStaleDelta)}
+            </div>
+            {wingsTrend.length > 0 && (
+              <div style={{ height: 180, paddingTop: 10, borderTop: '1px dashed #e2e8f0' }}>
+                <canvas ref={wingsTrendRef} />
+              </div>
+            )}
+          </div>
+
           {/* 주간 종합 분석 (전체 폭) */}
           <div className="section-card" id="summary-section">
             <div style={{
@@ -953,6 +1079,7 @@ export default function WeeklyReport() {
             }
           </div>
 
+          {isAdmin && adminToken && (
           <div style={{ marginTop: 8 }}>
             <button
               onClick={() => setTestPanelOpen(o => !o)}
@@ -967,6 +1094,7 @@ export default function WeeklyReport() {
             {testPanelOpen && (
               <WeeklyTestPanel
                 weekStart={weekStart}
+                adminToken={adminToken}
                 onCategoryResult={(main, summary, gemmaError) => {
                   setReport(prev => prev ? {
                     ...prev,
@@ -979,6 +1107,7 @@ export default function WeeklyReport() {
               />
             )}
           </div>
+          )}
         </>
       )}
 

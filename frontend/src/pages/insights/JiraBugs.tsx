@@ -2,10 +2,11 @@
 // DQ-424 에픽 하위 이슈 중 [학생앱]·[학부모앱]·[PC홈페이지] 태그가 있고 종료·완료 아닌 이슈를 표시한다.
 // 각 이슈별로 CS 메모 키워드 매칭으로 집계된 연관 CS 건수를 보여주며, 건수 내림차순으로 정렬된다.
 // 행 클릭 시 해당 이슈에 연관된 CS 메모 전체를 펼쳐 보여준다 (지연 로딩).
-// 데이터: GET /api/jira/bugs (캐시 60분), GET /api/jira/bugs/{key}/memos, POST /api/jira/sync.
+// 데이터: GET /api/jira/bugs (캐시 60분), GET /api/jira/bugs/{key}/memos, POST /api/jira/sync(관리자 전용).
 import { Fragment, useEffect, useRef, useState } from 'react'
 import Chart from 'chart.js/auto'
 import { api, type JiraBug, type JiraBugMemo } from '../../api/client'
+import { useAdmin } from '../../hooks/useAdmin'
 
 const STATUS_COLOR: Record<string, string> = {
   '미해결':       '#ef4444',
@@ -30,6 +31,7 @@ function statusBadge(status: string) {
 }
 
 export default function JiraBugs() {
+  const { isAdmin, adminToken } = useAdmin()
   const [bugs, setBugs] = useState<JiraBug[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -90,9 +92,10 @@ export default function JiraBugs() {
   }
 
   async function handleSync() {
+    if (!adminToken) return
     setSyncing(true)
     try {
-      await api.syncJiraBugs()
+      await api.syncJiraBugs(adminToken)
       await load()
     } finally {
       setSyncing(false)
@@ -140,17 +143,21 @@ export default function JiraBugs() {
                 동기화: {syncedAt}
               </span>
             )}
-            <button
-              onClick={handleSync}
-              disabled={syncing || loading}
-              style={{
-                padding: '8px 16px', background: '#fff', border: '1px solid #e2e8f0',
-                borderRadius: 8, cursor: syncing ? 'default' : 'pointer',
-                fontSize: 13, fontWeight: 500, color: '#374151', whiteSpace: 'nowrap',
-              }}
-            >
-              {syncing ? '동기화 중...' : '↻ 새로고침'}
-            </button>
+            {isAdmin ? (
+              <button
+                onClick={handleSync}
+                disabled={syncing || loading}
+                style={{
+                  padding: '8px 16px', background: '#fff', border: '1px solid #e2e8f0',
+                  borderRadius: 8, cursor: syncing ? 'default' : 'pointer',
+                  fontSize: 13, fontWeight: 500, color: '#374151', whiteSpace: 'nowrap',
+                }}
+              >
+                {syncing ? '동기화 중...' : '↻ 새로고침'}
+              </button>
+            ) : (
+              <span style={{ fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}>🔒 관리자 로그인 후 새로고침 가능</span>
+            )}
           </div>
         </div>
 

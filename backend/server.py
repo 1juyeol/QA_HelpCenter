@@ -33,6 +33,7 @@ from features.admin.admin_endpoints import router as admin_router
 from features.admin.audit_endpoints import router as audit_router
 from features.mailer.mail_endpoints import router as mail_router
 from features.report.generation_settings_endpoints import router as generation_settings_router
+from features.report.prompt_settings_endpoints import router as prompt_settings_router
 
 
 app = FastAPI()
@@ -55,6 +56,7 @@ app.include_router(admin_router)
 app.include_router(audit_router)
 app.include_router(mail_router)
 app.include_router(generation_settings_router)
+app.include_router(prompt_settings_router)
 
 
 @app.on_event("startup")
