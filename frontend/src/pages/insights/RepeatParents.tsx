@@ -14,6 +14,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import Chart from 'chart.js/auto'
 import { api, adminParentUrl, type InsightParent } from '../../api/client'
 import { ALLOWED_MAIN, ALLOWED_SPECIFIC, FILTER_TREE, isAllowedCategory } from '../../api/categories'
+import { useAdmin } from '../../hooks/useAdmin'
 
 const CATEGORY_COLORS: Record<string, string> = {
   '네트워크·앱 오류':   '#3b82f6',
@@ -108,6 +109,7 @@ function memoMatches(category: string, f: ActiveFilter): boolean {
 // ── 컴포넌트 ──────────────────────────────────────────────────────────────────
 
 export default function RepeatParents() {
+  const { isAdmin, adminToken } = useAdmin()
   const [data, setData]             = useState<InsightParent[]>([])
   const [updatedAt, setUpdatedAt]   = useState('')
   const [loading, setLoading]       = useState(true)
@@ -133,9 +135,10 @@ export default function RepeatParents() {
   }
 
   async function handleRefresh() {
+    if (!adminToken) return
     setRefreshing(true)
     try {
-      await api.refreshInsights()
+      await api.refreshRepeatParentsInsights(adminToken)
       await load()
     } finally {
       setRefreshing(false)
@@ -312,13 +315,17 @@ export default function RepeatParents() {
       <div className="section-card">
         <div className="insight-toolbar">
           <span style={{ fontSize: 12, color: '#94a3b8' }}>{updatedAt}</span>
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            style={{ padding: '8px 16px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, cursor: refreshing ? 'default' : 'pointer', fontSize: 13, fontWeight: 500, color: '#374151' }}
-          >
-            {refreshing ? '업데이트 중...' : '↻ 새로고침'}
-          </button>
+          {isAdmin ? (
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              style={{ padding: '8px 16px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, cursor: refreshing ? 'default' : 'pointer', fontSize: 13, fontWeight: 500, color: '#374151' }}
+            >
+              {refreshing ? '업데이트 중...' : '↻ 새로고침'}
+            </button>
+          ) : (
+            <span style={{ fontSize: 12, color: '#94a3b8' }}>🔒 관리자 로그인 후 새로고침 가능</span>
+          )}
         </div>
 
         {!loading && data.length > 0 && (

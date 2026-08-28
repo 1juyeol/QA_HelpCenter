@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 # 인사이트 집계 순수 계산 함수. DB를 직접 조회해 집계 결과를 반환하며, 저장은 insights_cache.py가 담당한다.
 # compute_wings_tickets : call_memo에서 Wings 티켓 URL을 정규식으로 추출해 동일 티켓 ID에 연결된 CS 건을
-#   집계한다. 2건 이상 언급된 티켓만 반환 — 다수 고객에게 영향을 주는 미처리 티켓을 찾는 것이 목적이다.
+#   집계한다. 언급이 1건뿐인 티켓도 포함한다("전체 티켓" 집계에 필요) — 호출부(scheduler.py)가 Wings
+#   상태를 조회해 해결/취소/merged를 걸러내는 건 이후 단계다. Wings 티켓은 1건=1가정 전용 A/S
+#   케이스라(여러 고객이 같은 티켓을 공유하지 않음), cs_count가 큰 건 "여러 고객에게 퍼진 버그"가
+#   아니라 "그 가정 하나가 CS를 여러 번 거쳤는데도 안 풀린 것" — 미해결 버그 트래킹(개발팀 압박)과
+#   가정별 이탈 위험 파악 양쪽에 다 쓰여서, parent_id·카테고리(new_category_main)도 같이 뽑는다.
 # compute_repeat_parents: parent_id 기준 30일 내 3회 이상 인입한 학부모를 집계한다.
 #   parent_id <= 100000은 내부 테스트 계정이므로 제외한다.
 import re
@@ -11,20 +15,17 @@ from core.db import get_conn
 WINGS_TICKET_RE = re.compile(r'wings\.danbiedu\.co\.kr/#ticket/zoom/(\d+)')
 
 
-def compute_wings_tickets(start_date: str, end_date: str, limit: int = 50) -> list:
-    with get_conn() as conn:
-        rows = conn.execute(
-            """
-            SELECT datetime(created_date, '+9 hours') AS kst_date, call_memo
-            FROM issues
-            WHERE date(datetime(created_date, '+9 hours')) BETWEEN ? AND ?
-              AND call_memo LIKE '%wings.danbiedu.co.kr/#ticket/zoom/%'
-            ORDER BY kst_date DESC
-            """,
-            (start_date, end_date),
-        ).fetchall()
-
-    counts = defaultdict(lambda: {"cs_count": 0, "latest_date": None, "first_date": None, "memos": []})
+def group_wings_tickets(rows: list, limit: int = 50) -> list:
+    """compute_wings_tickets()의 순수 집계 부분. rows는 kst_date·call_memo·parent_id·
+    new_category_main 키를 가진 행(dict 또는 sqlite3.Row) 목록 — DB 조회와 분리해서 이 부분만
+    단위 테스트한다. 같은 티켓에 여러 memo가 있어도 parent_id·카테고리는 첫 번째로 발견되는
+    값 하나만 쓴다(같은 가정 케이스라 값이 갈릴 이유가 없다 — null인 행이 섞여 있을 때만 대비).
+    parent_id <= 100000은 내부 테스트 계정(compute_repeat_parents와 동일 기준)이라 채택하지 않는다.
+    언급이 1건뿐인 티켓도 결과에 포함한다 — "여러번 인입"(cs_count > 1) 여부는 호출부가
+    필요에 따라 걸러 쓴다."""
+    counts = defaultdict(lambda: {
+        "cs_count": 0, "latest_date": None, "first_date": None, "memos": [], "parent_id": None, "category": None,
+    })
     for r in rows:
         for ticket_id in WINGS_TICKET_RE.findall(r["call_memo"] or ""):
             entry = counts[ticket_id]
@@ -33,15 +34,34 @@ def compute_wings_tickets(start_date: str, end_date: str, limit: int = 50) -> li
                 entry["latest_date"] = r["kst_date"]
             entry["first_date"] = r["kst_date"]
             entry["memos"].append({"date": r["kst_date"], "memo": r["call_memo"]})
+            if entry["parent_id"] is None and r["parent_id"] is not None and r["parent_id"] > 100000:
+                entry["parent_id"] = r["parent_id"]
+            if entry["category"] is None and r["new_category_main"]:
+                entry["category"] = r["new_category_main"]
 
     result = [
         {"ticket_id": tid, "cs_count": info["cs_count"], "latest_date": info["latest_date"],
-         "first_date": info["first_date"], "memos": info["memos"]}
+         "first_date": info["first_date"], "memos": info["memos"],
+         "parent_id": info["parent_id"], "category": info["category"]}
         for tid, info in counts.items()
-        if info["cs_count"] > 1
     ]
     result.sort(key=lambda x: -x["cs_count"])
     return result[:limit]
+
+
+def compute_wings_tickets(start_date: str, end_date: str, limit: int = 50) -> list:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT datetime(created_date, '+9 hours') AS kst_date, call_memo, parent_id, new_category_main
+            FROM issues
+            WHERE date(datetime(created_date, '+9 hours')) BETWEEN ? AND ?
+              AND call_memo LIKE '%wings.danbiedu.co.kr/#ticket/zoom/%'
+            ORDER BY kst_date DESC
+            """,
+            (start_date, end_date),
+        ).fetchall()
+    return group_wings_tickets(rows, limit)
 
 
 def compute_repeat_parents(start_date: str, end_date: str, limit: int = 100) -> list:

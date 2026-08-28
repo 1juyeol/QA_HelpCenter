@@ -22,14 +22,16 @@ import WarningBanner from '../../components/WarningBanner'
 import HistoryList from '../../components/HistoryList'
 import TimePicker from '../../components/TimePicker'
 
-const REPORT_LABEL: Record<GenerationSettings['report_type'], string> = {
+type DailyOrWeekly = 'daily' | 'weekly'
+
+const REPORT_LABEL: Record<DailyOrWeekly, string> = {
   daily: '일별 보고서',
   weekly: '주간 보고서',
 }
 
 // 이 report_type의 생성 파이프라인이 남기는 감사 로그 action 전부. 요약(성공/스킵/실패)뿐
 // 아니라 카테고리별 세부 분석 로그까지 이력에 그대로 보여준다.
-const HISTORY_ACTIONS: Record<GenerationSettings['report_type'], string[]> = {
+const HISTORY_ACTIONS: Record<DailyOrWeekly, string[]> = {
   daily: [
     'daily_report_generate_complete', 'daily_report_auto_generate_skipped', 'daily_report_auto_generate_failed',
     'daily_report_analyze_category', 'daily_report_analyze_peak', 'daily_report_analyze_anomaly', 'daily_report_retry_failed',
@@ -40,7 +42,7 @@ const HISTORY_ACTIONS: Record<GenerationSettings['report_type'], string[]> = {
   ],
 }
 
-export function GenerationSettingsSection({ reportType }: { reportType: GenerationSettings['report_type'] }) {
+export function GenerationSettingsSection({ reportType }: { reportType: DailyOrWeekly }) {
   const { adminToken } = useAdmin()
   const [settings, setSettings] = useState<GenerationSettings | null>(null)
   const [history, setHistory] = useState<AuditLogEntry[] | null>(null)

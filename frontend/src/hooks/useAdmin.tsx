@@ -5,7 +5,9 @@
 // 그 이후엔 isAdmin이 true로 보여도 실제 API 호출은 401/403이 날 수 있다 — 이 경우
 // client.ts의 setAdminAuthErrorHandler(logout)로 등록해둔 콜백이 즉시 불려 자동 로그아웃
 // 처리된다. 예전엔 사용자가 사이드바에서 수동으로 "관리자 모드 끄기"를 눌러야만 재로그인
-// 화면이 떴다.
+// 화면이 떴다. 다만 이건 실제로 관리자 API를 호출해야만 감지되므로, 탭이 다시 보일 때
+// 감사 로그 1건을 조용히 조회해 토큰이 살아있는지 미리 확인한다(아래 두 번째 useEffect) —
+// 그래야 "로그인된 줄 알고 보고서 생성을 눌렀는데 이미 풀려있던" 상황을 미리 잡아낸다.
 //
 // Context로 만든 이유: 예전엔 컴포넌트마다 이 훅을 각자 호출해서(local useState) 로그인 상태가
 // 컴포넌트별로 따로 놀았다 — 사이드바에서 로그인해도 이미 열려 있던 다른 관리자 페이지는
@@ -53,6 +55,22 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setAdminAuthErrorHandler(logout)
     return () => setAdminAuthErrorHandler(null)
   }, [logout])
+
+  // 서버가 재시작되면 토큰이 무효화되는데, 실제로 관리자 API를 호출하기 전까진 화면에
+  // "로그인된 상태"로 계속 남아있는다 — 그 상태로 보고서 생성 등을 눌렀다가 그제서야
+  // 로그인이 풀린 걸 알게 되는 문제가 있었다. 탭이 다시 보일 때(다른 탭 갔다 돌아오는 등)
+  // 가벼운 관리자 GET(감사 로그 1건)을 조용히 호출해 토큰이 살아있는지 미리 확인한다 —
+  // 실패하면 getAdmin이 이미 onAdminAuthError를 호출하므로 여기선 에러를 그냥 무시한다.
+  useEffect(() => {
+    if (!token) return
+    const verify = () => { api.fetchAuditLog(token, 1).catch(() => {}) }
+    verify()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') verify()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [token])
 
   const value: AdminContextValue = { isAdmin: !!token, adminToken: token, verify, logout }
   return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>

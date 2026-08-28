@@ -19,6 +19,7 @@ import Chart from 'chart.js/auto'
 import { api, type DailyReport, type RiskRow, type BucketRow, type Issue, type PeakBucket, type TopCategory } from '../../api/client'
 import CategoryMemoModal from '../../components/CategoryMemoModal'
 import AlertModal from '../../components/AlertModal'
+import { useAdmin } from '../../hooks/useAdmin'
 
 const NAVY = '#1e3c72'
 const NAVY2 = '#2a5298'
@@ -64,10 +65,12 @@ type CategoryResult = { main?: string; sub: string; count: number; summary: stri
 
 function CategoryTestPanel({
   date,
+  adminToken,
   onCategoryResult,
   onPeakResult,
 }: {
   date: string
+  adminToken: string
   onCategoryResult: (main: string, summary: string, gemmaError?: string | null) => void
   onPeakResult: (peak: PeakBucket | null) => void
 }) {
@@ -88,11 +91,11 @@ function CategoryTestPanel({
     resetResults()
     try {
       if (target === '피크타임 패턴 분석') {
-        const data = await api.analyzeDailyPeak(date)
+        const data = await api.analyzeDailyPeak(date, adminToken)
         setPeakResult(data)
         onPeakResult(data)
       } else {
-        const data = await api.analyzeDailyCategory(date, target)
+        const data = await api.analyzeDailyCategory(date, target, adminToken)
         setCatResult(data)
         onCategoryResult(target, data.summary, data.gemma_error)
       }
@@ -571,6 +574,7 @@ function showReportNotification(data: DailyReport, targetUrl: string) {
 // ── 메인 페이지 ───────────────────────────────────────────────────────────────
 
 export default function DailyReport() {
+  const { isAdmin, adminToken } = useAdmin()
   const [searchParams, setSearchParams] = useSearchParams()
   const [date, setDate] = useState(() => searchParams.get('date') ?? yesterday())
   // 감사 로그의 "보고서 보기" 링크(?highlight=)로 들어온 경우 해당 카테고리/구간으로 스크롤한다.
@@ -693,13 +697,14 @@ export default function DailyReport() {
   // 처리 안 된 나머지 단계가 통째로 유실됐다 — 이제는 서버가 순서를 관리하므로 새로고침해도
   // 이어서 진행되고, resumeGenerationIfRunning()이 그 진행 상태를 다시 보여준다.
   async function handleGenerate() {
+    if (!adminToken) return
     if (date >= today()) {
       setAlertMsg('아직 지나지 않은 날짜는 데이터가 다 쌓이지 않아 보고서를 만들 수 없습니다. 어제 이전 날짜를 선택해주세요.')
       return
     }
     setGenerating(true)
     try {
-      const result = await api.startDailyReportGeneration(date)
+      const result = await api.startDailyReportGeneration(date, adminToken)
       setGenerating(false)
       if (!result.started) {
         // 이미 진행 중 — 새 작업을 또 시작하지 않고 그냥 진행 상태를 보여주기 시작한다.
@@ -747,23 +752,27 @@ export default function DailyReport() {
             fontSize: 17, color: '#374151', background: '#fff',
           }}
         />
-        <button
-          onClick={handleGenerate}
-          disabled={generating || aiGenerating || loading}
-          style={{
-            padding: '8px 18px',
-            background: generating || aiGenerating ? '#94a3b8' : NAVY,
-            color: '#fff', border: 'none', borderRadius: 8,
-            cursor: generating ? 'default' : 'pointer',
-            fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap',
-          }}
-        >
-          {generating
-            ? '시작 중...'
-            : aiGenerating
-              ? (progress ? `AI 분석 중 (${progress.step}/${progress.total}) — ${progress.label}` : 'AI 분석 중...')
-              : report ? '↻ 재생성' : '보고서 생성'}
-        </button>
+        {isAdmin ? (
+          <button
+            onClick={handleGenerate}
+            disabled={generating || aiGenerating || loading}
+            style={{
+              padding: '8px 18px',
+              background: generating || aiGenerating ? '#94a3b8' : NAVY,
+              color: '#fff', border: 'none', borderRadius: 8,
+              cursor: generating ? 'default' : 'pointer',
+              fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap',
+            }}
+          >
+            {generating
+              ? '시작 중...'
+              : aiGenerating
+                ? (progress ? `AI 분석 중 (${progress.step}/${progress.total}) — ${progress.label}` : 'AI 분석 중...')
+                : report ? '↻ 재생성' : '보고서 생성'}
+          </button>
+        ) : (
+          <span style={{ fontSize: 15, color: '#94a3b8' }}>🔒 관리자 로그인 후 생성 가능</span>
+        )}
       </div>
 
       {/* 로딩 */}
@@ -780,7 +789,7 @@ export default function DailyReport() {
             <div style={{ fontSize: 40, marginBottom: 12 }}>📄</div>
             <div style={{ fontSize: 17, marginBottom: 8, color: '#475569' }}>{date} 보고서가 없습니다.</div>
             <div style={{ fontSize: 16, color: '#cbd5e1' }}>
-              "보고서 생성" 버튼을 클릭해 Gemma 분석을 시작하세요.
+              {isAdmin ? '"보고서 생성" 버튼을 클릭해 Gemma 분석을 시작하세요.' : '관리자 로그인 후 보고서를 생성할 수 있습니다.'}
             </div>
           </div>
         </div>
@@ -983,6 +992,7 @@ export default function DailyReport() {
             </div>
           )}
 
+          {isAdmin && adminToken && (
           <div style={{ marginTop: 8 }}>
             <button
               onClick={() => setAiPanelOpen(v => !v)}
@@ -999,6 +1009,7 @@ export default function DailyReport() {
             {aiPanelOpen && (
               <CategoryTestPanel
                 date={date}
+                adminToken={adminToken}
                 onCategoryResult={(main, summary, gemmaError) => {
                   setReport(prev => prev ? {
                     ...prev,
@@ -1011,6 +1022,7 @@ export default function DailyReport() {
               />
             )}
           </div>
+          )}
 
         </>
       )}

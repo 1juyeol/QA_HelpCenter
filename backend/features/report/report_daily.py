@@ -38,6 +38,7 @@ from core.db import get_conn
 from core.holidays import is_off_day, previous_business_day
 from core.gemma_client import call_gemma, parse_json_response
 from core.audit_log import log_action
+from core.prompt_settings import get_prompt_text
 from core import report_progress
 from features.issues.classifier import extract_symptom_fields
 from features.report.report_utils import (
@@ -428,12 +429,13 @@ async def _call_gemma_category_insights(date_str: str, risk_rows: list) -> None:
         # 화면 "▼ Gemma 프롬프트 보기"에 그대로 노출되는 필드. 실패 원인을 눈으로 확인하려면
         # 실제로 무엇을 보냈는지(시스템 지시문 포함) 봐야 해서, 요약용 _prompt_section과
         # 별도로 시스템+유저 프롬프트 전문을 합쳐 저장한다.
-        row["_full_prompt"] = f"[SYSTEM]\n{_SYSTEM_CATEGORY}\n\n[USER]\n{prompt}"
+        system_prompt = get_prompt_text("daily_category", _SYSTEM_CATEGORY)
+        row["_full_prompt"] = f"[SYSTEM]\n{system_prompt}\n\n[USER]\n{prompt}"
 
         print(f"[Gemma Daily Cat - {cat_label}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
         _start = time.time()
         try:
-            raw = await call_gemma(_SYSTEM_CATEGORY, prompt)
+            raw = await call_gemma(system_prompt, prompt)
             row["_elapsed"] = round(time.time() - _start, 1)
             result = parse_json_response(raw)
             if result and result.get("summary"):
@@ -533,11 +535,12 @@ async def _run_bucket_gemma(label: str, prompt: str, base: dict) -> dict:
     """버킷 분석 공통 실행부: Gemma 호출 → 파싱 → base에 결과/gemma_error 채워 반환.
     호출 자체가 있었는데 실패한 경우엔 gemma_error를 채운다 (빈 dict로 뭉개면 "애초에
     분석 대상이 없었던 것"과 "분석했는데 실패한 것"을 구분할 수 없기 때문)."""
+    system_prompt = get_prompt_text("daily_peak", _SYSTEM_PEAK_BUCKET)
     print(f"[Gemma Daily {label}] 프롬프트 길이: {len(prompt)}자\n{'-'*60}\n{prompt}\n{'-'*60}")
-    full_prompt = f"[SYSTEM]\n{_SYSTEM_PEAK_BUCKET}\n\n[USER]\n{prompt}"
+    full_prompt = f"[SYSTEM]\n{system_prompt}\n\n[USER]\n{prompt}"
     start = time.time()
     try:
-        raw = await call_gemma(_SYSTEM_PEAK_BUCKET, prompt)
+        raw = await call_gemma(system_prompt, prompt)
         elapsed = round(time.time() - start, 1)
         result = parse_json_response(raw)
     except Exception as e:

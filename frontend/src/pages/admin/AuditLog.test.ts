@@ -129,6 +129,24 @@ describe('formatField', () => {
   it('reason이 알려지지 않은 값이면 "사유: " 접두사만 붙이고 원문을 그대로 둔다', () => {
     expect(formatField('reason', '새로운 사유')).toBe('사유: 새로운 사유')
   })
+
+  it('prompt_key는 어떤 프롬프트인지 보여준다', () => {
+    expect(formatField('prompt_key', 'daily_category')).toBe('프롬프트: daily_category')
+  })
+
+  it('report_type은 어떤 설정 대상인지 보여준다', () => {
+    expect(formatField('report_type', 'wings_refresh')).toBe('대상: wings_refresh')
+  })
+
+  it('enabled는 켜짐/꺼짐 문장으로 바꾼다', () => {
+    expect(formatField('enabled', 'True')).toBe('자동 실행 켜짐')
+    expect(formatField('enabled', 'False')).toBe('자동 실행 꺼짐')
+  })
+
+  it('hour/minute은 설정 시각 문장으로 바꾼다', () => {
+    expect(formatField('hour', '9')).toBe('9시로 설정')
+    expect(formatField('minute', '30')).toBe('30분으로 설정')
+  })
 })
 
 describe('translateMailError', () => {
