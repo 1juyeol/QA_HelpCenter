@@ -27,7 +27,7 @@
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
 from features.report.report_daily import (
-    generate_report_full, get_report, analyze_single_category, analyze_peak_bucket,
+    generate_report_full, get_report, get_latest_report, analyze_single_category, analyze_peak_bucket,
 )
 from features.report.report_weekly import (
     generate_weekly_report, generate_weekly_report_stats,
@@ -45,6 +45,14 @@ router = APIRouter()
 @router.get("/api/report/daily")
 def get_daily_report(date: str = Query(..., description="YYYY-MM-DD")):
     report = get_report(date)
+    if report is None:
+        raise HTTPException(status_code=404, detail="보고서 없음")
+    return report
+
+
+@router.get("/api/report/daily/latest")
+def get_latest_daily_report_endpoint():
+    report = get_latest_report()
     if report is None:
         raise HTTPException(status_code=404, detail="보고서 없음")
     return report

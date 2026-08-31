@@ -929,3 +929,18 @@ def get_report(date_str: str) -> dict | None:
     result = json.loads(row["content"])
     result["generated_at"] = row["generated_at"]
     return result
+
+
+def get_latest_report() -> dict | None:
+    """가장 최근 저장된 일별 보고서 조회. 없으면 None.
+    페이지 첫 진입 시 기본 날짜를 고를 때 쓴다 — "어제"로 고정하면 주말·공휴일 다음 날이나
+    수집/생성이 밀린 날엔 정작 보고서가 없는 날짜로 들어가게 된다."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT content, generated_at FROM reports WHERE report_type = 'daily' ORDER BY report_date DESC LIMIT 1",
+        ).fetchone()
+    if not row:
+        return None
+    result = json.loads(row["content"])
+    result["generated_at"] = row["generated_at"]
+    return result
