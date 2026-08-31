@@ -270,7 +270,10 @@ async def _cache_keyword_trend_today():
 
 
 async def _generate_yesterday_report():
-    """전날 일별 보고서를 자동 생성한다. COLLECTION_ENABLED 무관하게 실행.
+    """직전 영업일 일별 보고서를 자동 생성한다. COLLECTION_ENABLED 무관하게 실행.
+    단순히 "어제"가 아니라 previous_business_day()로 주말·공휴일을 건너뛴 직전 영업일을
+    대상으로 한다 — 월요일에 도는 실행이 일요일자(상담 건수 거의 0)를 만드는 대신 지난 금요일자를
+    만들도록 하기 위함이다(메일 발송의 previous_business_day 계산과 동일한 이유).
     이미 완전히 성공한 보고서가 있으면(예: 낮에 수동으로 미리 생성해둔 경우) 통째로 다시
     만드는 낭비를 피하려고 건너뛴다 — 이건 "매일 밤 무조건 도는 배치"라는 트리거 특성상 필요한
     판단이라 여기(스케줄러)에 남긴다. 그 외의 실제 생성 로직(카테고리→피크→이상시간대→재시도)은
@@ -279,21 +282,22 @@ async def _generate_yesterday_report():
     따로 구현되어 있어서 계속 어긋났었다)."""
     from features.report.report_daily import generate_report_full, get_report, has_gemma_failures
     from core.report_generation_settings import get_generation_settings
-    yesterday = str(date.today() - timedelta(days=1))
+    from core.holidays import previous_business_day
+    target_date = previous_business_day(str(date.today()))
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     if not get_generation_settings("daily")["enabled"]:
-        log_action("daily_report_auto_generate_skipped", f"date={yesterday}, reason=자동 생성 꺼짐", mode="auto")
+        log_action("daily_report_auto_generate_skipped", f"date={target_date}, reason=자동 생성 꺼짐", mode="auto")
         return
-    existing = get_report(yesterday)
+    existing = get_report(target_date)
     if existing and not has_gemma_failures(existing):
-        log_action("daily_report_auto_generate_skipped", f"date={yesterday}, reason=이미 완성된 보고서 있음", mode="auto")
-        print(f"[{now}] 일별 보고서 자동 생성 스킵 (이미 완성됨): {yesterday}")
+        log_action("daily_report_auto_generate_skipped", f"date={target_date}, reason=이미 완성된 보고서 있음", mode="auto")
+        print(f"[{now}] 일별 보고서 자동 생성 스킵 (이미 완성됨): {target_date}")
         return
     try:
-        await generate_report_full(yesterday, mode="auto")
-        print(f"[{now}] 일별 보고서 생성 완료: {yesterday}")
+        await generate_report_full(target_date, mode="auto")
+        print(f"[{now}] 일별 보고서 생성 완료: {target_date}")
     except Exception as e:
-        log_action("daily_report_auto_generate_failed", f"date={yesterday}, error={e}", mode="auto")
+        log_action("daily_report_auto_generate_failed", f"date={target_date}, error={e}", mode="auto")
         print(f"[{now}] 일별 보고서 생성 실패: {e}")
 
 
@@ -386,7 +390,7 @@ async def _generate_last_week_report():
 # report_type('daily'/'weekly'/'wings_refresh'/'repeat_parents_refresh') → 그 자동 실행의
 # cron job id·핸들러·요일 제약. generation_settings_endpoints.py가 설정 저장 직후
 # reschedule_generation_job()을 불러 이 job의 시각을 즉시 새로 등록한다 — reschedule_mail_job()과
-# 동일한 방식. 주간 보고서는 "직전 주 월~금"이 대상이라 매주 월요일에만 돌아야 해서
+# 동일한 방식. 주간 보고서는 "직전 주(월~일)"가 대상이라 매주 월요일에만 돌아야 해서
 # day_of_week가 고정이다.
 # wings_refresh/repeat_parents_refresh는 "보고서 생성"이 아니라 인사이트 캐시 갱신이지만,
 # on/off + 시각이라는 설정 형태 자체는 report_generation_settings 테이블과 완전히 같아서

@@ -4,6 +4,8 @@
 # collection_settings.py처럼 파일이 아니라 테이블인 이유는, 값이 하나가 아니라 report_type별로
 # 여러 항목(시각 4개, 발신자, 수신자 목록)이 필요해서 단일 JSON보다 테이블이 자연스럽다.
 # 아직 설정한 적 없는 report_type을 조회하면 DEFAULTS로 채워 반환한다(테이블에 행이 없어도 됨).
+from datetime import date
+
 from core.db import get_conn
 
 DEFAULTS = {
@@ -37,10 +39,19 @@ def parse_recipients(text: str) -> list[str]:
     return [part.strip() for part in text.split(",") if part.strip()]
 
 
-def report_ready_by_deadline(generated_at: str, deadline_hour: int, deadline_minute: int) -> bool:
+def report_ready_by_deadline(generated_at: str, deadline_hour: int, deadline_minute: int, today: str | None = None) -> bool:
     """보고서의 generated_at('YYYY-MM-DD HH:MM:SS' 등, 공백으로 날짜·시각 구분)이
-    마감 시각(deadline_hour:deadline_minute) 이내에 생성됐는지 판별한다."""
-    time_part = generated_at.split(" ")[1]
+    오늘(today, 기본값 date.today()) 마감 시각(deadline_hour:deadline_minute) 이내에
+    생성됐는지 판별한다.
+
+    generated_at의 날짜가 오늘보다 이전이면 시:분이 몇 시든 항상 마감 이내로 본다 —
+    예를 들어 관리자가 전날 오후에 미리 생성해둔 보고서는, 시:분만 떼어보면 마감(정오 등)을
+    넘겼어도 실제로는 오늘의 마감보다 훨씬 전에 준비된 것이기 때문이다."""
+    date_part, time_part = generated_at.split(" ")[:2]
+    if today is None:
+        today = date.today().isoformat()
+    if date_part != today:
+        return date_part < today
     hh, mm = (int(x) for x in time_part.split(":")[:2])
     return (hh, mm) <= (deadline_hour, deadline_minute)
 
