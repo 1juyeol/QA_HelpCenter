@@ -42,6 +42,7 @@ def get_prompt_catalog(report_type: str | None = Query(default=None), _: None = 
         {
             "key": p["key"], "report_type": p["report_type"], "order": p["order"],
             "label": p["label"], "description": p["description"], "fields": p["fields"],
+            "shared_notice": p.get("shared_notice"),
             "customized": is_prompt_customized(p["key"]),
         }
         for p in sorted(items, key=lambda p: (p["report_type"], p["order"]))

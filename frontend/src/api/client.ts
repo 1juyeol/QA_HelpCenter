@@ -297,6 +297,7 @@ export interface PromptCatalogItem {
   label: string
   description: string
   fields: PromptField[]
+  shared_notice?: string | null
   customized: boolean
 }
 

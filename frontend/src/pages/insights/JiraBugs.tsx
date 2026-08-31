@@ -143,7 +143,7 @@ export default function JiraBugs() {
                 동기화: {syncedAt}
               </span>
             )}
-            {isAdmin ? (
+            {isAdmin && (
               <button
                 onClick={handleSync}
                 disabled={syncing || loading}
@@ -155,8 +155,6 @@ export default function JiraBugs() {
               >
                 {syncing ? '동기화 중...' : '↻ 새로고침'}
               </button>
-            ) : (
-              <span style={{ fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}>🔒 관리자 로그인 후 새로고침 가능</span>
             )}
           </div>
         </div>

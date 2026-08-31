@@ -81,6 +81,16 @@ function PromptEditor({ item, allHistory }: { item: PromptCatalogItem; allHistor
       </div>
       <p style={{ fontSize: 14, color: '#64748b', margin: '0 0 16px' }}>{item.description}</p>
 
+      {item.shared_notice && (
+        <div style={{
+          background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8,
+          padding: '12px 14px', marginBottom: 16, fontSize: 14, color: '#78350f',
+          lineHeight: 1.7, whiteSpace: 'pre-line',
+        }}>
+          {item.shared_notice}
+        </div>
+      )}
+
       <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>이 프롬프트에 전달되는 데이터</div>
       <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20, fontSize: 13 }}>
         <thead>
@@ -114,7 +124,7 @@ function PromptEditor({ item, allHistory }: { item: PromptCatalogItem; allHistor
             onChange={e => setText(e.target.value)}
             rows={16}
             style={{
-              width: '100%', boxSizing: 'border-box', fontFamily: 'monospace', fontSize: 13,
+              width: '100%', boxSizing: 'border-box', fontSize: 14, lineHeight: 1.6, color: '#334155',
               padding: 12, border: '1px solid #e2e8f0', borderRadius: 8, marginBottom: 12, resize: 'vertical',
             }}
           />

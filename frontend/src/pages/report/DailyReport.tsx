@@ -374,7 +374,7 @@ function HourlyBucketChart({ buckets, onBarClick }: {
           tooltip: { callbacks: { label: (ctx: any) => `${(ctx.raw as number).toLocaleString()}건` } },
         },
         scales: {
-          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 } } },
+          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 13 } } },
           x: {
             grid: { display: false },
             ticks: {
@@ -764,7 +764,7 @@ export default function DailyReport() {
             fontSize: 17, color: '#374151', background: '#fff',
           }}
         />
-        {isAdmin ? (
+        {isAdmin && (
           <button
             onClick={handleGenerate}
             disabled={generating || aiGenerating || loading}
@@ -782,8 +782,6 @@ export default function DailyReport() {
                 ? (progress ? `AI 분석 중 (${progress.step}/${progress.total}) — ${progress.label}` : 'AI 분석 중...')
                 : report ? '↻ 재생성' : '보고서 생성'}
           </button>
-        ) : (
-          <span style={{ fontSize: 15, color: '#94a3b8' }}>🔒 관리자 로그인 후 생성 가능</span>
         )}
       </div>
 
@@ -800,9 +798,11 @@ export default function DailyReport() {
           <div style={{ padding: '40px 0', textAlign: 'center', color: '#94a3b8' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>📄</div>
             <div style={{ fontSize: 17, marginBottom: 8, color: '#475569' }}>{date} 보고서가 없습니다.</div>
-            <div style={{ fontSize: 16, color: '#cbd5e1' }}>
-              {isAdmin ? '"보고서 생성" 버튼을 클릭해 Gemma 분석을 시작하세요.' : '관리자 로그인 후 보고서를 생성할 수 있습니다.'}
-            </div>
+            {isAdmin && (
+              <div style={{ fontSize: 16, color: '#cbd5e1' }}>
+                "보고서 생성" 버튼을 클릭해 Gemma 분석을 시작하세요.
+              </div>
+            )}
           </div>
         </div>
       )}
