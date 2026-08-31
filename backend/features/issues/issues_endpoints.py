@@ -23,7 +23,7 @@ def get_issue_subs(
     col = "date(datetime(created_date, '+9 hours'))"
     with get_conn() as conn:
         rows = conn.execute(
-            f"SELECT new_category_sub, COUNT(*) AS cnt FROM issues "
+            f"SELECT new_category_sub, COUNT(*) AS cnt FROM cs_issues "
             f"WHERE {col} BETWEEN ? AND ? AND new_category_main = ? AND new_category_sub IS NOT NULL "
             f"GROUP BY new_category_sub ORDER BY cnt DESC",
             [start_date, end_date, category_main],
@@ -78,13 +78,13 @@ def list_issues(
             where += " AND new_category_sub = ?"
             params.append(category_sub)
     with get_conn() as conn:
-        total = conn.execute(f"SELECT COUNT(*) FROM issues WHERE {where}", params).fetchone()[0]
+        total = conn.execute(f"SELECT COUNT(*) FROM cs_issues WHERE {where}", params).fetchone()[0]
         rows = conn.execute(
             f"""
             SELECT id, datetime(created_date, '+9 hours') AS created_date,
                    new_category_main, new_category_sub, call_memo,
                    student_id, CASE WHEN parent_id = 92 THEN NULL ELSE parent_id END AS parent_id
-            FROM issues WHERE {where}
+            FROM cs_issues WHERE {where}
             ORDER BY created_date DESC LIMIT ? OFFSET ?
             """,
             params + [limit, offset],
