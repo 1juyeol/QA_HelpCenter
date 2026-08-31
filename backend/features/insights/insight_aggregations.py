@@ -72,7 +72,7 @@ def compute_repeat_parents(start_date: str, end_date: str, limit: int = 100) -> 
             for r in conn.execute(
                 f"""
                 SELECT parent_id, COUNT(*) AS cnt
-                FROM issues
+                FROM cs_issues
                 WHERE {col} BETWEEN ? AND ?
                   AND parent_id > 100000
                 GROUP BY parent_id HAVING cnt >= 3
@@ -90,7 +90,7 @@ def compute_repeat_parents(start_date: str, end_date: str, limit: int = 100) -> 
             SELECT parent_id,
                    datetime(created_date, '+9 hours') AS kst_date,
                    call_memo, new_category_main, new_category_sub
-            FROM issues
+            FROM cs_issues
             WHERE {col} BETWEEN ? AND ?
               AND parent_id > 100000
               AND parent_id IN ({placeholders})

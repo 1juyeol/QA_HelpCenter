@@ -224,27 +224,27 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
 
     with get_conn() as conn:
         daily_raw = conn.execute(
-            f"SELECT {col} AS day, COUNT(*) AS cnt FROM issues "
+            f"SELECT {col} AS day, COUNT(*) AS cnt FROM cs_issues "
             f"WHERE {col} BETWEEN ? AND ? GROUP BY day",
             (week_start, week_end),
         ).fetchall()
 
         cat_daily = conn.execute(
             f"SELECT {col} AS day, new_category_main AS main, new_category_sub AS sub, COUNT(*) AS cnt "
-            f"FROM issues WHERE {col} BETWEEN ? AND ? AND new_category_main IS NOT NULL "
+            f"FROM cs_issues WHERE {col} BETWEEN ? AND ? AND new_category_main IS NOT NULL "
             f"GROUP BY day, main, sub",
             (week_start, week_end),
         ).fetchall()
 
         cat_total = conn.execute(
-            f"SELECT new_category_main AS main, COUNT(*) AS cnt FROM issues "
+            f"SELECT new_category_main AS main, COUNT(*) AS cnt FROM cs_issues "
             f"WHERE {col} BETWEEN ? AND ? AND new_category_main IS NOT NULL "
             f"GROUP BY main ORDER BY cnt DESC",
             (week_start, week_end),
         ).fetchall()
 
         peak_raw = conn.execute(
-            f"SELECT {col} AS day, COUNT(*) AS cnt FROM issues "
+            f"SELECT {col} AS day, COUNT(*) AS cnt FROM cs_issues "
             f"WHERE {col} BETWEEN ? AND ? "
             f"AND (({h_kst} BETWEEN 17 AND 19) OR ({h_kst} = 20 AND {m_kst} < 30)) "
             f"GROUP BY day",
@@ -253,7 +253,7 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
 
         risk_memo_raw = conn.execute(
             f"SELECT id, {col} AS day, new_category_main AS main, new_category_sub AS sub, call_memo "
-            f"FROM issues WHERE {col} BETWEEN ? AND ? AND new_category_main IS NOT NULL",
+            f"FROM cs_issues WHERE {col} BETWEEN ? AND ? AND new_category_main IS NOT NULL",
             (week_start, week_end),
         ).fetchall()
 
@@ -614,14 +614,14 @@ def get_weekly_risk_memos(
 
     with get_conn() as conn:
         total = conn.execute(
-            f"SELECT COUNT(*) FROM issues "
+            f"SELECT COUNT(*) FROM cs_issues "
             f"WHERE {col} BETWEEN ? AND ? AND new_category_main = ? {sub_clause} {extra_sub_clause}",
             base,
         ).fetchone()[0]
 
         rows = conn.execute(
             f"SELECT {col} AS day, new_category_sub AS sub, call_memo "
-            f"FROM issues "
+            f"FROM cs_issues "
             f"WHERE {col} BETWEEN ? AND ? AND new_category_main = ? {sub_clause} {extra_sub_clause} "
             f"ORDER BY created_date DESC LIMIT ? OFFSET ?",
             base + [page_size, offset],

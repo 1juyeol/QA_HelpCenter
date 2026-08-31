@@ -230,3 +230,38 @@ class TestOverbroadKeywordFix:
         )
         main, sub = classify(memo)
         assert (main, sub) == ("해지·유지 상담", "해지 상담")
+
+
+class TestReplacementTemplateRootCause:
+    # *교체학습기 템플릿 헤더는 확인사항/상세증상에 구체적 결함 사유가 없을 때만 기기 교체
+    # 요청으로 확정한다. 사유가 적혀 있으면 그 사유가 우선이어야 한다 — 예전엔 헤더만 보고
+    # 무조건 기기 교체 요청으로 확정해서, 확인사항에 적힌 충전 불량·기기 파손 등 실제 원인이
+    # 리스크 카테고리 분석에서 통째로 사라지는 문제가 있었다.
+    def test_charging_reason_in_confirmation_field_wins_over_template(self):
+        memo = (
+            "*교체 학습기 : 윙크 스쿨 단말기 / 기본형 / 동글 연결 불가능\n\n"
+            "*확인사항 : 학습기 충전이 되지 않음. 충전선을 빼면 학습기가 꺼지는 현상 발생. "
+            "기기교체 진행\n- 상세증상 : 충전불량\n*안내사항 : 기기교체 안내. 주소확인\n"
+            "- 선출고 후회수 안내\n*후속관리 : 미진행"
+        )
+        main, sub = classify(memo)
+        assert (main, sub) == ("기기·하드웨어 오류", "충전·전원 불량")
+
+    def test_physical_damage_reason_in_confirmation_field_wins_over_template(self):
+        memo = (
+            "*교체 학습기 : 윙크 학습 단말기 / 기본형 / 동글 연결 불가능\n\n"
+            "*확인사항 : 아이가 학습기를 낙하 파손시켰다고 합니다.\n"
+            "*안내사항 : \n- 고객과실로 판단될 시 비용발생됨 안내 \n- 선출고 후회수 안내\n"
+            "*후속관리 : 미진행"
+        )
+        main, sub = classify(memo)
+        assert (main, sub) == ("기기·하드웨어 오류", "기기 파손")
+
+    def test_no_stated_reason_still_falls_back_to_replacement_request(self):
+        # 확인사항이 비어있는 순수 교체 요청은 여전히 기기 교체 요청으로 잡혀야 한다
+        memo = (
+            "*교체 학습기 : 윙크 스쿨 단말기 / 기본형(2.0) / 동글 연결 불가능\n\n"
+            "*확인사항 : \n*안내사항 : \n– 선출고 후회수 안내\n*후속관리 : 미진행"
+        )
+        main, sub = classify(memo)
+        assert (main, sub) == ("기기·하드웨어 오류", "기기 교체 요청")

@@ -123,7 +123,7 @@ _PEAK_BUCKET_KEYS = {"17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:0
 def _fetch_day_stats(date_str: str) -> dict:
     with get_conn() as conn:
         total = conn.execute(
-            "SELECT COUNT(*) FROM issues WHERE date(datetime(created_date, '+9 hours')) = ?",
+            "SELECT COUNT(*) FROM cs_issues WHERE date(datetime(created_date, '+9 hours')) = ?",
             (date_str,)
         ).fetchone()[0]
 
@@ -135,7 +135,7 @@ def _fetch_day_stats(date_str: str) -> dict:
                    call_memo,
                    CAST(strftime('%H', datetime(created_date, '+9 hours')) AS INTEGER) as hour,
                    CAST(strftime('%M', datetime(created_date, '+9 hours')) AS INTEGER) as minute
-            FROM issues
+            FROM cs_issues
             WHERE date(datetime(created_date, '+9 hours')) = ?
             """,
             (date_str,)
@@ -145,7 +145,7 @@ def _fetch_day_stats(date_str: str) -> dict:
             """
             SELECT CAST(strftime('%H', datetime(created_date, '+9 hours')) AS INTEGER) as h,
                    COUNT(*) as cnt
-            FROM issues
+            FROM cs_issues
             WHERE date(datetime(created_date, '+9 hours')) = ?
             GROUP BY h
             """,
@@ -162,7 +162,7 @@ def _fetch_day_stats(date_str: str) -> dict:
         hist_rows = conn.execute(
             f"""
             SELECT date(datetime(created_date, '+9 hours')) as d, COUNT(*) as cnt
-            FROM issues
+            FROM cs_issues
             WHERE CAST(strftime('%H', datetime(created_date, '+9 hours')) AS INTEGER) BETWEEN 17 AND 20
               AND date(datetime(created_date, '+9 hours')) != ?
               AND date(datetime(created_date, '+9 hours')) >= date(?, '-28 days')

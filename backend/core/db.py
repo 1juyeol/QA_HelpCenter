@@ -2,6 +2,13 @@
 # SQLite 연결 관리 및 테이블 스키마 초기화. DB 파일 경로·row_factory 설정이 여기에 집중된다.
 # get_conn()을 통해서만 연결을 열며, 코드 어디서도 sqlite3.connect()를 직접 호출하지 않는다 (정책 3).
 # init_db()는 서버 시작 시 한 번 호출되며, 테이블·컬럼·인덱스를 없으면 생성·있으면 스킵하는 멱등 방식으로 동작한다.
+# cs_issues 뷰: issues 중 실제 CS 상담이 아닌 행을 뺀 것 — 지금은 category_main='타부서이력'
+#   AND category_sub='추가배송'(물류 시스템이 배송 처리할 때마다 자동으로 남기는 로그이지 고객
+#   문의가 아님 — 하루에 만 건 넘게 쌓여 "총 상담" 등 집계를 크게 부풀린 사례가 있었다) 하나만
+#   제외한다. "총 상담 건수"·카테고리 분포·대시보드 트렌드처럼 실제 CS 업무량을 재는 쿼리는
+#   issues 대신 이 뷰를 써야 한다. 반대로 원본을 있는 그대로 봐야 하는 경우(재분류 스크립트,
+#   백필 등)는 issues를 그대로 쓴다. 제외 조건을 나중에 넓히면 이 뷰 정의 한 곳만 고치면 된다.
+#
 # 관리하는 테이블: issues(CS 이슈), collection_log(수집 이력), insights_cache(인사이트 집계 캐시),
 #                  jira_issues(JIRA 미해결 버그 캐시 — CS 메모 매칭 건수 포함),
 #                  audit_log(관리자 제어 액션·보고서 생성 이력 — core/audit_log.py가 기록·조회 담당),
@@ -50,6 +57,11 @@ def init_db():
             "CREATE INDEX IF NOT EXISTS idx_created_date_kst "
             "ON issues (date(datetime(created_date, '+9 hours')))"
         )
+        conn.execute("""
+            CREATE VIEW IF NOT EXISTS cs_issues AS
+            SELECT * FROM issues
+            WHERE NOT (category_main = '타부서이력' AND category_sub = '추가배송')
+        """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS collection_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,

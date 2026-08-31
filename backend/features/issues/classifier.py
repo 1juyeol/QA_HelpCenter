@@ -181,9 +181,12 @@ def classify(memo: str) -> tuple:
     """call_memo → (new_category_main, new_category_sub). 미분류는 (None, None)."""
     if not memo:
         return None, None
-    # *교체 학습기 헤더가 있으면 템플릿 추출 전에 교체 요청으로 확정
-    if "*교체학습기" in memo or "*교체 학습기" in memo:
-        return "기기·하드웨어 오류", "기기 교체 요청"
+    # *교체 학습기 템플릿 헤더는 확인사항/상세증상에 구체적 결함 사유가 없을 때만("기기 교체
+    # 요청" 자체 키워드 포함 어떤 사유도 안 걸릴 때) "기기 교체 요청"으로 확정한다. 예전엔
+    # 헤더만 보고 무조건 확정해서 확인사항에 "충전이 되지 않음"·"파손" 등 실제 사유가 적혀
+    # 있어도 전부 기기 교체 요청 하나로 묻혔다 — 원인별 결함 패턴 파악이 목적인 리스크 카테고리
+    # 분석에서 그 원인 정보가 통째로 사라지는 문제였다.
+    is_replacement_template = "*교체학습기" in memo or "*교체 학습기" in memo
     memo = extract_symptom_fields(memo)
 
     matched_subs = []
@@ -193,10 +196,13 @@ def classify(memo: str) -> tuple:
                 matched_subs.append(sub)
                 break
 
+    non_fallback = [s for s in matched_subs if s not in FALLBACK_SUBS]
+    if not non_fallback and is_replacement_template:
+        return "기기·하드웨어 오류", "기기 교체 요청"
+
     if not matched_subs:
         return None, None
 
-    non_fallback = [s for s in matched_subs if s not in FALLBACK_SUBS]
     fallback_only = len(non_fallback) == 0
     candidates = non_fallback if non_fallback else matched_subs
 

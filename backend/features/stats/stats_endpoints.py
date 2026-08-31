@@ -132,7 +132,7 @@ def stats_hourly_range(start_date: str = Query(default=None), end_date: str = Qu
         start_date = end_date
     with get_conn() as conn:
         rows = conn.execute(
-            f"SELECT {BUCKET_SQL}, COUNT(*) AS count FROM issues "
+            f"SELECT {BUCKET_SQL}, COUNT(*) AS count FROM cs_issues "
             "WHERE date(datetime(created_date, '+9 hours')) BETWEEN ? AND ? GROUP BY bucket",
             (start_date, end_date),
         ).fetchall()
@@ -150,7 +150,7 @@ def stats_daily(target_date: str = Query(default=None), period: str = "week"):
             f"""
             SELECT date(datetime(created_date, '+9 hours')) AS day,
                    COUNT(*) AS count
-            FROM issues WHERE {where}
+            FROM cs_issues WHERE {where}
             GROUP BY day ORDER BY day
             """,
             params,
@@ -188,7 +188,7 @@ def stats_category(
         rows = conn.execute(
             f"""
             SELECT new_category_main, new_category_sub, COUNT(*) AS count
-            FROM issues WHERE {where}
+            FROM cs_issues WHERE {where}
             GROUP BY new_category_main, new_category_sub
             ORDER BY new_category_main, count DESC
             """,
@@ -211,7 +211,7 @@ def stats_weekly(target_date: str = Query(default=None)):
                     '-' || ((strftime('%w', datetime(created_date, '+9 hours')) + 6) % 7) || ' days'
                 ) AS week_start,
                 COUNT(*) AS count
-            FROM issues
+            FROM cs_issues
             WHERE date(datetime(created_date, '+9 hours')) BETWEEN ? AND ?
             GROUP BY week_start
             ORDER BY week_start
@@ -237,7 +237,7 @@ def stats_monthly(target_date: str = Query(default=None)):
             """
             SELECT strftime('%Y-%m', datetime(created_date, '+9 hours')) AS month,
                    COUNT(*) AS count
-            FROM issues
+            FROM cs_issues
             WHERE strftime('%Y-%m', datetime(created_date, '+9 hours')) BETWEEN ? AND ?
             GROUP BY month
             ORDER BY month
@@ -269,7 +269,7 @@ def stats_category_daily(target_date: str = Query(default=None)):
         rows = conn.execute(
             f"""
             SELECT {col} AS day, new_category_main AS main, new_category_sub AS sub, COUNT(*) AS count
-            FROM issues
+            FROM cs_issues
             WHERE {col} BETWEEN ? AND ?
               {off_clause}
             GROUP BY day, main, sub
