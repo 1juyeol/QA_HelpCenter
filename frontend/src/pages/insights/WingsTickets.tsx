@@ -19,6 +19,13 @@ import { api, type InsightWings } from '../../api/client'
 import CaseRiskSection from './CaseRiskSection'
 import { useAdmin } from '../../hooks/useAdmin'
 
+// KPI 카드 상단 컬러 바 — 일간/주간보고서 KpiCard와 같은 팔레트를 그대로 쓴다
+// (NAVY=전체/중립, AMBER=초기 경고, RISK_RED=가장 심각, PURPLE=시간 축과 무관한 반복·복합 신호).
+const NAVY = '#1e3c72'
+const AMBER = '#f59e0b'
+const RISK_RED = '#ef4444'
+const PURPLE = '#8b5cf6'
+
 const STATE_STYLE: Record<string, { bg: string; color: string }> = {
   '신규':        { bg: '#eff6ff', color: '#1a56db' },
   '진행 중':     { bg: '#fef9c3', color: '#b45309' },
@@ -243,11 +250,11 @@ export default function WingsTickets() {
   const longUnresolvedCount = rows.filter(isLongUnresolvedTicket).length
   const repeatCount = rows.filter(isRepeatTicket).length
 
-  const cards: Array<{ key: CardFilter; label: string; value: number; sub?: string }> = [
-    { key: 'all', label: '전체 티켓', value: summary.total, sub: `그중 해결 ${summary.resolved}건` },
-    { key: 'delayed', label: '처리 지연 (7일+)', value: delayedCount },
-    { key: 'repeat', label: '여러번 인입 (2회+)', value: repeatCount },
-    { key: 'longUnresolved', label: '장기미해결 (30일+)', value: longUnresolvedCount },
+  const cards: Array<{ key: CardFilter; label: string; value: number; sub?: string; color: string; secondary?: boolean }> = [
+    { key: 'all', label: '전체 티켓', value: summary.total, sub: `그중 해결 ${summary.resolved}건`, color: NAVY, secondary: true },
+    { key: 'delayed', label: '처리 지연 (7일+)', value: delayedCount, color: AMBER },
+    { key: 'repeat', label: '여러번 인입 (2회+)', value: repeatCount, color: PURPLE },
+    { key: 'longUnresolved', label: '장기미해결 (30일+)', value: longUnresolvedCount, color: RISK_RED },
   ]
 
   return (
@@ -263,7 +270,7 @@ export default function WingsTickets() {
       <div className="section-card">
         <div className="insight-toolbar">
           <span style={{ fontSize: 12, color: '#94a3b8' }}>{updatedAt}</span>
-          {isAdmin ? (
+          {isAdmin && (
             <button
               onClick={handleRefresh}
               disabled={refreshing}
@@ -271,8 +278,6 @@ export default function WingsTickets() {
             >
               {refreshing ? '업데이트 중...' : '↻ 새로고침'}
             </button>
-          ) : (
-            <span style={{ fontSize: 12, color: '#94a3b8' }}>🔒 관리자 로그인 후 새로고침 가능</span>
           )}
         </div>
 
@@ -287,14 +292,25 @@ export default function WingsTickets() {
                     key={card.key}
                     onClick={() => handleCardClick(card.key)}
                     style={{
-                      textAlign: 'left', background: active ? '#eff6ff' : '#fff', cursor: 'pointer',
-                      borderRadius: 12, padding: '16px 20px',
-                      border: `1px solid ${active ? '#93c5fd' : '#e2e8f0'}`,
+                      textAlign: 'left', cursor: 'pointer', border: 'none', background: '#fff',
+                      borderRadius: 14, padding: card.secondary ? '16px 20px' : '20px 22px',
+                      boxShadow: active
+                        ? `0 0 0 2px ${card.color}, 0 4px 14px ${card.color}40`
+                        : card.secondary ? '0 1px 4px rgba(0,0,0,.06)' : '0 2px 10px rgba(0,0,0,.09)',
+                      borderTop: `${card.secondary ? 3 : 5}px solid ${card.color}`,
                     }}
                   >
-                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>{card.label}</div>
-                    <div style={{ fontSize: 28, fontWeight: 700, color: '#111827' }}>{card.value}</div>
-                    {card.sub && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{card.sub}</div>}
+                    <div style={{
+                      fontSize: 12, fontWeight: 700, color: '#94a3b8',
+                      textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8,
+                    }}>
+                      {card.label}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                      <span style={{ fontSize: card.secondary ? 32 : 42, fontWeight: 800, color: card.color, lineHeight: 1 }}>{card.value}</span>
+                      <span style={{ fontSize: card.secondary ? 15 : 18, color: '#64748b', fontWeight: 600 }}>건</span>
+                    </div>
+                    {card.sub && <div style={{ fontSize: 12, color: '#64748b', marginTop: 5, fontWeight: 500 }}>{card.sub}</div>}
                   </button>
                 )
               })}

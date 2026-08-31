@@ -129,17 +129,17 @@ function addDays(dateStr: string, days: number): string {
 
 function DeltaBadge({ delta, unit, invert, deltaPct }: { delta: number | null | undefined; unit: string; invert?: boolean; deltaPct?: number | null }) {
   if (delta == null) return null
-  if (delta === 0) return <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 5 }}>전주 동일</div>
+  if (delta === 0) return <div style={{ fontSize: 16, color: '#94a3b8', marginTop: 5 }}>전주 동일</div>
   const isPositive = delta > 0
   const color = invert
     ? (isPositive ? '#ef4444' : '#16a34a')
     : '#f59e0b'
   const arrow = isPositive ? '↑' : '↓'
   return (
-    <div style={{ fontSize: 13, color, fontWeight: 600, marginTop: 5 }}>
+    <div style={{ fontSize: 18, color, fontWeight: 600, marginTop: 5 }}>
       {arrow} {isPositive ? '+' : ''}{delta}{unit}
-      {deltaPct != null && <span style={{ fontWeight: 500, marginLeft: 3 }}>({isPositive ? '+' : ''}{deltaPct}%)</span>}
-      <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: 4 }}>전주 대비</span>
+      {deltaPct != null && <span style={{ fontSize: 14, fontWeight: 500, marginLeft: 3 }}>({isPositive ? '+' : ''}{deltaPct}%)</span>}
+      <span style={{ fontSize: 14, color: '#94a3b8', fontWeight: 400, marginLeft: 4 }}>전주 대비</span>
     </div>
   )
 }
@@ -201,7 +201,7 @@ function TwoWeekSubLineChart({
         maintainAspectRatio: false,
         layout: { padding: { left: 4, right: 4, bottom: 4 } },
         plugins: {
-          legend: { position: 'top', labels: { boxWidth: 10, font: { size: 12 }, padding: 14 } },
+          legend: { position: 'top', labels: { boxWidth: 10, font: { size: 17 }, padding: 14 } },
         },
         scales: {
           y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 13 }, padding: 10 } },
@@ -488,12 +488,12 @@ export default function WeeklyReport() {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 } } },
+          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 17 } } },
           tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw}건` } },
         },
         scales: {
-          x: { ticks: { font: { size: 11 } } },
-          y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 } } },
+          x: { ticks: { font: { size: 13 } } },
+          y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 13 } } },
         },
       },
     })
@@ -667,7 +667,7 @@ export default function WeeklyReport() {
     ? report.total_weekday - report.prev_total_weekday
     : null
   const dailyAvgDelta = report?.prev_daily_avg != null
-    ? Math.round((report.daily_avg - report.prev_daily_avg) * 10) / 10
+    ? Math.round(report.daily_avg - report.prev_daily_avg)
     : null
   const riskDelta = report?.prev_risk_total != null
     ? report.risk_total - report.prev_risk_total
@@ -712,14 +712,14 @@ export default function WeeklyReport() {
           onChange={e => setWeekStart(e.target.value)}
           style={{
             padding: '7px 12px', border: '1px solid #e2e8f0', borderRadius: 8,
-            fontSize: 14, color: '#374151', background: '#fff',
+            fontSize: 17, color: '#374151', background: '#fff',
           }}
         >
           {mondays.map(m => (
             <option key={m} value={m}>{getWeekLabel(m)} ({m} ~ {addDays(m, 6)})</option>
           ))}
         </select>
-        {isAdmin ? (
+        {isAdmin && (
           <button
             onClick={handleGenerate}
             disabled={generating || aiGenerating || loading}
@@ -728,13 +728,11 @@ export default function WeeklyReport() {
               background: generating || aiGenerating ? '#94a3b8' : NAVY,
               color: '#fff', border: 'none', borderRadius: 8,
               cursor: generating || aiGenerating ? 'default' : 'pointer',
-              fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
+              fontSize: 16, fontWeight: 600, whiteSpace: 'nowrap',
             }}
           >
             {generating ? '집계 중...' : aiGenerating ? 'AI 분석 중...' : report ? '↻ 재생성' : '보고서 생성'}
           </button>
-        ) : (
-          <span style={{ fontSize: 14, color: '#94a3b8' }}>🔒 관리자 로그인 후 생성 가능</span>
         )}
       </div>
 
@@ -760,12 +758,14 @@ export default function WeeklyReport() {
         <div className="section-card">
           <div style={{ padding: '40px 0', textAlign: 'center', color: '#94a3b8' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
-            <div style={{ fontSize: 14, marginBottom: 8, color: '#475569' }}>
+            <div style={{ fontSize: 17, marginBottom: 8, color: '#475569' }}>
               {weekStart} ~ {weekEnd} 보고서가 없습니다.
             </div>
-            <div style={{ fontSize: 13, color: '#cbd5e1' }}>
-              {isAdmin ? '"보고서 생성" 버튼을 클릭해 Gemma 분석을 시작하세요.' : '관리자 로그인 후 보고서를 생성할 수 있습니다.'}
-            </div>
+            {isAdmin && (
+              <div style={{ fontSize: 16, color: '#cbd5e1' }}>
+                "보고서 생성" 버튼을 클릭해 Gemma 분석을 시작하세요.
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -816,8 +816,8 @@ export default function WeeklyReport() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
             <div className="section-card">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
-                <h2 style={{ margin: 0, fontSize: 22, color: NAVY }}>일별 CS 건수</h2>
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>최다 요일은 빨간색, 주말은 회색으로 표시합니다</span>
+                <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>일별 CS 건수</h2>
+                <span style={{ fontSize: 15, color: '#94a3b8' }}>최다 요일은 빨간색, 주말은 회색으로 표시합니다</span>
               </div>
               <div style={{ height: 200, position: 'relative' }}>
                 <DailyBar dailyCounts={report.daily_counts} />
@@ -825,10 +825,10 @@ export default function WeeklyReport() {
             </div>
             <div className="section-card">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
-                <h2 style={{ margin: 0, fontSize: 22, color: NAVY }}>리스크율 추이</h2>
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>일별 리스크율 변화를 주 평균 기준으로 표시합니다</span>
+                <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>리스크율 추이</h2>
+                <span style={{ fontSize: 15, color: '#94a3b8' }}>일별 리스크율 변화를 주 평균 기준으로 표시합니다</span>
               </div>
-              <div style={{ display: 'flex', gap: 14, marginBottom: 12, fontSize: 11, color: '#64748b' }}>
+              <div style={{ display: 'flex', gap: 14, marginBottom: 12, fontSize: 17, color: '#64748b' }}>
                 <span><span style={{ color: NAVY, fontWeight: 700 }}>●</span> 주 평균 이하</span>
                 <span><span style={{ color: RISK_RED, fontWeight: 700 }}>●</span> 주 평균 초과</span>
                 <span style={{ color: '#94a3b8' }}>- - 주 평균선 ({riskPct}%)</span>
@@ -845,8 +845,8 @@ export default function WeeklyReport() {
           {/* 도넛 — 좌: 차트+범례, 우: 상위 유형 요약 */}
           <div className="section-card" style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
-              <h2 style={{ margin: 0, fontSize: 22, color: NAVY }}>이번 주 CS 유형 분포</h2>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>전체 상담을 카테고리별로 분류한 비율입니다</span>
+              <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>이번 주 CS 유형 분포</h2>
+              <span style={{ fontSize: 15, color: '#94a3b8' }}>전체 상담을 카테고리별로 분류한 비율입니다</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, alignItems: 'start' }}>
               {/* 차트 */}
@@ -863,7 +863,7 @@ export default function WeeklyReport() {
                         key={cat.main}
                         onClick={() => toggleDonutItem(i)}
                         style={{
-                          display: 'flex', alignItems: 'center', gap: 5, fontSize: 12,
+                          display: 'flex', alignItems: 'center', gap: 5, fontSize: 17,
                           color: hidden ? '#cbd5e1' : '#374151',
                           cursor: 'pointer', userSelect: 'none',
                           textDecoration: hidden ? 'line-through' : 'none',
@@ -918,8 +918,8 @@ export default function WeeklyReport() {
           {report.risk_rows.length > 0 && (
           <div className="section-card" style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
-              <h2 style={{ margin: 0, fontSize: 22, color: NAVY }}>리스크 카테고리별 AI 분석</h2>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>리스크 카테고리의 소분류 추이와 AI 요약을 함께 확인합니다</span>
+              <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>리스크 카테고리별 AI 분석</h2>
+              <span style={{ fontSize: 15, color: '#94a3b8' }}>리스크 카테고리의 소분류 추이와 AI 요약을 함께 확인합니다</span>
             </div>
             <div>
               {[...report.risk_rows].sort((a, b) => b.count - a.count).map((row) => {
@@ -939,11 +939,11 @@ export default function WeeklyReport() {
                     }}>
                       <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{ fontWeight: 700, fontSize: 20, color: '#1e293b' }}>
+                          <span style={{ fontWeight: 700, fontSize: 22, color: '#1e293b' }}>
                             {RISK_DISPLAY_LABEL[row.main] ?? row.main}
                           </span>
                           <span style={{
-                            fontSize: 16, fontWeight: 700, color: RISK_RED,
+                            fontSize: 22, fontWeight: 700, color: RISK_RED,
                             background: '#fef2f2', borderRadius: 6,
                             padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0,
                           }}>
@@ -951,7 +951,7 @@ export default function WeeklyReport() {
                           </span>
                         </div>
                         {cardTopSub && (
-                          <div style={{ fontSize: 14, color: '#64748b', marginTop: 4 }}>
+                          <div style={{ fontSize: 18, color: '#64748b', marginTop: 4 }}>
                             이번 주 주요 세부 유형: <strong style={{ color: '#475569' }}>{cardTopSub}</strong>
                           </div>
                         )}
@@ -977,20 +977,19 @@ export default function WeeklyReport() {
                       })()}
                       {row.summary
                         ? <div style={{
-                              fontSize: 13, color: '#374151', lineHeight: 1.7,
-                              background: '#f0f4fb', borderRadius: 6,
-                              padding: '7px 12px', borderLeft: `3px solid ${NAVY}`,
+                              fontSize: 17, color: '#374151', lineHeight: 1.7,
+                              borderLeft: `3px solid ${NAVY}`, paddingLeft: 10,
                               marginBottom: 8, whiteSpace: 'pre-line',
                             }}>
                             {row.summary}
                           </div>
                         : row.gemma_error
-                        ? <p style={{ margin: '0 0 8px', fontSize: 13, color: '#ef4444' }} title={row.gemma_error}>
+                        ? <p style={{ margin: '0 0 8px', fontSize: 17, fontWeight: 700, color: '#ef4444' }} title={row.gemma_error}>
                             AI 분석 실패 — 다시 시도해주세요
                           </p>
-                        : <p style={{ margin: '0 0 8px', fontSize: 13 }}>
+                        : <p style={{ margin: '0 0 8px', fontSize: 15 }}>
                             {aiGenerating
-                              ? <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</span>
+                              ? <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: 17, fontWeight: 700 }}>AI 분석 중...</span>
                               : <span style={{ color: '#94a3b8' }}>분석 없음</span>
                             }
                           </p>
@@ -1026,8 +1025,8 @@ export default function WeeklyReport() {
               표에서만 다룬다) — 순수 집계는 report_weekly.py의 _wings_repeat_counts. */}
           <div className="section-card" style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
-              <h2 style={{ margin: 0, fontSize: 22, color: NAVY }}>장기미해결 CS 현황</h2>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>같은 건으로 CS가 여러 차례 이어질수록 해당 가정의 이탈(해지) 위험이 커집니다</span>
+              <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>장기미해결 CS 현황</h2>
+              <span style={{ fontSize: 15, color: '#94a3b8' }}>같은 건으로 CS가 여러 차례 이어질수록 해당 가정의 이탈(해지) 위험이 커집니다</span>
             </div>
             <div style={{ display: 'flex', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
               <KpiCard
@@ -1055,8 +1054,8 @@ export default function WeeklyReport() {
               display: 'flex', alignItems: 'center', gap: 10,
               marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
             }}>
-              <h2 style={{ margin: 0, color: NAVY, fontSize: 22 }}>이번 주 CS 종합 브리핑</h2>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>이번 주 CS 전반을 AI가 핵심 패턴 중심으로 종합 분석합니다</span>
+              <h2 style={{ margin: 0, color: NAVY, fontSize: 25 }}>이번 주 CS 종합 브리핑</h2>
+              <span style={{ fontSize: 15, color: '#94a3b8' }}>이번 주 CS 전반을 AI가 핵심 패턴 중심으로 종합 분석합니다</span>
             </div>
             {report.weekly_summary
               ? (

@@ -16,6 +16,10 @@ import { api, adminParentUrl, type InsightParent } from '../../api/client'
 import { ALLOWED_MAIN, ALLOWED_SPECIFIC, FILTER_TREE, isAllowedCategory } from '../../api/categories'
 import { useAdmin } from '../../hooks/useAdmin'
 
+// KPI 카드 상단 컬러 바 — 반복 Wings 티켓과 달리 카드별로 색을 다르게 주지 않고 전부 이 한 색만
+// 써서(정적인 느낌 요청) 화려하지 않게 유지한다. 우선순위 구분은 이미 아래 표의 배지로 하고 있다.
+const NAVY = '#1e3c72'
+
 const CATEGORY_COLORS: Record<string, string> = {
   '네트워크·앱 오류':   '#3b82f6',
   '기기·하드웨어 오류': '#f59e0b',
@@ -247,7 +251,6 @@ export default function RepeatParents() {
                 label: '반복 인입 학부모',
                 value: total,
                 unit: '명',
-                color: '#3b82f6',
                 base: '최근 30일 3회 이상',
                 sub: null,
               },
@@ -255,7 +258,6 @@ export default function RepeatParents() {
                 label: '동일 이슈 반복',
                 value: sameIssueCount,
                 unit: '명',
-                color: '#f59e0b',
                 base: '동일 유형 2회 이상',
                 sub: `반복 인입 ${total}명 중`,
               },
@@ -263,7 +265,6 @@ export default function RepeatParents() {
                 label: '복합 이슈',
                 value: complexCount,
                 unit: '명',
-                color: '#8b5cf6',
                 base: '문의 유형 3개 이상',
                 sub: `반복 인입 ${total}명 중`,
               },
@@ -271,17 +272,16 @@ export default function RepeatParents() {
                 label: '단기간 재인입',
                 value: shortGapCount,
                 unit: '명',
-                color: '#ef4444',
                 base: '2일 내 재인입',
                 sub: `반복 인입 ${total}명 중`,
               },
             ].map(kpi => (
               <div key={kpi.label} style={{
                 background: '#fff',
-                border: '1px solid #e2e8f0',
-                borderLeft: `4px solid ${kpi.color}`,
-                borderRadius: 12,
-                padding: '14px 18px',
+                borderRadius: 14,
+                boxShadow: '0 1px 4px rgba(0,0,0,.06)',
+                borderTop: `3px solid ${NAVY}`,
+                padding: '16px 20px',
               }}>
                 <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>{kpi.base}</div>
                 {kpi.sub && (
@@ -291,7 +291,7 @@ export default function RepeatParents() {
                   {kpi.label}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                  <span style={{ fontSize: 28, fontWeight: 800, color: '#111827' }}>{kpi.value}</span>
+                  <span style={{ fontSize: 30, fontWeight: 800, color: '#1e293b' }}>{kpi.value}</span>
                   <span style={{ fontSize: 13, color: '#94a3b8' }}>{kpi.unit}</span>
                 </div>
               </div>
@@ -315,7 +315,7 @@ export default function RepeatParents() {
       <div className="section-card">
         <div className="insight-toolbar">
           <span style={{ fontSize: 12, color: '#94a3b8' }}>{updatedAt}</span>
-          {isAdmin ? (
+          {isAdmin && (
             <button
               onClick={handleRefresh}
               disabled={refreshing}
@@ -323,8 +323,6 @@ export default function RepeatParents() {
             >
               {refreshing ? '업데이트 중...' : '↻ 새로고침'}
             </button>
-          ) : (
-            <span style={{ fontSize: 12, color: '#94a3b8' }}>🔒 관리자 로그인 후 새로고침 가능</span>
           )}
         </div>
 
