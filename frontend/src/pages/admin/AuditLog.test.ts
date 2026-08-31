@@ -147,6 +147,17 @@ describe('formatField', () => {
     expect(formatField('hour', '9')).toBe('9시로 설정')
     expect(formatField('minute', '30')).toBe('30분으로 설정')
   })
+
+  it('total/changed/etc_reclaimed는 재분류 결과 건수 문장으로 바꾼다', () => {
+    expect(formatField('total', '80251')).toBe('전체 80251건')
+    expect(formatField('changed', '3521')).toBe('변경 3521건')
+    expect(formatField('etc_reclaimed', '1')).toBe('기타→타 카테고리 흡수 1건')
+  })
+
+  it('top_changes는 "주요 변화: " 접두사와 함께 원문 그대로 보여준다', () => {
+    expect(formatField('top_changes', '기기·하드웨어 오류>기기 교체 요청 → 기기·하드웨어 오류>충전·전원 불량 (146건)'))
+      .toBe('주요 변화: 기기·하드웨어 오류>기기 교체 요청 → 기기·하드웨어 오류>충전·전원 불량 (146건)')
+  })
 })
 
 describe('translateMailError', () => {

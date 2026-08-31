@@ -12,7 +12,8 @@
 // 테이블)에 id 범위까지 훨씬 상세히 기록되고 "API 관리" 페이지에서 보이므로, 여기 중복 기록하면
 // 하루 146줄이 쌓여 정작 중요한 로그인·설정변경 이력이 파묻히기 때문이다.
 //
-// mode('manual'/'auto')는 core/audit_log.py가 DB에 직접 저장해주는 값이라 여기서 추론하지 않는다.
+// mode('manual'/'auto'/'test')는 core/audit_log.py가 DB에 직접 저장해주는 값이라 여기서
+// 추론하지 않는다. 'test'는 개발자가 X-Test-Call 헤더를 실어 API를 직접 호출한 경우다.
 // category는 순수 표시·필터용 매핑이라 이 파일 안에서만 관리한다 (DB 스키마 변경 불필요).
 // 필터는 전부 프론트에서 처리한다 — 로그 양이 하루 몇십 건 수준이라 서버 쿼리 파라미터를
 // 늘릴 필요가 없고, 나중에 로그가 훨씬 많아지면 그때 서버 필터로 옮기면 된다.
@@ -92,6 +93,7 @@ const ACTION_LABEL: Record<string, string> = {
   generation_settings_reset: '자동 생성·갱신 설정 초기화',
   prompt_save: 'Gemma 프롬프트 저장',
   prompt_reset: 'Gemma 프롬프트 초기화',
+  issues_reclassify: 'CS 이슈 전체 재분류',
 }
 
 const ACTION_CATEGORY: Record<string, Category> = {
@@ -126,6 +128,7 @@ const ACTION_CATEGORY: Record<string, Category> = {
   generation_settings_reset: 'settings',
   prompt_save: 'settings',
   prompt_reset: 'settings',
+  issues_reclassify: 'collection',
 }
 
 const CATEGORY_LABEL: Record<Category, string> = {
@@ -149,12 +152,9 @@ function CategoryBadge({ action }: { action: string }) {
 }
 
 function ModeBadge({ mode }: { mode: string }) {
-  const isAuto = mode === 'auto'
-  return (
-    <Badge color={isAuto ? '#fde68a' : '#e2e8f0'} textColor={isAuto ? '#0f172a' : '#475569'}>
-      {isAuto ? '자동' : '수동'}
-    </Badge>
-  )
+  if (mode === 'auto') return <Badge color="#fde68a" textColor="#0f172a">자동</Badge>
+  if (mode === 'test') return <Badge color="#e0e7ff" textColor="#4338ca">테스트</Badge>
+  return <Badge color="#e2e8f0" textColor="#475569">수동</Badge>
 }
 
 // detail은 백엔드가 "date=2026-08-19, main=교재·물류·배송, status=success" 같은
@@ -205,6 +205,10 @@ export function formatField(key: string, value: string): string | null {
     case 'enabled': return value === 'True' ? '자동 실행 켜짐' : '자동 실행 꺼짐'
     case 'hour': return `${value}시로 설정`
     case 'minute': return `${value}분으로 설정`
+    case 'total': return `전체 ${value}건`
+    case 'changed': return `변경 ${value}건`
+    case 'etc_reclaimed': return `기타→타 카테고리 흡수 ${value}건`
+    case 'top_changes': return `주요 변화: ${value}`
     default: return null // 알 수 없는 키는 조용히 생략 (미래에 필드가 늘어도 깨지지 않게)
   }
 }
@@ -349,7 +353,7 @@ export default function AuditLog() {
 
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<'all' | Category>('all')
-  const [modeFilter, setModeFilter] = useState<'all' | 'manual' | 'auto'>('all')
+  const [modeFilter, setModeFilter] = useState<'all' | 'manual' | 'auto' | 'test'>('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [pageSize, setPageSize] = useState(20)
@@ -426,9 +430,10 @@ export default function AuditLog() {
           ))}
         </select>
         <select value={modeFilter} onChange={e => setModeFilter(e.target.value as typeof modeFilter)} style={inputStyle}>
-          <option value="all">수동+자동</option>
+          <option value="all">전체</option>
           <option value="manual">수동만</option>
           <option value="auto">자동만</option>
+          <option value="test">테스트만</option>
         </select>
         <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={inputStyle} />
         <span style={{ alignSelf: 'center', color: '#94a3b8', fontSize: 18 }}>~</span>
