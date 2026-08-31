@@ -128,8 +128,8 @@ export function GenerationSettingsSection({ reportType }: { reportType: DailyOrW
       <FieldRow
         label="생성 시각"
         hint={reportType === 'daily'
-          ? '매일 이 시각에 전날 데이터를 기준으로 보고서를 생성합니다.'
-          : '매주 월요일 이 시각에 직전 주(월~금) 데이터를 기준으로 보고서를 생성합니다.'}
+          ? '매일 이 시각에 직전 영업일 데이터를 기준으로 보고서를 생성합니다.'
+          : '매주 월요일 이 시각에 직전 주(월~일) 데이터를 기준으로 보고서를 생성합니다.'}
       >
         <TimePicker hour={settings.generate_hour} minute={settings.generate_minute} onChange={updateTime} />
       </FieldRow>

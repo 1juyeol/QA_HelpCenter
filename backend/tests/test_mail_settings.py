@@ -24,16 +24,24 @@ class TestParseRecipients:
 
 class TestReportReadyByDeadline:
     def test_generated_before_deadline_is_ready(self):
-        assert report_ready_by_deadline("2026-08-25 09:30:00", 11, 0) is True
+        assert report_ready_by_deadline("2026-08-25 09:30:00", 11, 0, today="2026-08-25") is True
 
     def test_generated_exactly_at_deadline_is_ready(self):
-        assert report_ready_by_deadline("2026-08-25 11:00:00", 11, 0) is True
+        assert report_ready_by_deadline("2026-08-25 11:00:00", 11, 0, today="2026-08-25") is True
 
     def test_generated_after_deadline_is_not_ready(self):
-        assert report_ready_by_deadline("2026-08-25 11:30:00", 11, 0) is False
+        assert report_ready_by_deadline("2026-08-25 11:30:00", 11, 0, today="2026-08-25") is False
 
     def test_generated_after_deadline_minute_is_not_ready(self):
-        assert report_ready_by_deadline("2026-08-25 11:05:00", 11, 0) is False
+        assert report_ready_by_deadline("2026-08-25 11:05:00", 11, 0, today="2026-08-25") is False
+
+    def test_generated_on_earlier_day_is_ready_even_past_deadline_time(self):
+        # 관리자가 전날 오후에 미리 생성해둔 경우 — 시:분만 보면 마감을 넘겼어도
+        # 날짜 자체가 오늘보다 이르므로 준비된 것으로 봐야 한다.
+        assert report_ready_by_deadline("2026-08-26 16:38:00", 12, 0, today="2026-08-27") is True
+
+    def test_generated_on_later_day_is_not_ready(self):
+        assert report_ready_by_deadline("2026-08-27 09:00:00", 12, 0, today="2026-08-26") is False
 
 
 class TestHasMinDeadlineGap:
