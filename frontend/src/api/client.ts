@@ -631,6 +631,10 @@ export const api = {
     return get<DailyReportProgress>(`/api/report/daily/generate-status?date=${date}`)
   },
 
+  fetchLatestDailyReport() {
+    return get<DailyReport>('/api/report/daily/latest')
+  },
+
   fetchWeeklyReport(weekStart: string) {
     return get<WeeklyReport>(`/api/report/weekly?week_start=${weekStart}`)
   },

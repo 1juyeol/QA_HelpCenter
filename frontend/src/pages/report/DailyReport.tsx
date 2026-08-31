@@ -576,7 +576,12 @@ function showReportNotification(data: DailyReport, targetUrl: string) {
 export default function DailyReport() {
   const { isAdmin, adminToken } = useAdmin()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [date, setDate] = useState(() => searchParams.get('date') ?? yesterday())
+  // URL에 date가 명시되지 않은 경우(사이드바에서 그냥 들어온 경우), "어제"로 고정하지 않고
+  // 가장 최근에 실제로 생성된 보고서 날짜로 들어간다 — 주말·공휴일 다음 날이나 생성이 밀린
+  // 날엔 "어제"에 보고서가 없어서 빈 화면으로 들어가는 문제가 있었다. date가 ''인 동안은
+  // 아래 useEffect가 fetchLatestDailyReport()로 실제 날짜를 알아내는 중이라는 뜻이다.
+  const [explicitDate] = useState(() => searchParams.get('date'))
+  const [date, setDate] = useState(() => explicitDate ?? '')
   // 감사 로그의 "보고서 보기" 링크(?highlight=)로 들어온 경우 해당 카테고리/구간으로 스크롤한다.
   // date만 남기고 URL을 정리하는 아래 setSearchParams 호출 전에 값을 미리 떼어 state로 들고 있는다.
   const [highlightTarget] = useState(() => searchParams.get('highlight'))
@@ -595,6 +600,13 @@ export default function DailyReport() {
   const pollTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
+    if (!date) {
+      setLoading(true)
+      api.fetchLatestDailyReport()
+        .then(data => setDate(data.report_date))
+        .catch(() => setDate(yesterday()))
+      return
+    }
     setSearchParams({ date }, { replace: true })
     loadReport(date)
     resumeGenerationIfRunning(date)
