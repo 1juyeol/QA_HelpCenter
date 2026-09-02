@@ -9,6 +9,8 @@ from datetime import date
 from fastapi import APIRouter, Query
 from core.db import get_conn
 from core.date_bucket_utils import _buckets_where, _period_where
+from core.pii_mask import mask_phone_numbers
+from features.issues.classifier import find_matched_keyword
 
 router = APIRouter()
 
@@ -89,4 +91,12 @@ def list_issues(
             """,
             params + [limit, offset],
         ).fetchall()
-    return {"total": total, "items": [dict(r) for r in rows]}
+    items = [dict(r) for r in rows]
+    # 관리자 페이지 "분류 키워드 관리"에서 어떤 키워드로 걸렸는지 눈으로 확인할 수 있게, 이미
+    # 분류된 소분류에 대해 원문에 실제로 포함된 키워드를 찾아 함께 내려준다. 일반 화면에서는
+    # 프론트가 관리자 모드일 때만 이 필드로 컬럼을 그린다(비관리자 화면엔 안 보임).
+    for item in items:
+        sub = item.get("new_category_sub")
+        item["matched_keyword"] = find_matched_keyword(item["call_memo"], sub) if sub else None
+        item["call_memo"] = mask_phone_numbers(item["call_memo"])
+    return {"total": total, "items": items}

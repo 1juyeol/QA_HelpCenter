@@ -20,6 +20,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from core.db import get_conn
+from core.pii_mask import mask_phone_numbers
 from core.collection_settings import get_collection_enabled, set_collection_enabled
 from core.audit_log import log_action
 from features.admin.admin_endpoints import require_admin
@@ -108,7 +109,10 @@ def collection_log_issues(log_id: int):
             """,
             (log["last_id"], log["count_fetched"]),
         ).fetchall()
-    return {"items": [dict(r) for r in rows]}
+    items = [dict(r) for r in rows]
+    for item in items:
+        item["call_memo"] = mask_phone_numbers(item["call_memo"])
+    return {"items": items}
 
 
 @router.get("/api/collection/status")

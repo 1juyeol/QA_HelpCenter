@@ -11,6 +11,7 @@
 import re
 from collections import defaultdict
 from core.db import get_conn
+from core.pii_mask import mask_phone_numbers
 
 WINGS_TICKET_RE = re.compile(r'wings\.danbiedu\.co\.kr/#ticket/zoom/(\d+)')
 
@@ -33,7 +34,7 @@ def group_wings_tickets(rows: list, limit: int = 50) -> list:
             if entry["latest_date"] is None:
                 entry["latest_date"] = r["kst_date"]
             entry["first_date"] = r["kst_date"]
-            entry["memos"].append({"date": r["kst_date"], "memo": r["call_memo"]})
+            entry["memos"].append({"date": r["kst_date"], "memo": mask_phone_numbers(r["call_memo"])})
             if entry["parent_id"] is None and r["parent_id"] is not None and r["parent_id"] > 100000:
                 entry["parent_id"] = r["parent_id"]
             if entry["category"] is None and r["new_category_main"]:
@@ -106,7 +107,7 @@ def compute_repeat_parents(start_date: str, end_date: str, limit: int = 100) -> 
         if entry["latest_date"] is None:
             entry["latest_date"] = r["kst_date"]
         cat = " > ".join(filter(None, [r["new_category_main"], r["new_category_sub"]]))
-        entry["memos"].append({"date": r["kst_date"], "memo": r["call_memo"], "category": cat})
+        entry["memos"].append({"date": r["kst_date"], "memo": mask_phone_numbers(r["call_memo"]), "category": cat})
         if r["new_category_main"]:
             entry["categories"].add(r["new_category_main"])
 

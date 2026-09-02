@@ -21,6 +21,7 @@ import requests as req_lib
 from dotenv import load_dotenv
 
 from core.db import get_conn
+from core.pii_mask import mask_phone_numbers
 
 load_dotenv()
 
@@ -240,4 +241,7 @@ def get_bug_memos(key: str) -> list:
             """,
             params,
         ).fetchall()
-        return [dict(m) for m in memos]
+        result = [dict(m) for m in memos]
+        for r in result:
+            r["call_memo"] = mask_phone_numbers(r["call_memo"])
+        return result
