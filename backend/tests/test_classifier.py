@@ -7,7 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from features.issues.classifier import classify, extract_symptom_fields
+from features.issues.classifier import classify, extract_symptom_fields, find_matched_keyword, apply_disabled_keywords
+import features.issues.classifier as classifier_module
 
 
 class TestExtractSymptomFields:
@@ -42,6 +43,15 @@ class TestExtractSymptomFields:
     def test_non_template_returns_original(self):
         memo = "해지 요청 주심. 위약금 문의."
         assert extract_symptom_fields(memo) == memo
+
+    def test_template_with_blank_fields_returns_empty_not_original(self):
+        # 확인사항이 비어있으면 원문(교체 물류용 행정 필드 포함) 대신 빈 문자열을 반환해야
+        # 한다 — 안 그러면 "동글 연결 불가능" 같은 문구가 증상인 것처럼 AI 분석에 섞여 들어간다.
+        memo = (
+            "*교체 학습기 : 윙크 스쿨 단말기 / 기본형 / 동글 연결 불가능\n\n"
+            "*확인사항 : \n*안내사항 : \n– 선출고 후회수 안내\n*후속관리 : 미진행"
+        )
+        assert extract_symptom_fields(memo) == ""
 
     def test_template_classify_not_wifi(self):
         # 공유기 재부팅이 체크리스트에만 있고 실제 증상은 소리 문제인 메모
@@ -83,7 +93,7 @@ class TestNewKeywords:
             "점검 요청 주심",
         ]:
             main, sub = classify(memo)
-            assert (main, sub) == ("기기·하드웨어 오류", "기기 교체 요청"), memo
+            assert (main, sub) == ("교재·물류·배송", "기기 교체 요청"), memo
 
     # 보강된 누락·오배송 키워드
     def test_missing_delivery_keyword(self):
@@ -93,7 +103,7 @@ class TestNewKeywords:
 
 class TestTemplateKeywords:
     # 템플릿 추출 후 새 키워드 매칭 검증
-    def test_safe_mode_is_boot_error(self):
+    def test_safe_mode_is_charging_power_defect(self):
         memo = (
             "*확인사항 : 안전모드로 나온다는 문의\n"
             "- 상세증상 : 안전모드로 확인\n"
@@ -101,7 +111,7 @@ class TestTemplateKeywords:
             "*후속관리 : 미진행"
         )
         main, sub = classify(memo)
-        assert (main, sub) == ("기기·하드웨어 오류", "부팅 오류")
+        assert (main, sub) == ("기기·하드웨어 오류", "충전·전원 불량")
 
     def test_learning_interrupted_is_freezing(self):
         memo = (
@@ -168,17 +178,47 @@ class TestPriorityRegression:
         main, sub = classify("학습기 교체 안내했으나 해지요청 하심")
         assert main == "해지·유지 상담"
 
-    # 같은 기기 대분류 안에서는 RULES 순서(충전이 기기 교체보다 앞)가 우선
-    def test_swap_beats_charging_same_main(self):
-        # 기기 교체 요청이 충전·전원 불량보다 우선 (원인 불문 교체 케이스 우선)
+    # 같은 기기 대분류 안에서는 구체적 결함 사유(충전·터치·부팅·파손)가 기기 교체 요청보다
+    # 먼저 걸린다 — "학습기 교체" 같은 처리 템플릿 문구가 같이 있어도, 확인사항에 실제 증상이
+    # 있으면 그 증상으로 분류해야 결함 원인 집계(주간·일별 리포트)에서 사라지지 않는다.
+    # 순수 "기기 교체 요청"은 구체적 증상 키워드가 하나도 안 걸리는 경우에만 확정된다.
+    def test_charging_beats_swap_same_main(self):
         main, sub = classify("충전이 안되어 학습기 교체 문의")
-        assert (main, sub) == ("기기·하드웨어 오류", "기기 교체 요청")
+        assert (main, sub) == ("기기·하드웨어 오류", "충전·전원 불량")
+
+    def test_swap_still_wins_when_no_specific_reason(self):
+        main, sub = classify("*교체 학습기 : 윙크 학습 단말기 / 기본형 / 동글 연결 불가능")
+        assert (main, sub) == ("교재·물류·배송", "기기 교체 요청")
 
     # 보강과 무관한 기존 분류는 그대로
     def test_existing_unchanged(self):
         assert classify("와이파이 연결이 안됨")[0] == "네트워크·앱 오류"
         assert classify("위약금 문의 주심")[1] == "해지금·위약금 문의"
         assert classify("") == (None, None)
+
+
+class TestDeviceSwapReasonOverride:
+    # classify()가 "기기 교체 요청"으로 확정하기 직전, classify_device_swap_reason()으로
+    # 한 번 더 판단해서 결함 사유가 명확하면 그 실제 카테고리로 대신 확정하는지 검증한다.
+
+    def test_charging_defect_overrides_to_real_category(self):
+        memo = "*교체 학습기 : 윙크 스쿨 단말기 / 기본형 / 동글 연결 불가능\n*확인사항 : 완충해도 방전이 급격하게 됨"
+        assert classify(memo) == ("기기·하드웨어 오류", "충전·전원 불량")
+
+    def test_morpheme_only_defect_still_overrides(self):
+        # 문자열 키워드엔 없고 형태소(어간) 매칭으로만 잡히는 활용형("벌어지고 있음")도
+        # classify() 최종 결과에 반영되어야 한다.
+        memo = "*교체 학습기 : 윙크 스쿨 단말기 / 기본형 / 동글 연결 불가능\n*확인사항 : 케이스가 벌어지고 있어요"
+        assert classify(memo) == ("기기·하드웨어 오류", "기기 파손")
+
+    def test_no_reason_falls_back_to_device_swap_request(self):
+        memo = "*교체 학습기 : 윙크 스쿨 단말기 / 기본형 / 동글 연결 불가능\n*확인사항 : "
+        assert classify(memo) == ("교재·물류·배송", "기기 교체 요청")
+
+    def test_non_defect_reason_falls_back_to_device_swap_request(self):
+        # "고객 요청형(비고장)"처럼 REASON_TO_CATEGORY에 없는 사유는 override하지 않는다.
+        memo = "*교체 학습기 : 윙크 스쿨 단말기 / 기본형 / 동글 연결 불가능\n*확인사항 : 최신기종으로 교체 해달라고 하심"
+        assert classify(memo) == ("교재·물류·배송", "기기 교체 요청")
 
 
 class TestOverbroadKeywordFix:
@@ -204,7 +244,7 @@ class TestOverbroadKeywordFix:
             "- 통신사 회신점검 안내드리니 공유기도 재 설치했다고 함 - 기기교체요청 - *후속관리 : 미진행"
         )
         main, sub = classify(memo)
-        assert (main, sub) == ("기기·하드웨어 오류", "기기 교체 요청")
+        assert (main, sub) == ("교재·물류·배송", "기기 교체 요청")
 
     def test_book_recollection_not_device_long_uncollected(self):
         # 도서 재회수 요청 — "재회수" 키워드로 기기 장기미회수가 잘못 매칭되던 케이스
@@ -264,4 +304,59 @@ class TestReplacementTemplateRootCause:
             "*확인사항 : \n*안내사항 : \n– 선출고 후회수 안내\n*후속관리 : 미진행"
         )
         main, sub = classify(memo)
-        assert (main, sub) == ("기기·하드웨어 오류", "기기 교체 요청")
+        assert (main, sub) == ("교재·물류·배송", "기기 교체 요청")
+
+
+class TestFindMatchedKeyword:
+    def test_returns_matched_keyword(self):
+        assert find_matched_keyword("와이파이 연결이 안됨", "와이파이 오류") == "와이파이 연결"
+
+    def test_returns_none_when_no_keyword_present(self):
+        assert find_matched_keyword("해지 문의드립니다", "와이파이 오류") is None
+
+    def test_returns_none_for_unknown_sub(self):
+        assert find_matched_keyword("아무 내용", "존재하지 않는 소분류") is None
+
+
+class TestApplyDisabledKeywords:
+    def setup_method(self):
+        self._rules_snapshot = [(sub, list(kws)) for sub, kws in classifier_module.RULES]
+
+    def teardown_method(self):
+        classifier_module.RULES[:] = self._rules_snapshot
+
+    def test_disabled_keyword_removed_from_rules(self, monkeypatch):
+        monkeypatch.setattr(
+            "core.classifier_keyword_settings.get_disabled_keywords",
+            lambda: {("와이파이 오류", "핫스팟")},
+        )
+        apply_disabled_keywords()
+        kws = dict(classifier_module.RULES)["와이파이 오류"]
+        assert "핫스팟" not in kws
+        assert "와이파이 연결" in kws  # 다른 키워드는 그대로 남아있어야 한다
+
+    def test_no_disabled_keywords_leaves_rules_unchanged(self, monkeypatch):
+        monkeypatch.setattr("core.classifier_keyword_settings.get_disabled_keywords", lambda: set())
+        before = [(sub, list(kws)) for sub, kws in classifier_module.RULES]
+        apply_disabled_keywords()
+        assert classifier_module.RULES == before
+
+
+class TestFindMatchedKeywordDeviceSwapFallback:
+    # 일반 RULES에 안 걸려도, "기기 교체 요청" 사유 분석 이중로직으로 이 소분류에 온 건이면
+    # 그 근거(키워드 또는 형태소)를 보여줘야 한다.
+    def test_falls_back_to_defect_keyword_when_no_direct_rule_match(self):
+        # "밧데리가"는 classifier.py의 일반 RULES엔 없고 churn_device_insights.py의 사유
+        # 분석 키워드 목록에만 있다(검증됨) — 일반 매칭이 실패해야 이 폴백이 실제로 실행된다.
+        memo = "*교체 학습기 : 윙크 스쿨 단말기 / 기본형 / 동글 연결 불가능\n*확인사항 : 밧데리가 금방 없어짐"
+        assert find_matched_keyword(memo, "충전·전원 불량") == "밧데리가"
+
+    def test_falls_back_to_morpheme_stem_when_only_morpheme_matches(self):
+        # "닳"은 문자열 키워드 목록엔 없고 형태소 매칭으로만 잡힌다(검증됨).
+        memo = "*교체 학습기 : 윙크 스쿨 단말기 / 기본형 / 동글 연결 불가능\n*확인사항 : 충전 케이블 피복이 다 닳아버렸어요"
+        assert find_matched_keyword(memo, "충전·전원 불량") == "닳(형태소)"
+
+    def test_returns_none_when_reason_maps_to_different_sub(self):
+        # 충전 결함으로 판정되는 메모를 엉뚱한 소분류로 조회하면 None
+        memo = "*교체 학습기 : 윙크 스쿨 단말기 / 기본형 / 동글 연결 불가능\n*확인사항 : 완충해도 방전이 급격하게 됨"
+        assert find_matched_keyword(memo, "터치·입력 불량") is None

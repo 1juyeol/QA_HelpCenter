@@ -136,7 +136,7 @@ function CategoryTestPanel({
         <div style={{ fontSize: 15, color: '#374151', lineHeight: 1.6 }}>
           <div style={{ marginBottom: 6 }}>
             <span style={{ fontWeight: 700 }}>{catResult.sub}</span>
-            <span style={{ color: '#64748b', marginLeft: 6 }}>{catResult.count}건</span>
+            <span style={{ color: '#64748b', marginLeft: 6 }}>{catResult.count.toLocaleString()}건</span>
             {catResult.insufficient_data && <span style={{ color: '#f59e0b', marginLeft: 8 }}>데이터 부족</span>}
             {catResult.gemma_error && <span style={{ color: RISK_RED, marginLeft: 8 }} title={catResult.gemma_error}>AI 분석 실패</span>}
           </div>
@@ -160,7 +160,7 @@ function CategoryTestPanel({
         <div style={{ fontSize: 15, color: '#374151', lineHeight: 1.6 }}>
           <div style={{ marginBottom: 6 }}>
             <span style={{ fontWeight: 700 }}>{peakResult.bucket_start}~{peakResult.bucket_end}</span>
-            <span style={{ color: '#64748b', marginLeft: 6 }}>{peakResult.bucket_count}건 (평균 {peakResult.avg_count}건)</span>
+            <span style={{ color: '#64748b', marginLeft: 6 }}>{peakResult.bucket_count.toLocaleString()}건 (평균 {peakResult.avg_count.toLocaleString()}건)</span>
             {peakResult.gemma_error && <span style={{ color: RISK_RED, marginLeft: 8 }} title={peakResult.gemma_error}>AI 분석 실패</span>}
             {!peakResult.gemma_error && (
               <span style={{ marginLeft: 8, color: peakResult.has_pattern ? '#166534' : '#64748b' }}>
@@ -196,7 +196,7 @@ function DeltaBadge({ delta, unit, invert, neutral }: { delta: number | null | u
   const arrow = isPositive ? '↑' : '↓'
   return (
     <div style={{ fontSize: 18, color, fontWeight: 600, marginTop: 5 }}>
-      {arrow} {isPositive ? '+' : ''}{delta}{unit}
+      {arrow} {isPositive ? '+' : ''}{delta.toLocaleString()}{unit}
       <span style={{ fontSize: 14, color: '#94a3b8', fontWeight: 400, marginLeft: 4 }}>직전 영업일 대비</span>
     </div>
   )
@@ -306,7 +306,7 @@ function RiskRowItem({ row, aiLoading = false, isCurrent = false }: { row: RiskR
         <span style={{ fontSize: 18, color: '#cbd5e1' }}>›</span>
         <span style={{ fontWeight: 700, fontSize: 22, color: '#1e293b' }}>{row.sub}</span>
         <span style={{ fontSize: 22, fontWeight: 700, color: RISK_RED, background: '#fef2f2', borderRadius: 6, padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0 }}>
-          {row.count}건
+          {row.count.toLocaleString()}건
         </span>
       </div>
       <div style={{ padding: '10px 16px' }}>
@@ -563,7 +563,7 @@ async function requestNotificationPermission(): Promise<boolean> {
 
 function showReportNotification(data: DailyReport, targetUrl: string) {
   const n = new Notification('보고서 생성 완료', {
-    body: `${data.report_date} · 총 ${data.total_count}건 · 리스크 ${data.risk_total}건`,
+    body: `${data.report_date} · 총 ${data.total_count.toLocaleString()}건 · 리스크 ${data.risk_total.toLocaleString()}건`,
   })
   n.onclick = () => {
     window.focus()
@@ -926,10 +926,10 @@ export default function DailyReport() {
                     {report.peak_bucket.bucket_start}~{report.peak_bucket.bucket_end}
                   </span>
                   <span style={{ fontSize: 21, fontWeight: 700, color: RISK_RED }}>
-                    {report.peak_bucket.bucket_count}건
+                    {report.peak_bucket.bucket_count.toLocaleString()}건
                   </span>
                   <span style={{ fontSize: 16, color: '#64748b' }}>
-                    (당일 피크타임 30분 구간 평균 {report.peak_bucket.avg_count}건)
+                    (당일 피크타임 30분 구간 평균 {report.peak_bucket.avg_count.toLocaleString()}건)
                   </span>
                   {report.peak_bucket.pattern && (
                     <span style={{
@@ -974,10 +974,10 @@ export default function DailyReport() {
                     {report.anomaly_bucket.bucket_start}~{report.anomaly_bucket.bucket_end}
                   </span>
                   <span style={{ fontSize: 21, fontWeight: 700, color: RISK_RED }}>
-                    {report.anomaly_bucket.bucket_count}건
+                    {report.anomaly_bucket.bucket_count.toLocaleString()}건
                   </span>
                   <span style={{ fontSize: 16, color: '#64748b' }}>
-                    (당일 피크타임 최다 구간 {report.anomaly_bucket.peak_count}건보다 많음)
+                    (당일 피크타임 최다 구간 {report.anomaly_bucket.peak_count.toLocaleString()}건보다 많음)
                   </span>
                   {report.anomaly_bucket.pattern && (
                     <span style={{

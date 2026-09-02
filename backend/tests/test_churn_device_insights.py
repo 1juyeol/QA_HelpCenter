@@ -105,6 +105,22 @@ class TestClassifyDeviceSwapReason:
         memo = "*교체 학습기 : 윙크 스쿨 단말기\n*확인사항 : \n*안내사항 : \n- 선출고 후회수 안내\n*후속관리 : 미진행"
         assert classify_device_swap_reason(memo) == DEVICE_SWAP_REASON_NO_HISTORY
 
+    def test_morpheme_fallback_catches_conjugation_not_in_keyword_list(self):
+        # "벌어지고 있음"은 키워드 목록엔 없는 활용형이지만, 형태소 분석으로 어간
+        # "벌어지"를 뽑아내면 잡혀야 한다("벌어짐"/"벌어졌다"만 키워드로 있었음).
+        memo = "*교체 학습기 : 윙크 스쿨 단말기\n*확인사항 : 학습기 케이스가 벌어지고 있어요"
+        assert classify_device_swap_reason(memo) == "기기 파손"
+
+    def test_morpheme_fallback_for_slowness(self):
+        memo = "*교체 학습기 : 윙크 스쿨 단말기\n*확인사항 : 학습기가 너무 느려졌어요"
+        assert classify_device_swap_reason(memo) == "학습 끊김·멈춤"
+
+    def test_keyword_match_takes_priority_over_morpheme(self):
+        # 문자열 키워드가 먼저 매칭되면 형태소 분석은 아예 시도하지 않는다(더 정확한
+        # 쪽 우선). "충전이 안"이 키워드로 이미 있으므로 그걸로 확정되어야 한다.
+        memo = "*교체 학습기 : 윙크 스쿨 단말기\n*확인사항 : 충전이 안 되고 화면도 흔들려요"
+        assert classify_device_swap_reason(memo) == "충전·전원 불량"
+
 
 class TestDeviceSwapReasonTier:
     def test_defect_is_clear(self):

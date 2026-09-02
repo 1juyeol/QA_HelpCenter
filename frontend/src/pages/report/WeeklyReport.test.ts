@@ -30,4 +30,11 @@ describe('formatWingsRepeatTrend', () => {
     expect(text).toContain('신규 케이스는 ±0건')
     expect(text).toContain('방치 케이스는 ±0건')
   })
+
+  it('1000 이상이면 천 단위 콤마를 붙인다', () => {
+    const text = formatWingsRepeatTrend(1234, 2000, 1000)
+    expect(text).toContain('신규 케이스는 +2,000건')
+    expect(text).toContain('방치 케이스는 +1,000건')
+    expect(text).toContain('누적 방치 건수는 1,234건')
+  })
 })

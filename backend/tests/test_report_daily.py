@@ -7,8 +7,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from features.report.report_daily import (
     find_anomaly_bucket, has_gemma_failures, collect_gemma_failures, collect_gemma_failure_reasons,
-    _clean_memo_line, _build_memo_brief, _build_device_swap_brief, _clean_device_swap_memo_line,
+    _clean_memo_line, _build_memo_brief,
     _build_bucket_brief, _BUCKET_EXAMPLES_PER_CATEGORY, _format_category_listing,
+    _validate_cited_counts, _build_fallback_summary,
 )
 
 
@@ -187,97 +188,62 @@ class TestBuildMemoBrief:
         assert result["groups"][0]["count"] == 35
 
 
-class TestBuildDeviceSwapBrief:
-    def test_counts_by_reason_and_sorts_descending(self):
+class TestBuildMemoBriefDedupSuffix:
+    def test_identical_texts_get_count_suffix(self):
         memos = (
-            [{"id": i, "text": "*확인사항 : 충전이 안됨", "hour": 10} for i in range(3)]
-            + [{"id": i, "text": "*확인사항 : 터치가 안됨", "hour": 14} for i in range(1)]
+            [{"id": i, "text": "학습기 화면이 계속 멈추는 증상 발생", "hour": 10} for i in range(2)]
+            + [{"id": 99, "text": "터치가 전혀 반응하지 않는 문제 발생", "hour": 11}]
         )
-        result = _build_device_swap_brief(memos, "기기 교체 요청")
-        assert result["groups"][0] == {"sub": "충전·전원 불량", "count": 3, "memos": []}
-        assert result["groups"][1] == {"sub": "터치·입력 불량", "count": 1, "memos": []}
+        result = _build_memo_brief(memos, "학습 끊김·멈춤")
+        lines = result["prompt_text"].split("\n")[1:]
+        assert lines[0].endswith("(2건)")
+        assert not lines[1].endswith("건)")  # 1건뿐인 줄엔 접미사가 안 붙는다
 
-    def test_distribution_section_includes_exact_counts_and_percent(self):
-        memos = [{"id": i, "text": "*확인사항 : 충전이 안됨", "hour": 10} for i in range(4)]
-        result = _build_device_swap_brief(memos, "기기 교체 요청")
-        assert "충전·전원 불량: 4건 (100.0%)" in result["prompt_text"]
-        assert result["prompt_text"].startswith("# 결함 사유 분포 (전체 4건")
 
-    def test_top_category_is_the_highest_ranked_defect_reason(self):
-        memos = (
-            [{"id": i, "text": "*확인사항 : 충전이 안됨", "hour": 10} for i in range(3)]
-            + [{"id": i, "text": "*확인사항 : 터치가 안됨", "hour": 14} for i in range(1)]
+class TestValidateCitedCounts:
+    def test_summary_using_only_provided_counts_passes(self):
+        prompt_section = "[1] 충전이 안됨 (18건)\n[2] 터치가 안됨 (9건)"
+        summary = "충전 불량이 18건, 터치 불량이 9건 확인됩니다."
+        assert _validate_cited_counts(summary, prompt_section) is None
+
+    def test_summary_inventing_a_count_fails(self):
+        prompt_section = "[1] 오배송 건\n[2] 도서 누락 건"
+        summary = "오배송이 3건, 도서 누락이 2건 확인됩니다."
+        reason = _validate_cited_counts(summary, prompt_section)
+        assert reason is not None
+        assert "3건" in reason and "2건" in reason
+
+    def test_summary_with_no_count_mentions_passes(self):
+        prompt_section = "[1] 오배송 건\n[2] 도서 누락 건"
+        summary = "오배송과 도서 누락 사례가 다수 확인됩니다."
+        assert _validate_cited_counts(summary, prompt_section) is None
+
+
+class TestBuildFallbackSummary:
+    def test_distribution_table_groups_are_listed_in_order(self):
+        prompt_section = (
+            "# 결함 사유 분포 (전체 194건 중 결함으로 분류된 건, 정확히 집계된 수치)\n"
+            "충전·전원 불량: 22건 (11.3%)\n"
+            "터치·입력 불량: 14건 (7.2%)"
         )
-        result = _build_device_swap_brief(memos, "기기 교체 요청")
-        assert result["top_category"] == {"name": "충전·전원 불량", "count": 3, "pct": 75.0}
+        summary = _build_fallback_summary(prompt_section)
+        assert "충전·전원 불량 22건" in summary
+        assert "터치·입력 불량 14건" in summary
+        assert summary.index("22건") < summary.index("14건")
 
-    def test_top_category_none_when_no_defect_reasons_present(self):
-        memos = [{"id": i, "text": "이유는 딱히 없는데 그냥 바꿔달라고 하심", "hour": 10} for i in range(5)]
-        result = _build_device_swap_brief(memos, "기기 교체 요청")
-        assert result["top_category"] is None
+    def test_dedup_memo_groups_are_listed(self):
+        prompt_section = "# 학습 끊김·멈춤 (10건)\n[1] 화면이 멈춤 (3건)\n[2] 다른 증상"
+        summary = _build_fallback_summary(prompt_section)
+        assert "화면이 멈춤 3건" in summary
 
-    def test_examples_section_appended_after_distribution(self):
-        memos = [
-            {"id": i, "text": "*확인사항 : 충전이 계속 안되고 학습기가 켜지지 않아서 불편하다고 하심", "hour": 10}
-            for i in range(4)
-        ]
-        result = _build_device_swap_brief(memos, "기기 교체 요청")
-        assert "# 결함 사유 분포" in result["prompt_text"]
-        assert "# 기기 교체 요청 (4건)" in result["prompt_text"]
+    def test_no_groups_falls_back_to_total_only(self):
+        prompt_section = "# 누락·오배송 (7건)\n[1] 텍스트1\n[2] 텍스트2"
+        summary = _build_fallback_summary(prompt_section)
+        assert "7건" in summary
+        assert "달라" in summary  # 세부 내용이 서로 달라 집계 못함을 밝히는 문구
 
-    def test_non_defect_reasons_excluded_from_distribution_section(self):
-        # 사유 불명확이 압도적 1위여도(결함이 아니므로) 분포 표에는 안 나와야 한다 —
-        # 안 그러면 Gemma가 "상위 N개 인용" 규칙을 따르다 결함인 것처럼 인용해버린다.
-        memos = (
-            [{"id": i, "text": "이유는 딱히 없는데 그냥 바꿔달라고 하심", "hour": 10} for i in range(20)]
-            + [{"id": i, "text": "*확인사항 : 충전이 안됨", "hour": 10} for i in range(2)]
-        )
-        result = _build_device_swap_brief(memos, "기기 교체 요청")
-        assert "사유 불명확" not in result["prompt_text"]
-        assert "충전·전원 불량: 2건" in result["prompt_text"]
-
-    def test_group_counts_sum_to_total_memos(self):
-        memos = (
-            [{"id": i, "text": "*확인사항 : 충전이 안됨", "hour": 10} for i in range(3)]
-            + [{"id": i, "text": "*확인사항 : 알 수 없는 사유", "hour": 14} for i in range(2)]
-        )
-        result = _build_device_swap_brief(memos, "기기 교체 요청")
-        assert sum(g["count"] for g in result["groups"]) == 5
-
-    def test_examples_strip_fixed_device_header_boilerplate(self):
-        # "동글 연결 불가능"은 모든 메모에 박힌 고정 기종 헤더 값이라, 예시에 그대로 남으면
-        # Gemma가 실제로 없는 증상인 것처럼 요약해버린 적이 있었다(회귀 테스트).
-        memo_text = (
-            "*교체 학습기 : 윙크 스쿨 단말기 / 기본형(2.0) / 동글 연결 불가능\n"
-            "*확인사항 : 충전이 계속 안되고 학습기가 켜지지 않아서 불편하다고 하심\n"
-            "*안내사항 : - 선출고 후회수 안내\n"
-            "*후속관리 : 미진행"
-        )
-        memos = [{"id": i, "text": memo_text, "hour": 10} for i in range(4)]
-        result = _build_device_swap_brief(memos, "기기 교체 요청")
-        assert "동글 연결 불가능" not in result["prompt_text"]
-        assert "충전이 계속 안되고 학습기가 켜지지 않아서 불편하다고 하심" in result["prompt_text"]
-
-
-class TestCleanDeviceSwapMemoLine:
-    def test_strips_device_header_and_boilerplate(self):
-        memo = {
-            "text": (
-                "*교체 학습기 : 윙크 스쿨 단말기 / 기본형(2.0) / 동글 연결 불가능\n"
-                "*확인사항 : 충전이 계속 안되고 학습기가 켜지지 않아서 불편하다고 하심\n"
-                "*안내사항 : - 선출고 후회수 안내\n"
-                "*후속관리 : 미진행"
-            ),
-            "hour": 10,
-        }
-        assert _clean_device_swap_memo_line(memo) == "충전이 계속 안되고 학습기가 켜지지 않아서 불편하다고 하심"
-
-    def test_header_only_memo_returns_none(self):
-        memo = {
-            "text": "*교체 학습기 : 윙크 스쿨 단말기 / 기본형(2.0) / 동글 연결 불가능\n*확인사항 : \n*안내사항 : \n*후속관리 : 미진행",
-            "hour": 10,
-        }
-        assert _clean_device_swap_memo_line(memo) is None
+    def test_no_header_and_no_groups_returns_generic_fallback_text(self):
+        assert _build_fallback_summary("") == "집계 가능한 데이터가 없어 요약을 생략합니다."
 
 
 def _bucket_memo(i, main, long=True):
