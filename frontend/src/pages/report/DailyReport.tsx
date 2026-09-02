@@ -506,7 +506,7 @@ function PeakMemoModal({ buckets, date, onClose }: { buckets: string[]; date: st
               <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
                 <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
                   {['대분류', '소분류', '학생번호', '학부모번호', '내용', '등록일'].map(h => (
-                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 15, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 16, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -521,10 +521,10 @@ function PeakMemoModal({ buckets, date, onClose }: { buckets: string[]; date: st
                     </td>
                     <td style={{ padding: '9px 12px', fontSize: 15, color: '#64748b', verticalAlign: 'top', whiteSpace: 'nowrap' }}>{m.student_id || '—'}</td>
                     <td style={{ padding: '9px 12px', fontSize: 15, color: '#64748b', verticalAlign: 'top', whiteSpace: 'nowrap' }}>{m.parent_id ?? '—'}</td>
-                    <td style={{ padding: '9px 12px', fontSize: 16, color: '#374151', lineHeight: 1.6, verticalAlign: 'top' }}>
+                    <td style={{ padding: '9px 12px', fontSize: 15, color: '#374151', lineHeight: 1.6, verticalAlign: 'top' }}>
                       {m.call_memo ? m.call_memo.split('\n').map((line: string, i: number) => <span key={i}>{i > 0 && <br />}{line}</span>) : <span style={{ color: '#cbd5e1' }}>—</span>}
                     </td>
-                    <td style={{ padding: '9px 12px', fontSize: 18, color: '#94a3b8', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '9px 12px', fontSize: 15, color: '#94a3b8', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
                       {m.created_date ? m.created_date.slice(0, 16).replace('T', ' ') : '—'}
                     </td>
                   </tr>

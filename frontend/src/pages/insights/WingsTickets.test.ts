@@ -9,7 +9,7 @@ import type { InsightWings } from '../../api/client'
 function ticket(overrides: Partial<InsightWings>): InsightWings {
   return {
     ticket_id: '1', cs_count: 2, memos: [], first_date: '2024-01-01 00:00:00', latest_date: '2024-01-01 00:00:00',
-    parent_id: null, category: null, ...overrides,
+    student_id: null, parent_id: null, category: null, ...overrides,
   }
 }
 

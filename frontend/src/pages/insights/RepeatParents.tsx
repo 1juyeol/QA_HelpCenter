@@ -205,8 +205,8 @@ export default function RepeatParents() {
           maintainAspectRatio: false,
           plugins: { legend: { display: false } },
           scales: {
-            x: { ticks: { stepSize: 5, font: { size: 11 }, color: '#374151' }, grid: { color: 'rgba(0,0,0,0.06)' }, min: 0 },
-            y: { ticks: { font: { size: 11 }, color: '#374151' }, grid: { display: false } },
+            x: { ticks: { stepSize: 5, font: { size: 13 }, color: '#374151' }, grid: { color: 'rgba(0,0,0,0.06)' }, min: 0 },
+            y: { ticks: { font: { size: 13 }, color: '#374151' }, grid: { display: false } },
           },
         },
       })
@@ -236,63 +236,55 @@ export default function RepeatParents() {
     <div className="container">
 
       <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, marginBottom: 4, fontSize: 18, fontWeight: 700, color: '#1e293b' }}>학부모 반복 인입</h2>
-        <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>
+        <h2 style={{ margin: 0, marginBottom: 4, fontSize: 24, fontWeight: 700, color: '#1e293b' }}>학부모 반복 인입</h2>
+        <p style={{ margin: 0, fontSize: 18, color: '#94a3b8' }}>
           위험도 순 정렬 — 긴급(동일이슈 + 2일 내 재인입) · 주의(동일이슈 또는 최근 7일 내 재인입) · 관찰(그 외)
         </p>
       </div>
 
       {!loading && data.length > 0 && (
         <>
-          {/* KPI 카드 — 모수 관계 서브텍스트 포함 */}
+          {/* KPI 카드 */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
             {[
               {
                 label: '반복 인입 학부모',
                 value: total,
                 unit: '명',
-                base: '최근 30일 3회 이상',
-                sub: null,
               },
               {
                 label: '동일 이슈 반복',
                 value: sameIssueCount,
                 unit: '명',
-                base: '동일 유형 2회 이상',
-                sub: `반복 인입 ${total}명 중`,
               },
               {
                 label: '복합 이슈',
                 value: complexCount,
                 unit: '명',
-                base: '문의 유형 3개 이상',
-                sub: `반복 인입 ${total}명 중`,
               },
               {
                 label: '단기간 재인입',
                 value: shortGapCount,
                 unit: '명',
-                base: '2일 내 재인입',
-                sub: `반복 인입 ${total}명 중`,
               },
             ].map(kpi => (
               <div key={kpi.label} style={{
                 background: '#fff',
-                borderRadius: 14,
-                boxShadow: '0 1px 4px rgba(0,0,0,.06)',
-                borderTop: `3px solid ${NAVY}`,
-                padding: '16px 20px',
+                borderRadius: 12,
+                boxShadow: '0 1px 4px rgba(0,0,0,.07)',
+                borderLeft: `4px solid ${NAVY}`,
+                padding: '20px 22px',
               }}>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>{kpi.base}</div>
-                {kpi.sub && (
-                  <div style={{ fontSize: 10, color: '#cbd5e1', marginBottom: 6 }}>{kpi.sub}</div>
-                )}
-                <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 8, marginTop: kpi.sub ? 0 : 6 }}>
+                <div style={{
+                  fontSize: 30, color: '#64748b', fontWeight: 700,
+                  textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 8,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }} title={kpi.label}>
                   {kpi.label}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                  <span style={{ fontSize: 30, fontWeight: 800, color: '#1e293b' }}>{kpi.value}</span>
-                  <span style={{ fontSize: 13, color: '#94a3b8' }}>{kpi.unit}</span>
+                  <span style={{ fontSize: 45, fontWeight: 800, color: '#1e293b' }}>{kpi.value}</span>
+                  <span style={{ fontSize: 15, color: '#94a3b8' }}>{kpi.unit}</span>
                 </div>
               </div>
             ))}
@@ -300,7 +292,7 @@ export default function RepeatParents() {
 
           {/* 문의 유형 분포 차트 */}
           <div className="section-card" style={{ marginBottom: 16 }}>
-            <h2>
+            <h2 style={{ fontSize: 20 }}>
               반복 인입 학부모 문의 유형 분포
               <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400, marginLeft: 8 }}>최근 30일</span>
             </h2>
@@ -367,13 +359,13 @@ export default function RepeatParents() {
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: 64 }}>우선순위</th>
-                  <th style={{ width: 120 }}>학부모 번호</th>
-                  <th style={{ width: 190 }}>반복 위험 신호</th>
-                  <th style={{ width: 70 }}>인입 횟수</th>
-                  <th style={{ width: 58 }}>유형 수</th>
-                  <th style={{ width: 130 }}>최근 접수</th>
-                  <th>최근 메모</th>
+                  <th style={{ width: 64, fontSize: 16 }}>우선순위</th>
+                  <th style={{ width: 120, fontSize: 16 }}>학부모 번호</th>
+                  <th style={{ width: 190, fontSize: 16 }}>반복 위험 신호</th>
+                  <th style={{ width: 70, fontSize: 16 }}>인입 횟수</th>
+                  <th style={{ width: 58, fontSize: 16 }}>유형 수</th>
+                  <th style={{ width: 130, fontSize: 16 }}>최근 접수</th>
+                  <th style={{ fontSize: 16 }}>최근 메모</th>
                 </tr>
               </thead>
               <tbody>
@@ -401,7 +393,7 @@ export default function RepeatParents() {
                             display: 'inline-block',
                             padding: '3px 8px',
                             borderRadius: 6,
-                            fontSize: 11,
+                            fontSize: 13,
                             fontWeight: 700,
                             color: badge.color,
                             background: badge.bg,
@@ -409,7 +401,7 @@ export default function RepeatParents() {
                             {badge.text}
                           </span>
                         </td>
-                        <td style={{ fontSize: 13, fontWeight: 600 }}>
+                        <td style={{ fontSize: 15, fontWeight: 600 }}>
                           {r.parent_id
                             ? <a href={adminParentUrl(r.parent_id)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{r.parent_id}</a>
                             : <span style={{ color: '#94a3b8' }}>비회원</span>}
@@ -418,7 +410,7 @@ export default function RepeatParents() {
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             {tags.map(tag => (
                               <span key={tag.label} style={{
-                                fontSize: 10, fontWeight: 600,
+                                fontSize: 12, fontWeight: 600,
                                 padding: '2px 6px', borderRadius: 4,
                                 color: tag.color, background: tag.bg,
                                 whiteSpace: 'nowrap',
@@ -427,20 +419,20 @@ export default function RepeatParents() {
                               </span>
                             ))}
                             {tags.length === 0 && (
-                              <span style={{ fontSize: 11, color: '#cbd5e1' }}>—</span>
+                              <span style={{ fontSize: 13, color: '#cbd5e1' }}>—</span>
                             )}
                           </div>
                         </td>
                         <td>
                           <span className="count-badge">{getDisplayCount(r)}건</span>
                         </td>
-                        <td style={{ fontSize: 13, color: '#374151', textAlign: 'center' }}>
+                        <td style={{ fontSize: 15, color: '#374151', textAlign: 'center' }}>
                           {distinctMains.size}
                         </td>
-                        <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 12 }}>
+                        <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 15 }}>
                           {qMemos[0]?.date ? qMemos[0].date.slice(0, 16) : '—'}
                         </td>
-                        <td style={{ color: '#64748b', fontSize: 12, maxWidth: 0 }}>
+                        <td style={{ color: '#64748b', fontSize: 15, maxWidth: 0 }}>
                           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {preview}{latestMemo.length > 50 ? '…' : ''}
                           </div>

@@ -47,8 +47,8 @@ export default function DeviceSwapInsight() {
           tooltip: { callbacks: { label: ctx => `${ctx.parsed.x}건` } },
         },
         scales: {
-          x: { grid: { color: '#ebeef5' }, ticks: { color: '#9aa3b5', font: { size: 11 } } },
-          y: { grid: { display: false }, ticks: { color: '#1b2440', font: { size: 12 } } },
+          x: { grid: { color: '#ebeef5' }, ticks: { color: '#9aa3b5', font: { size: 13 } } },
+          y: { grid: { display: false }, ticks: { color: '#1b2440', font: { size: 13 } } },
         },
       },
     })
@@ -87,42 +87,38 @@ export default function DeviceSwapInsight() {
       ) : (
         <>
           <div className="qi-stats" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-            <div className="qi-card qi-stat">
+            <div className="qi-card qi-stat" style={{ borderLeftColor: '#94a3b8' }}>
               <div className="s-label">총 교체 요청</div>
               <div className="s-val">{devices.total.toLocaleString()}건</div>
             </div>
-            <div className="qi-card qi-stat">
-              <div className="s-label">선출고</div>
+            <div className="qi-card qi-stat" style={{ borderLeftColor: 'var(--primary)' }}>
+              <div className="s-label" title={`선출고 (참고: ${devices.seonchulgo_count.toLocaleString()}건)`}>선출고 <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--muted)' }}>(참고: {devices.seonchulgo_count.toLocaleString()}건)</span></div>
               <div className="s-val" style={{ color: 'var(--primary)' }}>
                 {((devices.seonchulgo_count / devices.total) * 100).toFixed(1)}%
               </div>
-              <div className="s-sub">{devices.seonchulgo_count.toLocaleString()}건</div>
             </div>
-            <div className="qi-card qi-stat">
-              <div className="s-label">단순교체(회수 후 교체)</div>
+            <div className="qi-card qi-stat" style={{ borderLeftColor: 'var(--muted)' }}>
+              <div className="s-label" title={`단순교체(회수 후 교체) (참고: ${devices.normal_count.toLocaleString()}건)`}>단순교체(회수 후 교체) <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--muted)' }}>(참고: {devices.normal_count.toLocaleString()}건)</span></div>
               <div className="s-val" style={{ color: 'var(--muted)' }}>
                 {((devices.normal_count / devices.total) * 100).toFixed(1)}%
               </div>
-              <div className="s-sub">{devices.normal_count.toLocaleString()}건</div>
             </div>
           </div>
 
           {reasonTotal > 0 && (
             <>
               <div className="qi-stats" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
-                <div className="qi-card qi-stat">
-                  <div className="s-label">사유 명확 (하드웨어 결함·정상 상품 전환)</div>
+                <div className="qi-card qi-stat" style={{ borderLeftColor: 'var(--muted)' }}>
+                  <div className="s-label" title={`사유 명확 (하드웨어 결함·정상 상품 전환) (참고: ${clearCount.toLocaleString()}건)`}>사유 명확 (하드웨어 결함·정상 상품 전환) <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--muted)' }}>(참고: {clearCount.toLocaleString()}건)</span></div>
                   <div className="s-val" style={{ color: 'var(--muted)' }}>
                     {((clearCount / reasonTotal) * 100).toFixed(1)}%
                   </div>
-                  <div className="s-sub">{clearCount.toLocaleString()}건</div>
                 </div>
-                <div className="qi-card qi-stat">
-                  <div className="s-label">확인 필요 (고장 아님·이력 없음·사유 불명확)</div>
+                <div className="qi-card qi-stat" style={{ borderLeftColor: 'var(--danger)' }}>
+                  <div className="s-label" title={`확인 필요 (고장 아님·이력 없음·사유 불명확) (참고: ${reviewCount.toLocaleString()}건)`}>확인 필요 (고장 아님·이력 없음·사유 불명확) <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--muted)' }}>(참고: {reviewCount.toLocaleString()}건)</span></div>
                   <div className="s-val" style={{ color: 'var(--danger)' }}>
                     {((reviewCount / reasonTotal) * 100).toFixed(1)}%
                   </div>
-                  <div className="s-sub">{reviewCount.toLocaleString()}건</div>
                 </div>
               </div>
 

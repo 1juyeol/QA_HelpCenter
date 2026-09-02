@@ -63,15 +63,13 @@ export default function ServiceQualityIndex() {
                 </div>
               </div>
             </div>
-            <div className="qi-card qi-stat">
-              <div className="s-label">{latest.label} (최근)</div>
+            <div className="qi-card qi-stat" style={{ borderLeftColor: isHigh ? 'var(--danger)' : 'var(--primary)' }}>
+              <div className="s-label" title={`${latest.label} (최근) (참고: 기준 ${baseline.toFixed(1)}% 대비 ${isHigh ? `▲ ${(latest.sqi - baseline).toFixed(1)}%p` : `▼ ${(baseline - latest.sqi).toFixed(1)}%p`})`}>{latest.label} (최근) <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--muted)' }}>(참고: 기준 {baseline.toFixed(1)}% 대비 {isHigh ? `▲ ${(latest.sqi - baseline).toFixed(1)}%p` : `▼ ${(baseline - latest.sqi).toFixed(1)}%p`})</span></div>
               <div className="s-val" style={{ color: isHigh ? 'var(--danger)' : 'var(--primary)' }}>{latest.sqi.toFixed(1)}%</div>
-              <div className="s-sub">기준({baseline.toFixed(1)}%) 대비 <span style={{ color: isHigh ? 'var(--danger)' : 'var(--muted)', fontWeight: 700 }}>{isHigh ? `▲ ${(latest.sqi - baseline).toFixed(1)}%p` : `▼ ${(baseline - latest.sqi).toFixed(1)}%p`}</span></div>
             </div>
-            <div className="qi-card qi-stat">
-              <div className="s-label">최고일</div>
+            <div className="qi-card qi-stat" style={{ borderLeftColor: '#94a3b8' }}>
+              <div className="s-label" title={`최고일 (참고: ${peak ? peak.label : '—'})`}>최고일 <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--muted)' }}>(참고: {peak ? peak.label : '—'})</span></div>
               <div className="s-val" style={{ color: 'var(--text)' }}>{peak ? peak.sqi.toFixed(1) : '0'}%</div>
-              <div className="s-sub">{peak ? peak.label : '—'}</div>
             </div>
           </div>
 

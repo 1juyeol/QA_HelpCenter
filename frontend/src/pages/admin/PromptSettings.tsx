@@ -92,12 +92,12 @@ function PromptEditor({ item, allHistory }: { item: PromptCatalogItem; allHistor
       )}
 
       <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>이 프롬프트에 전달되는 데이터</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20, fontSize: 13 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20, fontSize: 15 }}>
         <thead>
           <tr style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0', color: '#64748b' }}>
-            <th style={{ padding: '6px 8px' }}>데이터</th>
-            <th style={{ padding: '6px 8px' }}>의미</th>
-            <th style={{ padding: '6px 8px' }}>규칙이 쓰라고 하나?</th>
+            <th style={{ padding: '6px 8px', fontSize: 16 }}>데이터</th>
+            <th style={{ padding: '6px 8px', fontSize: 16 }}>의미</th>
+            <th style={{ padding: '6px 8px', fontSize: 16 }}>규칙이 쓰라고 하나?</th>
           </tr>
         </thead>
         <tbody>
@@ -107,7 +107,7 @@ function PromptEditor({ item, allHistory }: { item: PromptCatalogItem; allHistor
               <td style={{ padding: '6px 8px', color: '#374151' }}>{f.desc}</td>
               <td style={{ padding: '6px 8px' }}>
                 <UsedBadge used={f.used} />
-                {f.note && <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{f.note}</div>}
+                {f.note && <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 2 }}>{f.note}</div>}
               </td>
             </tr>
           ))}

@@ -175,8 +175,8 @@ export default function InsightRoadmap() {
   return (
     <div>
       <div className="section-card">
-        <h2>배포 준비 작업</h2>
-        <p style={{ color: '#64748b', fontSize: 13, marginTop: -8, marginBottom: 4 }}>
+        <h2 style={{ fontSize: 24 }}>배포 준비 작업</h2>
+        <p style={{ color: '#64748b', fontSize: 18, marginTop: -8, marginBottom: 4 }}>
           프론트(Firebase) · 백엔드(서버컴 Docker) 분리 배포를 위해 언젠가 처리해야 할 작업.
         </p>
       </div>
@@ -186,8 +186,8 @@ export default function InsightRoadmap() {
       {REPORT_TASKS.map(group => <TaskGroupSection key={group.title} group={group} />)}
 
       <div className="section-card">
-        <h2>인사이트 로드맵</h2>
-        <p style={{ color: '#64748b', fontSize: 13, marginTop: -8, marginBottom: 4 }}>
+        <h2 style={{ fontSize: 24 }}>인사이트 로드맵</h2>
+        <p style={{ color: '#64748b', fontSize: 18, marginTop: -8, marginBottom: 4 }}>
           학습 데이터 연동을 전제로 논의된 인사이트 후보 목록. help-desk 상담 API만으로는
           "학습 데이터 필요" 상태 항목을 만들 수 없다. 구현이 끝난 항목은 이 목록에서 뺀다.
         </p>

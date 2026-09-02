@@ -185,7 +185,7 @@ function TestSendControl({ reportType, adminToken, onSent }: { reportType: MailS
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <input
-          type="date" value={pickedDate} onChange={e => setPickedDate(e.target.value)}
+          type="date" value={pickedDate} max={yesterday()} onChange={e => setPickedDate(e.target.value)}
           style={{ padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 14 }}
         />
         {exists === false ? (

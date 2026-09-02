@@ -58,8 +58,8 @@ export default function RetentionInsight() {
           tooltip: { callbacks: { label: ctx => `${ctx.parsed.x}건` } },
         },
         scales: {
-          x: { grid: { color: '#ebeef5' }, ticks: { color: '#9aa3b5', font: { size: 11 } } },
-          y: { grid: { display: false }, ticks: { color: '#1b2440', font: { size: 12 } } },
+          x: { grid: { color: '#ebeef5' }, ticks: { color: '#9aa3b5', font: { size: 13 } } },
+          y: { grid: { display: false }, ticks: { color: '#1b2440', font: { size: 13 } } },
         },
       },
     })
@@ -100,15 +100,13 @@ export default function RetentionInsight() {
                 </div>
               </div>
             </div>
-            <div className="qi-card qi-stat">
-              <div className="s-label">방어 성공</div>
+            <div className="qi-card qi-stat" style={{ borderLeftColor: 'var(--primary)' }}>
+              <div className="s-label" title={`방어 성공 (참고: 해지 확정 ${stats.confirmed_count.toLocaleString()}건 대비)`}>방어 성공 <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--muted)' }}>(참고: 해지 확정 {stats.confirmed_count.toLocaleString()}건 대비)</span></div>
               <div className="s-val" style={{ color: 'var(--primary)' }}>{stats.defense_count.toLocaleString()}건</div>
-              <div className="s-sub">해지 확정 {stats.confirmed_count.toLocaleString()}건 대비</div>
             </div>
-            <div className="qi-card qi-stat">
-              <div className="s-label">오퍼 필드 확인 가능</div>
+            <div className="qi-card qi-stat" style={{ borderLeftColor: '#94a3b8' }}>
+              <div className="s-label" title={`오퍼 필드 확인 가능 (참고: 방어 성공 중 ${((labeledCount / (stats.defense_count || 1)) * 100).toFixed(0)}%, 나머지는 오퍼 미기재)`}>오퍼 필드 확인 가능 <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--muted)' }}>(참고: 방어 성공 중 {((labeledCount / (stats.defense_count || 1)) * 100).toFixed(0)}%, 나머지는 오퍼 미기재)</span></div>
               <div className="s-val" style={{ color: 'var(--text)' }}>{labeledCount.toLocaleString()}건</div>
-              <div className="s-sub">방어 성공 중 {((labeledCount / (stats.defense_count || 1)) * 100).toFixed(0)}% (나머지는 오퍼 미기재)</div>
             </div>
           </div>
 

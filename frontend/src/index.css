@@ -29,7 +29,7 @@ header {
 .layout { display: flex; flex: 1; overflow: hidden; }
 
 .sidebar {
-  width: 220px;
+  width: 264px;
   flex-shrink: 0;
   background: #fff;
   border-right: 1px solid #e2e8f0;
@@ -42,7 +42,7 @@ header {
   align-items: center;
   gap: 10px;
   padding: 10px 20px;
-  font-size: 15px;
+  font-size: 24px;
   font-weight: 600;
   letter-spacing: -0.2px;
   color: #64748b;
@@ -57,9 +57,20 @@ header {
 
 .content { flex: 1; overflow-y: auto; }
 
-.container { max-width: 1400px; margin: 0 auto; padding: 24px 20px; }
+/* max-width를 "원래 1400px 기준 양옆 여백의 75%만큼 콘텐츠가 더 먹는다"는 식으로 계산했다:
+   여백(각 옆) = (뷰포트폭 - 1400px)/2, 그 25%만 남기면 콘텐츠 폭 = 1400px/4 + 뷰포트폭*0.75
+   = 350px + 75vw. 뷰포트 폭에 비례해서 항상 "여백 75% 감소"가 유지된다(고정 px가 아님). */
+.container { max-width: calc(350px + 75vw); margin: 0 auto; padding: 24px 20px; }
 
 .toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+/* .tabs button·input[type=date/month]·.refresh-btn은 다른 페이지와 공유하는 클래스라, 운영
+   현황 툴바 안에서만 커지도록 .toolbar로 범위를 좁혀 덮어쓴다(다른 페이지엔 영향 없음). */
+.toolbar .tabs button,
+.toolbar input[type=date],
+.toolbar input[type=month],
+.toolbar .refresh-btn {
+  font-size: 20px;
+}
 .tabs {
   display: flex;
   background: #fff;
@@ -106,7 +117,9 @@ input[type=date], input[type=month] {
 }
 .refresh-btn:hover { background: #f8fafc; }
 
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
+/* 카드 개수(3~4개)에 상관없이 한 카드가 220px보다 좁아지면 다음 줄로 넘어간다 — 글자
+   크기를 키운 뒤에도(라벨 17px, 숫자 45px) 카드가 찌그러지지 않게 하기 위함. */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 20px; }
 .card {
   background: #fff;
   border-radius: 12px;
@@ -119,9 +132,8 @@ input[type=date], input[type=month] {
 .card.amber   { border-left-color: #f59e0b; }
 .card.red     { border-left-color: #ef4444; }
 .card.neutral { border-left-color: #94a3b8; }
-.card .label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 8px; }
-.card .value { font-size: 30px; font-weight: 800; color: #0f172a; line-height: 1; }
-.card .sub   { font-size: 12px; color: #94a3b8; margin-top: 6px; }
+.card .label { font-size: 30px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .value { font-size: 45px; font-weight: 800; color: #0f172a; line-height: 1; }
 
 .chart-card {
   background: #fff;
@@ -130,7 +142,7 @@ input[type=date], input[type=month] {
   box-shadow: 0 1px 4px rgba(0,0,0,.07);
   margin-bottom: 20px;
 }
-.chart-card h2 { font-size: 14px; font-weight: 700; margin-bottom: 16px; color: #1e293b; }
+.chart-card h2 { font-size: 20px; font-weight: 700; margin-bottom: 16px; color: #1e293b; }
 canvas { max-height: 300px; }
 
 .section-card {
@@ -155,14 +167,19 @@ canvas { max-height: 300px; }
   align-items: center;
   padding: 8px 10px 6px;
   margin-top: 10px;
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 700;
   color: #475569;
   border-bottom: 1px solid #f1f5f9;
   margin-bottom: 3px;
+  cursor: pointer;
+  border-radius: 6px;
 }
 .cat-main-header:first-child { margin-top: 0; }
-.cat-main-header .main-count { font-size: 13px; font-weight: 700; color: #1e293b; }
+.cat-main-header:hover { background: #f8fafc; }
+.cat-main-header.active { background: #eff6ff; }
+.cat-main-header.active span:first-child { color: #1a56db; }
+.cat-main-header .main-count { font-size: 16px; font-weight: 700; color: #1e293b; }
 .cat-sub-item {
   display: flex;
   align-items: center;
@@ -176,7 +193,7 @@ canvas { max-height: 300px; }
 }
 .cat-sub-item:hover { background: #f8fafc; }
 .cat-sub-item.active { background: #eff6ff; }
-.sub-item-name { font-size: 13px; color: #374151; flex: 1; }
+.sub-item-name { font-size: 16px; color: #374151; flex: 1; }
 .cat-sub-item.active .sub-item-name { color: #1a56db; font-weight: 600; }
 .sub-item-count {
   display: inline-block;
@@ -185,7 +202,7 @@ canvas { max-height: 300px; }
   border-radius: 999px;
   padding: 2px 8px;
   font-weight: 600;
-  font-size: 11px;
+  font-size: 14px;
   flex-shrink: 0;
 }
 .cat-sub-item.active .sub-item-count { background: #dbeafe; color: #1a56db; }
@@ -197,11 +214,11 @@ canvas { max-height: 300px; }
   height: 100%;
   min-height: 200px;
   color: #cbd5e1;
-  font-size: 13px;
+  font-size: 20px;
 }
 .memo-header { margin-bottom: 14px; }
-.memo-header .memo-title { font-size: 15px; font-weight: 700; color: #1e293b; margin-bottom: 4px; }
-.memo-header .memo-count { font-size: 12px; color: #94a3b8; }
+.memo-header .memo-title { font-size: 24px; font-weight: 700; color: #1e293b; margin-bottom: 4px; }
+.memo-header .memo-count { font-size: 16px; color: #94a3b8; }
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th {
@@ -225,18 +242,21 @@ tr:last-child td { border-bottom: none; }
   border-radius: 999px;
   padding: 3px 10px;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .loading { text-align: center; padding: 30px; color: #94a3b8; font-size: 13px; }
 .empty   { text-align: center; padding: 30px; color: #94a3b8; font-size: 13px; }
+/* .empty는 여러 페이지가 공유하는 클래스라, 운영현황 카테고리 영역(.cat-layout)에서만
+   커지도록 범위를 좁혀 덮어쓴다. */
+.cat-layout .empty { font-size: 20px; }
 
 .nav-group-label {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 20px;
-  font-size: 15px;
+  font-size: 24px;
   font-weight: 600;
   letter-spacing: -0.2px;
   color: #64748b;
@@ -265,7 +285,7 @@ tr:last-child td { border-bottom: none; }
   display: flex;
   align-items: center;
   padding: 8px 20px 8px 40px;
-  font-size: 14px;
+  font-size: 20px;
   font-weight: 500;
   letter-spacing: -0.2px;
   color: #64748b;
@@ -279,7 +299,7 @@ tr:last-child td { border-bottom: none; }
 
 .insight-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
 .insight-table-wrap { overflow-x: auto; }
-.ticket-link { color: #1a56db; text-decoration: none; font-size: 12px; }
+.ticket-link { color: #1a56db; text-decoration: none; font-size: 15px; }
 .ticket-link:hover { text-decoration: underline; }
 .rank-badge {
   display: inline-block;
@@ -287,7 +307,7 @@ tr:last-child td { border-bottom: none; }
   border-radius: 50%;
   background: #f1f5f9;
   color: #64748b;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   text-align: center;
   line-height: 24px;
@@ -308,7 +328,7 @@ tr:last-child td { border-bottom: none; }
 .cat-filter-btn.active { background: #1a56db; color: #fff; border-color: #1a56db; }
 .memo-toggle {
   background: none; border: none; cursor: pointer;
-  font-size: 12px; color: #1a56db; padding: 0;
+  font-size: 15px; color: #1a56db; padding: 0;
 }
 .memo-toggle:hover { text-decoration: underline; }
 .memo-expand-row { display: none; }
@@ -321,11 +341,11 @@ tr:last-child td { border-bottom: none; }
 .memo-item {
   padding: 8px 0;
   border-bottom: 1px solid #e2e8f0;
-  font-size: 13px;
+  font-size: 15px;
   color: #374151;
 }
 .memo-item:last-child { border-bottom: none; }
-.memo-item-date { font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
+.memo-item-date { font-size: 15px; color: #94a3b8; margin-bottom: 4px; }
 
 /* ───────────────────────────────────────────────────────────
  * 모던 리치 인사이트 스타일 (시안). 디자인 토큰(CSS 변수) + 공용 클래스(qi-*).
@@ -353,30 +373,31 @@ tr:last-child td { border-bottom: none; }
   --shadow: 0 2px 8px rgba(27,36,64,.05), 0 10px 28px rgba(27,36,64,.05);
 }
 
-.qi-page { max-width: 1080px; margin: 0 auto; padding: 36px 28px 64px; }
+/* .container와 같은 방식 — 원래 1080px 기준 양옆 여백의 25%만 남긴다: 270px + 75vw. */
+.qi-page { max-width: calc(270px + 75vw); margin: 0 auto; padding: 36px 28px 64px; }
 
 .qi-head { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 26px; }
 .qi-icon { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 24px; background: linear-gradient(135deg, #6366f1, #4f46e5); box-shadow: 0 6px 16px rgba(79,70,229,.35); flex-shrink: 0; }
 .qi-head-text { flex: 1; min-width: 0; }
-.qi-head-text h1 { font-size: 23px; font-weight: 800; letter-spacing: -.5px; color: var(--text); }
-.qi-head-text p { font-size: 14px; color: var(--muted); margin-top: 6px; line-height: 1.6; max-width: 640px; }
+.qi-head-text h1 { font-size: 24px; font-weight: 800; letter-spacing: -.5px; color: var(--text); }
+.qi-head-text p { font-size: 18px; color: var(--muted); margin-top: 6px; line-height: 1.6; max-width: 640px; }
 .qi-chip { font-size: 12px; font-weight: 600; color: var(--primary); background: var(--primary-soft); border-radius: 999px; padding: 7px 14px; white-space: nowrap; flex-shrink: 0; }
 
 .qi-stats { display: grid; grid-template-columns: 250px repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
 @media (max-width: 880px) { .qi-stats { grid-template-columns: 1fr 1fr; } }
-.qi-card { background: var(--surface); border-radius: var(--r); box-shadow: var(--shadow); padding: 22px 24px; }
+.qi-card { background: var(--surface); border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.07); padding: 20px 22px; border-left: 4px solid transparent; }
 .qi-gauge { display: flex; align-items: center; justify-content: center; }
 .qi-gauge-wrap { position: relative; width: 150px; height: 150px; }
 .qi-gauge-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .qi-gauge-center .g-val { font-size: 30px; font-weight: 800; color: var(--text); line-height: 1; }
 .qi-gauge-center .g-val.high { color: var(--danger); }
 .qi-gauge-center .g-label { font-size: 11px; color: var(--faint); margin-top: 5px; }
-.qi-stat .s-label { font-size: 12px; color: var(--faint); font-weight: 600; margin-bottom: 12px; }
-.qi-stat .s-val { font-size: 28px; font-weight: 800; line-height: 1; color: var(--text); }
-.qi-stat .s-sub { font-size: 12px; color: var(--muted); margin-top: 9px; font-weight: 500; }
+.qi-stat .s-label { font-size: 30px; color: var(--faint); font-weight: 700; margin-bottom: 12px; text-transform: uppercase; letter-spacing: .6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qi-stat .s-val { font-size: 45px; font-weight: 800; line-height: 1; color: var(--text); }
+.qi-stat .s-sub { font-size: 13px; color: var(--muted); margin-top: 9px; font-weight: 500; }
 
 .qi-chart { background: var(--surface); border-radius: var(--r); box-shadow: var(--shadow); padding: 22px 26px; margin-bottom: 16px; }
-.qi-chart-title { font-size: 14px; font-weight: 700; color: var(--text); }
+.qi-chart-title { font-size: 20px; font-weight: 700; color: var(--text); }
 .qi-chart-sub { font-size: 12px; color: var(--faint); margin: 4px 0 16px; }
 
 .qi-crit { background: var(--surface); border-radius: var(--r); box-shadow: var(--shadow); padding: 20px 24px; }

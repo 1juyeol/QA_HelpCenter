@@ -48,7 +48,7 @@ function StatusBadge({ status }: { status: string }) {
   return (
     <span style={{
       display: 'inline-block', background: s.bg, color: s.color,
-      borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+      borderRadius: 999, padding: '2px 8px', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
     }}>
       {status}
     </span>
@@ -335,8 +335,8 @@ export default function KeywordTrend() {
   return (
     <div className="container">
       <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, marginBottom: 4, fontSize: 18, fontWeight: 700, color: '#1e293b' }}>이슈 후보 탐지</h2>
-        <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>
+        <h2 style={{ margin: 0, marginBottom: 4, fontSize: 24, fontWeight: 700, color: '#1e293b' }}>이슈 후보 탐지</h2>
+        <p style={{ margin: 0, fontSize: 18, color: '#94a3b8' }}>
           CS 메모에서 탐지된 키워드의 지속성과 변화를 확인합니다. 키워드만으로 실제 장애·결함을 확정할 수 없으며, 원문 확인 후 판단이 필요합니다.
         </p>
       </div>
@@ -475,14 +475,14 @@ export default function KeywordTrend() {
                 <table>
                   <thead>
                     <tr>
-                      <th>키워드</th>
-                      <th style={{ width: 110 }}>자동 상태</th>
-                      <th style={{ width: 90 }}>최초 탐지</th>
-                      <th style={{ width: 90 }}>최근 탐지</th>
-                      <th style={{ width: 100 }}>최고치 일자</th>
-                      <th style={{ width: 80 }}>최고 건수</th>
-                      <th style={{ width: 80 }}>최고 배수</th>
-                      <th style={{ width: 80 }}>탐지 일수</th>
+                      <th style={{ fontSize: 16 }}>키워드</th>
+                      <th style={{ width: 110, fontSize: 16 }}>자동 상태</th>
+                      <th style={{ width: 90, fontSize: 16 }}>최초 탐지</th>
+                      <th style={{ width: 90, fontSize: 16 }}>최근 탐지</th>
+                      <th style={{ width: 100, fontSize: 16 }}>최고치 일자</th>
+                      <th style={{ width: 80, fontSize: 16 }}>최고 건수</th>
+                      <th style={{ width: 80, fontSize: 16 }}>최고 배수</th>
+                      <th style={{ width: 80, fontSize: 16 }}>탐지 일수</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -492,14 +492,14 @@ export default function KeywordTrend() {
                           onClick={() => handleSelectWord(r.word, r)}
                           style={{ cursor: 'pointer', background: selectedWord === r.word ? '#f8fafc' : undefined }}
                         >
-                          <td style={{ fontWeight: 600, color: '#111827' }}>{r.word}</td>
+                          <td style={{ fontWeight: 600, color: '#111827', fontSize: 15 }}>{r.word}</td>
                           <td><StatusBadge status={r.auto_status} /></td>
-                          <td style={{ fontSize: 12, color: '#64748b' }}>{r.first_detected}</td>
-                          <td style={{ fontSize: 12, color: '#64748b' }}>{r.last_detected}</td>
-                          <td style={{ fontSize: 12, color: '#64748b' }}>{r.peak_date}</td>
-                          <td style={{ fontSize: 13, fontWeight: 600 }}>{r.peak_count}건</td>
-                          <td style={{ fontSize: 13, color: '#b45309', fontWeight: 600 }}>{r.peak_growth}배</td>
-                          <td style={{ fontSize: 13 }}>{r.detection_days}일</td>
+                          <td style={{ fontSize: 15, color: '#64748b' }}>{r.first_detected}</td>
+                          <td style={{ fontSize: 15, color: '#64748b' }}>{r.last_detected}</td>
+                          <td style={{ fontSize: 15, color: '#64748b' }}>{r.peak_date}</td>
+                          <td style={{ fontSize: 15, fontWeight: 600 }}>{r.peak_count}건</td>
+                          <td style={{ fontSize: 15, color: '#b45309', fontWeight: 600 }}>{r.peak_growth}배</td>
+                          <td style={{ fontSize: 15 }}>{r.detection_days}일</td>
                         </tr>
                         {selectedWord === r.word && (
                           <tr>

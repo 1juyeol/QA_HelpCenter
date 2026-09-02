@@ -52,6 +52,7 @@ export interface InsightWings {
   memos: { memo: string; date: string }[]
   first_date: string
   latest_date: string
+  student_id: string | null
   parent_id: number | null
   category: string | null
 }

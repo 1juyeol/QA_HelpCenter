@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 # 인사이트 조회·갱신 API 라우터 (7개 엔드포인트). 집계는 insight_aggregations.py, 저장은 insights_cache.py에 위임한다.
-# GET  /api/insights/wings_tickets            : 반복 Wings 티켓 캐시 조회 (parent_id·카테고리
-#                                               포함 — 버그 트래킹 화면과 가정별 이탈 위험 섹션이 같이 쓴다). 미해결만.
+# GET  /api/insights/wings_tickets            : 반복 Wings 티켓 캐시 조회 (parent_id·카테고리·상태
+#                                               포함 — 버그 트래킹 화면과 가정별 이탈 위험 섹션이 같이 쓴다).
+#                                               해결·미해결 전부 포함되며, 프론트(WingsTickets.tsx)가
+#                                               상태로 필터링한다(기본은 미해결).
 # GET  /api/insights/wings_summary            : "전체 티켓" 카드용 — 해결 포함 전체 건수·해결 건수 스냅샷.
 # GET  /api/insights/repeat_parents           : 학부모 반복 인입 캐시 조회.
 # POST /api/insights/refresh/wings            : Wings 티켓 캐시만 즉시 재집계(Wings 상태 조회 포함). 관리자 전용.

@@ -100,12 +100,12 @@ export default function CaseRiskSection({ rows }: { rows: InsightWings[] }) {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'bottom', labels: { font: { size: 12 }, boxWidth: 12 } },
+          legend: { position: 'bottom', labels: { font: { size: 17 }, boxWidth: 12 } },
           tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw}건` } },
         },
         scales: {
-          x: { stacked: true, ticks: { font: { size: 12 } } },
-          y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1, font: { size: 12 } } },
+          x: { stacked: true, ticks: { font: { size: 13 } } },
+          y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1, font: { size: 13 } } },
         },
       },
     })
@@ -127,7 +127,7 @@ export default function CaseRiskSection({ rows }: { rows: InsightWings[] }) {
           <div className="empty">해당 기간에 반복 미해결 케이스 없음</div>
         ) : (
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b', marginBottom: 10 }}>카테고리별 주간 추이</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#1e293b', marginBottom: 10 }}>카테고리별 주간 추이</div>
             <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 10 }}>각 케이스가 처음 반복 언급된(first_date) 주 기준. 특정 카테고리가 줄지 않고 쌓이면 위험 신호입니다.</div>
             <div style={{ height: 220 }}>
               <canvas ref={chartCanvasRef} />

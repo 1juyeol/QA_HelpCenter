@@ -13,8 +13,9 @@ from features.insights.insight_aggregations import group_wings_tickets
 TICKET = "wings.danbiedu.co.kr/#ticket/zoom/1234"
 
 
-def row(kst_date, memo, parent_id=None, category=None):
-    return {"kst_date": kst_date, "call_memo": memo, "parent_id": parent_id, "new_category_main": category}
+def row(kst_date, memo, parent_id=None, category=None, student_id=None):
+    return {"kst_date": kst_date, "call_memo": memo, "parent_id": parent_id,
+            "new_category_main": category, "student_id": student_id}
 
 
 class TestGroupWingsTickets:
@@ -48,6 +49,14 @@ class TestGroupWingsTickets:
         result = group_wings_tickets(rows)
         assert result[0]["latest_date"] == "2026-08-25 09:00:00"
         assert result[0]["first_date"] == "2026-08-18 09:00:00"
+
+    def test_student_id_from_first_available_row(self):
+        rows = [
+            row("2026-08-22 09:00:00", f"2차 {TICKET}", student_id=None),
+            row("2026-08-18 09:00:00", f"1차 {TICKET}", student_id="1234567"),
+        ]
+        result = group_wings_tickets(rows)
+        assert result[0]["student_id"] == "1234567"
 
     def test_missing_parent_id_on_first_row_falls_back_to_later_row(self):
         rows = [

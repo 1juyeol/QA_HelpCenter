@@ -15,7 +15,7 @@
 // 그 섹션이 API를 또 호출하지 않고, "새로고침"도 자동으로 같이 반영된다.
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import Chart from 'chart.js/auto'
-import { api, type InsightWings } from '../../api/client'
+import { api, adminStudentUrl, adminParentUrl, type InsightWings } from '../../api/client'
 import CaseRiskSection from './CaseRiskSection'
 import { useAdmin } from '../../hooks/useAdmin'
 
@@ -52,6 +52,18 @@ function isLongUnresolvedTicket(r: InsightWings): boolean {
 
 export function isRepeatTicket(r: InsightWings): boolean {
   return r.cs_count > 1
+}
+
+const CLOSED_STATES = new Set(['해결', '요청취소', 'merged'])
+function isClosedTicket(r: InsightWings): boolean {
+  return !!r.state && CLOSED_STATES.has(r.state)
+}
+
+type TicketStateFilter = 'unresolved' | 'all' | 'resolved'
+const STATE_FILTER_PREDICATE: Record<TicketStateFilter, (r: InsightWings) => boolean> = {
+  unresolved: r => !isClosedTicket(r),
+  all: () => true,
+  resolved: isClosedTicket,
 }
 
 // KPI 카드 클릭 필터. 'all'은 필터 없음(전체 보기) — 세 조건은 서로 겹칠 수 있다
@@ -99,7 +111,7 @@ function SortableTh({
 }) {
   const active = currentKey === key
   return (
-    <th style={{ width, cursor: 'pointer', userSelect: 'none' }} onClick={() => onSort(key)}>
+    <th style={{ width, cursor: 'pointer', userSelect: 'none', fontSize: 16 }} onClick={() => onSort(key)}>
       {label}{active && <span style={{ marginLeft: 3, color: '#1a56db' }}>{currentDir === 'desc' ? '▼' : '▲'}</span>}
     </th>
   )
@@ -109,16 +121,16 @@ function StateBadge({ state, delayed, diffDays }: { state?: string; delayed: boo
   if (delayed) {
     return (
       <>
-        <span style={{ display: 'inline-block', background: '#fee2e2', color: '#ef4444', borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>처리 지연</span>
-        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>{diffDays}일 경과</div>
+        <span style={{ display: 'inline-block', background: '#fee2e2', color: '#ef4444', borderRadius: 999, padding: '2px 8px', fontSize: 13, fontWeight: 700 }}>처리 지연</span>
+        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 3 }}>{diffDays}일 경과</div>
       </>
     )
   }
   if (!state) {
-    return <span style={{ display: 'inline-block', background: '#f1f5f9', color: '#64748b', borderRadius: 999, padding: '2px 8px', fontSize: 11 }}>—</span>
+    return <span style={{ display: 'inline-block', background: '#f1f5f9', color: '#64748b', borderRadius: 999, padding: '2px 8px', fontSize: 13 }}>—</span>
   }
   const s = STATE_STYLE[state] ?? { bg: '#f1f5f9', color: '#64748b' }
-  return <span style={{ display: 'inline-block', background: s.bg, color: s.color, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>{state}</span>
+  return <span style={{ display: 'inline-block', background: s.bg, color: s.color, borderRadius: 999, padding: '2px 8px', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>{state}</span>
 }
 
 export default function WingsTickets() {
@@ -132,10 +144,20 @@ export default function WingsTickets() {
   const [sortKey, setSortKey] = useState<SortKey>('cs_count')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [cardFilter, setCardFilter] = useState<CardFilter>('all')
+  // "전체 티켓" 카드(cardFilter === 'all')에서만 쓰는 상태 필터 — 다른 세 카드(처리 지연·
+  // 여러번 인입·장기미해결)는 정의상 미해결 건만 다루므로 이 필터의 영향을 받지 않는다.
+  const [stateFilter, setStateFilter] = useState<TicketStateFilter>('unresolved')
+
+  // 처리 지연·여러번 인입·장기미해결 세 카드와 버블 차트, 하단 "가정별 이탈 위험" 섹션은
+  // 전부 "아직 안 풀린 건"만 다루는 게 이 페이지의 원래 취지라 해결된 티켓을 제외한 목록을
+  // 기준으로 삼는다. "전체 티켓" 카드만 stateFilter로 해결 건까지 선택해서 볼 수 있다.
+  const unresolvedRows = useMemo(() => rows.filter(r => !isClosedTicket(r)), [rows])
 
   const filteredRows = useMemo(
-    () => cardFilter === 'all' ? rows : rows.filter(CARD_PREDICATE[cardFilter]),
-    [rows, cardFilter],
+    () => cardFilter === 'all'
+      ? rows.filter(STATE_FILTER_PREDICATE[stateFilter])
+      : unresolvedRows.filter(CARD_PREDICATE[cardFilter]),
+    [rows, unresolvedRows, cardFilter, stateFilter],
   )
 
   const sortedRows = useMemo(
@@ -162,7 +184,7 @@ export default function WingsTickets() {
   useEffect(() => { load() }, [])
 
   useEffect(() => {
-    if (loading || !rows.length) return
+    if (loading || !unresolvedRows.length) return
 
     if (scatterCanvasRef.current) {
       scatterChartRef.current?.destroy()
@@ -170,12 +192,12 @@ export default function WingsTickets() {
         type: 'bubble',
         data: {
           datasets: [{
-            data: rows.map(r => ({
+            data: unresolvedRows.map(r => ({
               x: getDiffDays(r),
               y: Math.max(0, r.cs_count - 1),
               r: Math.max(5, r.cs_count * 4),
             })),
-            backgroundColor: rows.map(r => isDelayedTicket(r) ? '#ef4444cc' : '#3b82f6cc'),
+            backgroundColor: unresolvedRows.map(r => isDelayedTicket(r) ? '#ef4444cc' : '#3b82f6cc'),
           }],
         },
         options: {
@@ -185,7 +207,7 @@ export default function WingsTickets() {
             tooltip: {
               callbacks: {
                 label: ctx => {
-                  const r = rows[ctx.dataIndex]
+                  const r = unresolvedRows[ctx.dataIndex]
                   return `#${r.ticket_id} · 전체 ${r.cs_count}건 · 재언급 ${r.cs_count - 1}건 · ${getDiffDays(r)}일 경과`
                 },
               },
@@ -195,13 +217,13 @@ export default function WingsTickets() {
             x: {
               title: { display: true, text: '경과일수', color: '#374151' },
               grid: { color: 'rgba(0,0,0,0.06)' },
-              ticks: { color: '#374151', font: { size: 11 }, stepSize: 7 },
+              ticks: { color: '#374151', font: { size: 13 }, stepSize: 7 },
               min: 0,
             },
             y: {
               title: { display: true, text: '재언급 수', color: '#374151' },
               grid: { color: 'rgba(0,0,0,0.06)' },
-              ticks: { color: '#374151', font: { size: 11 }, stepSize: 1 },
+              ticks: { color: '#374151', font: { size: 13 }, stepSize: 1 },
               min: 0,
             },
           },
@@ -209,7 +231,7 @@ export default function WingsTickets() {
       })
     }
 
-  }, [loading, rows])
+  }, [loading, unresolvedRows])
 
   useEffect(() => () => {
     scatterChartRef.current?.destroy()
@@ -246,12 +268,12 @@ export default function WingsTickets() {
     })
   }
 
-  const delayedCount = rows.filter(isDelayedTicket).length
-  const longUnresolvedCount = rows.filter(isLongUnresolvedTicket).length
-  const repeatCount = rows.filter(isRepeatTicket).length
+  const delayedCount = unresolvedRows.filter(isDelayedTicket).length
+  const longUnresolvedCount = unresolvedRows.filter(isLongUnresolvedTicket).length
+  const repeatCount = unresolvedRows.filter(isRepeatTicket).length
 
-  const cards: Array<{ key: CardFilter; label: string; value: number; sub?: string; color: string; secondary?: boolean }> = [
-    { key: 'all', label: '전체 티켓', value: summary.total, sub: `그중 해결 ${summary.resolved}건`, color: NAVY, secondary: true },
+  const cards: Array<{ key: CardFilter; label: string; value: number; color: string }> = [
+    { key: 'all', label: '전체 티켓', value: summary.total, color: NAVY },
     { key: 'delayed', label: '처리 지연 (7일+)', value: delayedCount, color: AMBER },
     { key: 'repeat', label: '여러번 인입 (2회+)', value: repeatCount, color: PURPLE },
     { key: 'longUnresolved', label: '장기미해결 (30일+)', value: longUnresolvedCount, color: RISK_RED },
@@ -260,29 +282,15 @@ export default function WingsTickets() {
   return (
     <div className="container">
       <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, marginBottom: 4, fontSize: 18, fontWeight: 700, color: '#1e293b' }}>반복 Wings 티켓</h2>
-        <p style={{ margin: 0, fontSize: 13, color: '#94a3b8' }}>
+        <h2 style={{ margin: 0, marginBottom: 4, fontSize: 24, fontWeight: 700, color: '#1e293b' }}>반복 Wings 티켓</h2>
+        <p style={{ margin: 0, fontSize: 18, color: '#94a3b8' }}>
           공감센터 CS 상담 중 한 번이라도 언급된 Wings A/S 티켓을 전부 모았습니다. 그중 아직
           해결되지 않은 티켓을 처리 지연·여러번 인입·장기미해결 세 가지 기준으로 나누어 볼 수
           있고, 카드를 클릭하면 그 조건에 맞는 티켓만 아래 표에 보여줍니다.
         </p>
       </div>
-      <div className="section-card">
-        <div className="insight-toolbar">
-          <span style={{ fontSize: 12, color: '#94a3b8' }}>{updatedAt}</span>
-          {isAdmin && (
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              style={{ padding: '8px 16px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, cursor: refreshing ? 'default' : 'pointer', fontSize: 13, fontWeight: 500, color: '#374151' }}
-            >
-              {refreshing ? '업데이트 중...' : '↻ 새로고침'}
-            </button>
-          )}
-        </div>
-
-        {!loading && (rows.length > 0 || summary.total > 0) && (
-          <div style={{ marginBottom: 20 }}>
+      {!loading && (rows.length > 0 || summary.total > 0) && (
+        <div style={{ marginBottom: 20 }}>
             {/* KPI 카드 — 클릭하면 아래 표가 그 조건으로 필터링된다. "전체 티켓"은 필터 해제(전체 보기) 역할 */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 8 }}>
               {cards.map(card => {
@@ -293,24 +301,21 @@ export default function WingsTickets() {
                     onClick={() => handleCardClick(card.key)}
                     style={{
                       textAlign: 'left', cursor: 'pointer', border: 'none', background: '#fff',
-                      borderRadius: 14, padding: card.secondary ? '16px 20px' : '20px 22px',
+                      borderRadius: 12, padding: '20px 22px',
                       boxShadow: active
                         ? `0 0 0 2px ${card.color}, 0 4px 14px ${card.color}40`
-                        : card.secondary ? '0 1px 4px rgba(0,0,0,.06)' : '0 2px 10px rgba(0,0,0,.09)',
-                      borderTop: `${card.secondary ? 3 : 5}px solid ${card.color}`,
+                        : '0 1px 4px rgba(0,0,0,.07)',
+                      borderLeft: `4px solid ${card.color}`,
                     }}
                   >
                     <div style={{
-                      fontSize: 12, fontWeight: 700, color: '#94a3b8',
-                      textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8,
-                    }}>
+                      fontSize: 30, fontWeight: 700, color: '#64748b',
+                      textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 8,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }} title={card.label}>
                       {card.label}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                      <span style={{ fontSize: card.secondary ? 32 : 42, fontWeight: 800, color: card.color, lineHeight: 1 }}>{card.value}</span>
-                      <span style={{ fontSize: card.secondary ? 15 : 18, color: '#64748b', fontWeight: 600 }}>건</span>
-                    </div>
-                    {card.sub && <div style={{ fontSize: 12, color: '#64748b', marginTop: 5, fontWeight: 500 }}>{card.sub}</div>}
+                    <div style={{ fontSize: 45, fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>{card.value}건</div>
                   </button>
                 )
               })}
@@ -332,6 +337,35 @@ export default function WingsTickets() {
           </div>
         )}
 
+      <div className="section-card">
+        <div className="insight-toolbar">
+          <span style={{ fontSize: 12, color: '#94a3b8' }}>{updatedAt}</span>
+          {isAdmin && (
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              style={{ padding: '8px 16px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, cursor: refreshing ? 'default' : 'pointer', fontSize: 13, fontWeight: 500, color: '#374151' }}
+            >
+              {refreshing ? '업데이트 중...' : '↻ 새로고침'}
+            </button>
+          )}
+        </div>
+
+        {cardFilter === 'all' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>상태</span>
+            <select
+              value={stateFilter}
+              onChange={e => setStateFilter(e.target.value as TicketStateFilter)}
+              style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, color: '#374151', background: '#fff' }}
+            >
+              <option value="unresolved">미해결</option>
+              <option value="all">전체</option>
+              <option value="resolved">해결</option>
+            </select>
+          </div>
+        )}
+
         <div className="insight-table-wrap">
           {loading ? (
             <div className="loading">조회 중...</div>
@@ -343,14 +377,15 @@ export default function WingsTickets() {
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: 40 }}>#</th>
+                  <th style={{ width: 40, fontSize: 16 }}>#</th>
                   <SortableTh label="티켓 번호" sortKey="ticket_id" width={110} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  <th style={{ width: 110, fontSize: 16 }}>학생</th>
                   <SortableTh label="학부모" sortKey="parent_id" width={120} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   <SortableTh label="카테고리" sortKey="category" width={120} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   <SortableTh label="CS 건수" sortKey="cs_count" width={80} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   <SortableTh label="경과일" sortKey="diffDays" width={70} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   <SortableTh label="관리상태" sortKey="state" width={90} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                  <th>최근 메모</th>
+                  <th style={{ fontSize: 16 }}>최근 메모</th>
                   <SortableTh label="최초 접수" sortKey="first_date" width={120} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   <SortableTh label="마지막 CS" sortKey="latest_date" width={120} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                 </tr>
@@ -373,14 +408,23 @@ export default function WingsTickets() {
                             #{r.ticket_id}
                           </a>
                         </td>
-                        <td style={{ color: '#374151', fontSize: 13 }}>{r.parent_id ? `학부모 #${r.parent_id}` : '—'}</td>
-                        <td style={{ color: '#374151', fontSize: 13 }}>{r.category ?? '미분류'}</td>
+                        <td style={{ fontSize: 15 }}>
+                          {r.student_id
+                            ? <a href={adminStudentUrl(r.student_id)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{r.student_id}</a>
+                            : <span style={{ color: '#374151' }}>—</span>}
+                        </td>
+                        <td style={{ fontSize: 15 }}>
+                          {r.parent_id
+                            ? <a href={adminParentUrl(String(r.parent_id))} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{r.parent_id}</a>
+                            : <span style={{ color: '#374151' }}>—</span>}
+                        </td>
+                        <td style={{ color: '#374151', fontSize: 15 }}>{r.category ?? '미분류'}</td>
                         <td><span className="count-badge">{r.cs_count}건</span></td>
-                        <td style={{ color: delayed ? '#dc2626' : '#374151', fontSize: 13, fontWeight: delayed ? 700 : 400 }}>{diffDays}일</td>
+                        <td style={{ color: delayed ? '#dc2626' : '#374151', fontSize: 15, fontWeight: delayed ? 700 : 400 }}>{diffDays}일</td>
                         <td>
                           <StateBadge state={r.state} delayed={delayed} diffDays={diffDays} />
                         </td>
-                        <td style={{ color: '#374151', fontSize: 13 }}>
+                        <td style={{ color: '#374151', fontSize: 15 }}>
                           {preview}{latestMemo.length > 100 ? '…' : ''}
                           {r.memos?.length > 0 && (
                             <>
@@ -391,12 +435,12 @@ export default function WingsTickets() {
                             </>
                           )}
                         </td>
-                        <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 12 }}>{r.first_date ? r.first_date.slice(0, 16) : '—'}</td>
-                        <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 12 }}>{r.latest_date ? r.latest_date.slice(0, 16) : '—'}</td>
+                        <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 15 }}>{r.first_date ? r.first_date.slice(0, 16) : '—'}</td>
+                        <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 15 }}>{r.latest_date ? r.latest_date.slice(0, 16) : '—'}</td>
                       </tr>
                       {isOpen && (
                         <tr>
-                          <td colSpan={10} style={{ padding: 0 }}>
+                          <td colSpan={11} style={{ padding: 0 }}>
                             <div className="memo-expand-inner">
                               {r.memos.map((m, mi) => (
                                 <div key={mi} className="memo-item">
@@ -417,7 +461,7 @@ export default function WingsTickets() {
         </div>
       </div>
 
-      <CaseRiskSection rows={rows} />
+      <CaseRiskSection rows={unresolvedRows} />
     </div>
   )
 }
