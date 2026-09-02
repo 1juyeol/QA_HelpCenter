@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # FastAPI 애플리케이션 진입점. 비즈니스 로직은 없으며 '배선' 역할만 담당한다.
-# 하는 일: CORS 미들웨어 등록 → features/ 하위 11개 라우터(stats·issues·insights·collection·jira·report·settings·admin·audit·mailer·generation_settings) 연결 →
+# 하는 일: CORS 미들웨어 등록 → features/ 하위 라우터(stats·issues·insights·collection·jira·report·settings·admin·audit·mailer·generation_settings·prompt_settings·classifier 등) 연결 →
 # 서버 시작 시 DB 초기화·스케줄러 기동·인사이트 캐시 초기화 → (CS 상담 수집 API는 서버
 # 시작 시 호출하지 않는다 — id 커서 방식이라 다음 정기 호출 때 그대로 따라잡히므로, 잦은
 # 재시작 때마다 승인된 하루 호출 횟수를 깎아먹을 이유가 없다) →
@@ -34,6 +34,8 @@ from features.admin.audit_endpoints import router as audit_router
 from features.mailer.mail_endpoints import router as mail_router
 from features.report.generation_settings_endpoints import router as generation_settings_router
 from features.report.prompt_settings_endpoints import router as prompt_settings_router
+from features.issues.classifier_endpoints import router as classifier_router
+from features.issues.classifier import apply_disabled_keywords
 
 
 app = FastAPI()
@@ -57,11 +59,13 @@ app.include_router(audit_router)
 app.include_router(mail_router)
 app.include_router(generation_settings_router)
 app.include_router(prompt_settings_router)
+app.include_router(classifier_router)
 
 
 @app.on_event("startup")
 async def startup():
     init_db()
+    apply_disabled_keywords()
     start_scheduler()
     asyncio.create_task(log_gemma_models())
     asyncio.create_task(_init_insights_cache())

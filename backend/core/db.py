@@ -175,4 +175,12 @@ def init_db():
                 updated_at   TEXT
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS classifier_disabled_keywords (
+                sub         TEXT NOT NULL,
+                keyword     TEXT NOT NULL,
+                disabled_at TEXT DEFAULT (datetime('now', 'localtime')),
+                PRIMARY KEY (sub, keyword)
+            )
+        """)
         conn.commit()

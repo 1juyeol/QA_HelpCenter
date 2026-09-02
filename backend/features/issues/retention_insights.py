@@ -7,6 +7,7 @@ import re
 from collections import Counter
 
 from core.db import get_conn
+from core.pii_mask import mask_phone_numbers
 
 _OFFER = re.compile(r"-성공\(([^)\n]+)\)")
 MAX_EXAMPLES = 30
@@ -47,7 +48,7 @@ def get_retention_stats() -> dict:
         offer_rows.setdefault(offer, []).append({
             "id": r["id"],
             "created_date": r["kst_date"],
-            "memo": r["call_memo"],
+            "memo": mask_phone_numbers(r["call_memo"]),
         })
 
     return {

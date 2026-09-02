@@ -37,6 +37,7 @@ export interface Issue {
   call_memo: string
   student_id: string
   parent_id: string | null
+  matched_keyword: string | null
 }
 
 export interface IssueList { total: number; items: Issue[] }
@@ -308,6 +309,22 @@ export interface PromptSettingsData {
   customized: boolean
 }
 
+export interface ClassifierKeyword {
+  keyword: string
+  duplicate_of: string[] | null
+}
+
+export interface ClassifierRule {
+  sub: string
+  keywords: ClassifierKeyword[]
+}
+
+export interface ReclassifyResult {
+  total: number
+  changed: number
+  etc_reclaimed: number
+}
+
 export interface PeakBucket {
   bucket_start: string
   bucket_end: string
@@ -378,6 +395,7 @@ export interface WeeklyReport {
   generated_at: string
   total_weekday: number
   daily_avg: number
+  weekday_count?: number // 이 필드 추가 전에 저장된 보고서엔 없음
   risk_total: number
   prev_total_weekday?: number | null
   prev_risk_total?: number | null
@@ -758,5 +776,16 @@ export const api = {
 
   resetPromptSettings(promptKey: string, token: string) {
     return deleteAdmin<PromptSettingsData>(`/api/prompt-settings?prompt_key=${promptKey}`, token)
+  },
+
+  fetchClassifierRules(token: string) {
+    return getAdmin<ClassifierRule[]>('/api/admin/classifier/rules', token)
+  },
+
+  deleteClassifierKeyword(sub: string, keyword: string, token: string) {
+    return deleteAdmin<{ sub: string; keyword: string; reclassify_result: ReclassifyResult }>(
+      `/api/admin/classifier/keyword?sub=${encodeURIComponent(sub)}&keyword=${encodeURIComponent(keyword)}`,
+      token,
+    )
   },
 }

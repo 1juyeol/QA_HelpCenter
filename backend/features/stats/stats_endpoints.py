@@ -16,6 +16,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from fastapi import APIRouter, Query
 from core.db import get_conn
+from core.pii_mask import mask_phone_numbers
 from core.date_bucket_utils import BUCKET_SQL, BUCKETS, _buckets_where, _period_where, _four_week_range
 from core.holidays import is_off_day
 from features.report.report_utils import RISK_MAIN
@@ -388,7 +389,7 @@ def stats_keyword_memos(keyword: str = Query(...), target_date: str = Query(defa
     memos = [r["call_memo"] or "" for r in rows]
     noun_sets = extract_nouns_batch(memos)
     return [
-        {"memo": rows[i]["call_memo"], "date": rows[i]["day"]}
+        {"memo": mask_phone_numbers(rows[i]["call_memo"]), "date": rows[i]["day"]}
         for i, nouns in enumerate(noun_sets)
         if keyword in nouns
     ]

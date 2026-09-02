@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Chart from 'chart.js/auto'
 import { api, adminStudentUrl, adminParentUrl, type BucketRow, type CategoryRow, type DailyRow, type Issue, type MonthlyRow, type WeeklyRow } from '../../api/client'
+import { useAdmin } from '../../hooks/useAdmin'
 
 type Period = 'hourly_range' | 'day' | 'week' | 'month'
 
@@ -100,6 +101,7 @@ function highlight(text: string | number | null | undefined, q: string): React.R
 // ── Component ────────────────────────────────────────────────────
 
 export default function Dashboard() {
+  const { isAdmin } = useAdmin()
   const today = todayStr()
 
   const [period, setPeriod] = useState<Period>('hourly_range')
@@ -717,6 +719,7 @@ export default function Dashboard() {
                           <th style={{ width: 90 }}>학부모번호</th>
                           <th>상담 메모</th>
                           <th style={{ width: 130 }}>접수 시각</th>
+                          {isAdmin && <th style={{ width: 120 }}>매칭 키워드</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -738,6 +741,11 @@ export default function Dashboard() {
                                 : <span style={{ color: '#cbd5e1' }}>없음</span>}
                             </td>
                             <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 12 }}>{r.created_date ? r.created_date.slice(0, 16) : '—'}</td>
+                            {isAdmin && (
+                              <td style={{ fontSize: 12, color: r.matched_keyword ? '#334155' : '#cbd5e1' }}>
+                                {r.matched_keyword ?? '—'}
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
