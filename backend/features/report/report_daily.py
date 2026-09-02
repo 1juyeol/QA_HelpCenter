@@ -35,6 +35,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 from core.db import get_conn
+from core.pii_mask import mask_phone_numbers
 from core.holidays import is_off_day, previous_business_day
 from core.gemma_client import call_gemma, parse_json_response
 from core.audit_log import log_action
@@ -184,7 +185,7 @@ def _fetch_day_stats(date_str: str) -> dict:
     for row in rows:
         id_, main, sub, memo, hour, minute = (
             row["id"], row["new_category_main"], row["new_category_sub"],
-            row["call_memo"], row["hour"], row["minute"]
+            mask_phone_numbers(row["call_memo"]), row["hour"], row["minute"]
         )
         if main and sub and _is_risk(main, sub):
             main_sub_memos[main][sub].append({"id": id_, "text": memo or "", "hour": hour})
@@ -252,20 +253,6 @@ def _clean_memo_line(memo: dict) -> str | None:
     return text if len(text) >= 20 else None
 
 
-def _clean_device_swap_memo_line(memo: dict) -> str | None:
-    """'기기 교체 요청' 전용 정제. 일반 _clean_memo_line은 "*교체 학습기 : 윙크 스쿨 단말기 /
-    기본형(2.0) / 동글 연결 불가능" 같은 기종 헤더 줄(모든 메모에 고정으로 박혀있는 값)을
-    못 걸러내서, "동글 연결 불가능"이 실제 증상인 것처럼 Gemma 요약에 등장한 적이 있었다.
-    classify_device_swap_reason()이 쓰는 clean_memo_for_reason()으로 먼저 헤더·boilerplate를
-    제거한 뒤 일반 추출을 적용한다."""
-    from features.issues.churn_device_insights import clean_memo_for_reason
-
-    text = clean_memo_for_reason(memo["text"])
-    text = extract_symptom_fields(text)
-    text = " ".join(text.split())[:150]
-    return text if len(text) >= 20 else None
-
-
 def _build_memo_brief(memos: list[dict], sub: str, clean_fn=_clean_memo_line) -> dict:
     """메모를 정제·필터링한 뒤, 건수가 많으면(100건 초과) 시간대(아침/오후/저녁)별로 나눠서
     균형 있게 샘플링한다. 필터링을 먼저 하고 시간대 분배를 나중에 해야 한다 — 순서를 바꾸면
@@ -294,7 +281,24 @@ def _build_memo_brief(memos: list[dict], sub: str, clean_fn=_clean_memo_line) ->
     if not sampled:
         return {"prompt_text": "", "groups": []}
 
-    lines = [f"[{i + 1}] {m['text']}" for i, m in enumerate(sampled)]
+    # 문구가 완전히 같은 메모끼리 묶어서 (N건)을 붙인다 — Gemma가 "여러 건"을 인용할 때 쓸
+    # 유일한 실제 숫자 출처다. 이게 없으면 Gemma가 메모를 읽고 스스로 사유별로 나눠 세는데,
+    # 표본이 작을 땐(5~20건) 우연히 맞아떨어져도 표본이 커지면 틀릴 수 있다 — 숫자는
+    # 여기서 실제로 집계된 것만 쓰게 한다(_SYSTEM_CATEGORY 규칙과 짝).
+    text_counts: dict = {}
+    text_order: list = []
+    for m in sampled:
+        text = m["text"]
+        if text not in text_counts:
+            text_counts[text] = 0
+            text_order.append(text)
+        text_counts[text] += 1
+
+    lines = []
+    for text in text_order:
+        count = text_counts[text]
+        suffix = f" ({count}건)" if count > 1 else ""
+        lines.append(f"[{len(lines) + 1}] {text}{suffix}")
     prompt_text = f"# {sub} ({len(sampled)}건)\n" + "\n".join(lines)
     return {"prompt_text": prompt_text, "groups": [{"sub": sub, "count": len(sampled), "memos": []}]}
 
@@ -342,57 +346,11 @@ def _build_cancellation_brief(memos: list[dict]) -> dict:
     return {"prompt_text": prompt_text, "groups": groups}
 
 
-def _build_device_swap_brief(memos: list[dict], sub: str) -> dict:
-    """'기기 교체 요청' 카테고리 전용. Gemma한테 79건 남짓한 원문을 주고 비중을 알아서
-    세게 하면 "다수 접수되고 있습니다" 식으로 뭉뚱그려버린다 — LLM은 긴 텍스트에서 정확한
-    카운팅에 약하다. 대신 오늘 별도로 다듬은 classify_device_swap_reason()(11개 사유,
-    실측 커버리지 57.5%)으로 전체 건수를 정확히 집계해서 프롬프트 맨 위에 숫자로 박아주고,
-    Gemma는 그 숫자를 문장으로 풀어쓰는 역할만 하게 한다. 사유 불명확·이력 없음·고객
-    요청형처럼 결함이 아닌 항목은 분포 표에서 아예 제외한다(DEVICE_SWAP_DEFECT_REASONS) —
-    안 그러면 Gemma가 "상위 N개를 인용하라"는 규칙을 문자 그대로 따르다가 그런 항목까지
-    결함인 것처럼 인용해버린다. 대표 예시(시간대 균형 샘플)는 _build_memo_brief를 그대로
-    쓰되, 정제 함수만 _clean_device_swap_memo_line으로 바꿔서 기종 헤더 boilerplate가
-    예시에 그대로 노출되지 않게 한다."""
-    from features.issues.churn_device_insights import classify_device_swap_reason, DEVICE_SWAP_DEFECT_REASONS
-
-    reason_counts: dict[str, int] = {}
-    for m in memos:
-        reason = classify_device_swap_reason(m["text"])
-        reason_counts[reason] = reason_counts.get(reason, 0) + 1
-
-    total = len(memos)
-    sorted_reasons = sorted(reason_counts.items(), key=lambda kv: -kv[1])
-    # "상위 N개 사유를 인용하라"는 규칙만 믿으면 Gemma가 사유 불명확·이력 없음·고객 요청형처럼
-    # 결함이 아닌 항목도 순위가 높다는 이유로 그대로 인용해버린다(실제로 있었던 문제) — 애초에
-    # 결함 사유가 아닌 건 분포 표에서 빼서 Gemma가 고를 수조차 없게 한다.
-    defect_reasons = [(r, c) for r, c in sorted_reasons if r in DEVICE_SWAP_DEFECT_REASONS]
-    dist_lines = [f"{reason}: {cnt}건 ({round(cnt / total * 100, 1)}%)" for reason, cnt in defect_reasons]
-    dist_section = f"# 결함 사유 분포 (전체 {total}건 중 결함으로 분류된 건, 정확히 집계된 수치)\n" + "\n".join(dist_lines)
-
-    examples = _build_memo_brief(memos, sub, clean_fn=_clean_device_swap_memo_line)
-    sections = [dist_section]
-    if examples["prompt_text"]:
-        sections.append(examples["prompt_text"])
-
-    # 화면에서 요약 문장 중 1위 사유 이름·숫자를 굵게 강조하는 데 쓰는 필드. Gemma 요약은
-    # 자유 문장이라 "어디가 1위 부분인지" 코드가 알 수 없는데, 여기선 이미 정확히 계산해
-    # 두었으니 그대로 넘긴다.
-    top_category = None
-    if defect_reasons:
-        top_name, top_count = defect_reasons[0]
-        top_category = {"name": top_name, "count": top_count, "pct": round(top_count / total * 100, 1)}
-
-    groups = [{"sub": reason, "count": cnt, "memos": []} for reason, cnt in sorted_reasons]
-    return {"prompt_text": "\n\n".join(sections), "groups": groups, "top_category": top_category}
-
-
 def _prepare_category_brief(risk_rows: list) -> None:
     """각 row에 analysis_groups·insufficient_data·_prompt_section 주입. 반환값 없음."""
     for row in risk_rows:
         if row["main"] == "해지·유지 상담":
             result = _build_cancellation_brief(row["memos"])
-        elif row["sub"] == "기기 교체 요청":
-            result = _build_device_swap_brief(row["memos"], row["sub"])
         else:
             result = _build_memo_brief(row["memos"], row["sub"])
         total = sum(g["count"] for g in result["groups"])
@@ -405,6 +363,64 @@ def _prepare_category_brief(risk_rows: list) -> None:
 
 
 # ── Gemma 호출 ───────────────────────────────────────────────────────────────
+
+_CITED_COUNT_RE = re.compile(r'(\d+)\s*건')
+
+
+def _validate_cited_counts(summary: str, prompt_section: str) -> str | None:
+    """summary에 나온 'N건' 숫자가 프롬프트에 실제로 제공된 숫자(dedup 건수·분포표·헤더 총건수)
+    중 하나인지 검증한다. 프롬프트 규칙("제공된 숫자만 인용하라")을 지시만으로는 100% 지키게
+    할 수 없다 — 실제로 (N건)이 하나도 안 붙은 날에도 Gemma가 그럴듯한 숫자를 지어낸 사례가
+    있었다. 검증 실패 시 실패 사유 문자열을 돌려주고(호출부가 다른 실패와 동일하게 gemma_error로
+    남겨 기존 재시도 루프(_MAX_RETRIES)를 그대로 타게 한다), 통과하면 None."""
+    valid = {int(n) for n in _CITED_COUNT_RE.findall(prompt_section)}
+    cited = {int(n) for n in _CITED_COUNT_RE.findall(summary)}
+    invalid = cited - valid
+    if invalid:
+        invalid_str = ", ".join(f"{n}건" for n in sorted(invalid))
+        valid_str = ", ".join(f"{n}건" for n in sorted(valid)) or "없음"
+        return f"제공되지 않은 건수 인용: {invalid_str} (제공된 값: {valid_str})"
+    return None
+
+
+_FALLBACK_GROUP_PATTERNS = [
+    re.compile(r'^\[\d+\]\s+(.+?)\s+\((\d+)건\)$'),  # 메모 dedup: "[1] 텍스트 (2건)"
+    re.compile(r'^([^:\n]+):\s*(\d+)건'),              # 분포표: "충전·전원 불량: 22건 (11.3%)"
+]
+_FALLBACK_HEADER_TOTAL_RE = re.compile(r'^#.*?\((?:전체\s*)?(\d+)건')
+
+
+def _build_fallback_summary(prompt_section: str) -> str:
+    """Gemma가 없는 숫자를 반복해서 지어내 _MAX_RETRIES까지 검증에 계속 실패했을 때 쓰는
+    최후 수단. LLM을 거치지 않고 prompt_section(실제로 제공했던 사유별 건수)만 그대로
+    문장으로 조립한다 — 자연스러운 서술은 포기하는 대신 숫자는 무조건 정확하다. 화면에는
+    "실패"라는 표현 없이 실제 집계 결과를 안내하는 톤으로 노출된다(내부 실패 여부는
+    daily_report_fallback_summary 감사 로그로 추적)."""
+    groups: list[tuple[str, int]] = []
+    seen: set = set()
+    for line in prompt_section.split("\n"):
+        line = line.strip()
+        for pattern in _FALLBACK_GROUP_PATTERNS:
+            m = pattern.match(line)
+            if m:
+                label, cnt = m.group(1).strip(), int(m.group(2))
+                if label not in seen:
+                    seen.add(label)
+                    groups.append((label, cnt))
+                break
+
+    if groups:
+        groups.sort(key=lambda g: -g[1])
+        parts = [f"{label} {cnt}건" for label, cnt in groups[:5]]
+        return "실제 접수 건수를 그대로 집계했습니다: " + ", ".join(parts) + "."
+
+    total_match = _FALLBACK_HEADER_TOTAL_RE.search(prompt_section)
+    if total_match:
+        return (
+            f"이 사유로 총 {total_match.group(1)}건이 접수되었습니다. 사례마다 내용이 달라 "
+            "세부 유형별 집계 대신 전체 건수만 안내합니다."
+        )
+    return "집계 가능한 데이터가 없어 요약을 생략합니다."
 
 
 async def _call_gemma_category_insights(date_str: str, risk_rows: list) -> None:
@@ -439,8 +455,14 @@ async def _call_gemma_category_insights(date_str: str, risk_rows: list) -> None:
             row["_elapsed"] = round(time.time() - _start, 1)
             result = parse_json_response(raw)
             if result and result.get("summary"):
-                row["summary"] = result["summary"]
-                row["gemma_error"] = None
+                invalid_reason = _validate_cited_counts(result["summary"], row.get("_prompt_section", ""))
+                if invalid_reason:
+                    row["summary"] = ""
+                    row["gemma_error"] = invalid_reason
+                    print(f"[Gemma Daily Cat - {cat_label}] {invalid_reason}")
+                else:
+                    row["summary"] = result["summary"]
+                    row["gemma_error"] = None
             else:
                 row["summary"] = ""
                 row["gemma_error"] = describe_gemma_failure(raw)
@@ -674,6 +696,7 @@ def _build_content(date_str: str, stats: dict, peak_bucket: dict, anomaly_bucket
                 "insufficient_data": r.get("insufficient_data", False),
                 "gemma_error": r.get("gemma_error"),
                 "gemma_prompt": r.get("_full_prompt", ""),
+                "prompt_section": r.get("_prompt_section", ""),
                 "elapsed": r.get("_elapsed"),
                 "top_category": r.get("_top_category"),
             }
@@ -829,6 +852,7 @@ async def retry_failed_analyses(date_str: str, content: dict) -> dict:
                 r["analysis_groups"] = rr.get("analysis_groups", [])
                 r["insufficient_data"] = rr.get("insufficient_data", False)
                 r["gemma_prompt"] = rr.get("_full_prompt", "")
+                r["prompt_section"] = rr.get("_prompt_section", "")
                 r["elapsed"] = rr.get("_elapsed")
                 r["top_category"] = rr.get("_top_category")
 
@@ -901,6 +925,25 @@ async def generate_report_full(date_str: str, mode: str = "manual") -> dict:
             else:
                 detail += ", status=success"
             log_action("daily_report_retry_failed", detail, mode=mode)
+
+        # _MAX_RETRIES를 다 써도 여전히 실패한 카테고리 카드에는, 화면에 아무것도 안 보여주는
+        # 대신 실제 제공했던 데이터만으로 조립한 문장을 채워 넣는다(코드 조립이라 숫자는
+        # 무조건 정확하다). gemma_error는 지워서 화면에 정상 카드처럼 뜨게 하고, 문장도 "실패"
+        # 대신 "실제 건수를 그대로 안내한다"는 톤으로 쓴다 — 실패 여부는 화면이 아니라
+        # daily_report_fallback_summary 감사 로그로만 추적한다.
+        fallback_used = []
+        for row in content.get("risk_rows", []):
+            if row.get("gemma_error"):
+                row["summary"] = _build_fallback_summary(row.get("prompt_section", ""))
+                row["gemma_error"] = None
+                fallback_used.append(row["main"])
+        if fallback_used:
+            _save_report(date_str, content)
+            log_action(
+                "daily_report_fallback_summary",
+                f"date={date_str}, mains={','.join(fallback_used)}",
+                mode=mode,
+            )
     finally:
         report_progress.finish("daily", date_str)
 

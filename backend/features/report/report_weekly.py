@@ -26,6 +26,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 
 from core.db import get_conn
+from core.pii_mask import mask_phone_numbers
 from core.holidays import is_off_day
 from core.gemma_client import call_gemma, parse_json_response
 from core.prompt_settings import get_prompt_text
@@ -62,19 +63,22 @@ _SYSTEM_WEEKLY_CATEGORY = (
     "- JSON 객체 하나만 출력합니다. 백틱(`)이나 마크다운 코드 블록으로 감싸지 않습니다.\n"
     "- summary는 최대 4문장입니다. 사유가 적으면 그보다 짧아도 됩니다 — 불필요하게 문장 수를\n"
     "  채우지 마세요. 마지막 문장은 그 현상들이 사용자에게 미치는 영향 또는 왜 심각한지이고,\n"
-    "  그 앞 문장(들)은 결함 사유를 건수와 함께 언급합니다.\n"
+    "  그 앞 문장(들)은 결함 사유를 언급합니다. 건수가 실제로 제공된 사유만 건수와 함께\n"
+    "  씁니다 — 건수가 없는 사유까지 억지로 숫자를 붙이지 않습니다(아래 규칙 참고).\n"
     "- 제공된 메모에 실제로 나타난 내용만 씁니다. 원인 추론, 권고사항, UX 개선 제안은 쓰지 않습니다.\n"
     "- Jira 이슈 번호, 배포 버전, 내부 시스템 ID 등 메모에 없는 구체적 레퍼런스는 언급하지 않습니다.\n"
     "- High/Medium/Low 같은 우선순위 레이블은 쓰지 않습니다.\n"
     "- 해석·판단이 들어가면 '~로 보입니다', '~가능성이 있습니다', '~추정됩니다' 같은 추측 표현을\n"
     "  씁니다. 단정하지 않습니다.\n"
     "- 건수만 반복하는 문장('N건 접수됨')으로 문장을 채우지 마세요. CS 운영 조언도 쓰지 않습니다.\n"
-    "- 메모 앞에 사유별 건수·비율이 제공된 경우, 상위 1개만 언급하지 말고 **제공된 사유를 최대한\n"
+    "- 메모 앞에 '사유별 건수'가 제공됩니다. 상위 1개만 언급하지 말고 **제공된 사유를 최대한\n"
     "  많이(문장 수 한도 안에서)** 인용하세요. 1위만 언급하면 카테고리 순위는 매일 거의 고정되어\n"
-    "  있어서 보고서가 매번 똑같은 내용처럼 보입니다. 인용하는 사유마다 반드시 'N건(P%)' 형식으로\n"
-    "  건수와 비율을 함께 씁니다 — 비율만 쓰고 건수를 생략하거나 그 반대로 하지 마세요. 제공되지\n"
-    "  않았다면 메모에 나타난 실제 표현을 근거로 언급하세요. '다수', '여러 건', '반복적으로' 같은\n"
-    "  뭉뚱그린 표현만으로 근거를 대신하지 마세요.\n"
+    "  있어서 보고서가 매번 똑같은 내용처럼 보입니다. 인용하는 사유마다 'N건(P%)' 형식으로 건수와\n"
+    "  비율을 함께 쓰되, 숫자는 반드시 '사유별 건수'에 제공된 값 그대로 씁니다 — 계산하거나\n"
+    "  어림잡거나 새로 만들어내지 마세요. 메모에서 특정 사유의 세부 증상(예: 충전·전원 불량 중\n"
+    "  구체적으로 어떤 증상인지)을 설명할 때, 그 세부 증상 자체의 건수는 제공되지 않으므로\n"
+    "  숫자 없이 '~같은 증상이 확인됩니다'처럼 서술하세요. '사유별 건수'에 없는 숫자는\n"
+    "  어떤 경우에도 만들어 쓰지 않습니다.\n"
     "- 마지막 문장(영향·심각성)도 메모에 실제로 언급된 결과·조치(예: 사용 불가, 교체 요청,\n"
     "  재부팅 등)만 근거로 삼습니다. 메모에 없는 새로운 사건이나 용어(예: '시스템 정지',\n"
     "  '학습 진행 방해')를 만들어내지 않습니다.\n"
@@ -86,9 +90,9 @@ _SYSTEM_WEEKLY_CATEGORY = (
     "</rules>\n\n"
     "<example>\n"
     "사유별 건수가 '충전·전원 불량: 82건 (38.5%)', '터치·입력 불량: 34건 (15.9%)',\n"
-    "'화면 이상: 21건 (9.8%)', '부팅 오류: 12건 (5.6%)'로 제공되고 최다 접수 요일이 화요일이라면:\n"
+    "'화면 이상: 21건 (9.8%)', '기기 파손: 12건 (5.6%)'로 제공되고 최다 접수 요일이 화요일이라면:\n"
     '{"summary": "충전·전원 불량이 82건(38.5%)으로 가장 많고, 터치·입력 불량 34건(15.9%)이 '
-    '뒤를 잇습니다. 화면 이상 21건(9.8%), 부팅 오류 12건(5.6%)도 반복적으로 접수됐으며, 특히 '
+    '뒤를 잇습니다. 화면 이상 21건(9.8%), 기기 파손 12건(5.6%)도 반복적으로 접수됐으며, 특히 '
     '화요일에 접수가 몰리는 경향을 보였습니다. 이 중 다수가 방전·꺼짐 증상을 동반해 학습기를 '
     '정상적으로 사용할 수 없는 것으로 보입니다."}\n'
     "\n"
@@ -102,6 +106,7 @@ _SYSTEM_WEEKLY_CATEGORY = (
 _PROMPT_WEEKLY_CATEGORY = (
     "아래는 {week_range} [{cat_label}] 관련 CS 상담 메모입니다.\n"
     "이번 주 접수: {count}건 (전체 리스크 CS의 {risk_pct}%)\n"
+    "사유별 건수: {sub_breakdown}\n"
     "이번 주 최다 접수 요일: {peak_day} ({peak_count}건)\n"
     "자주 등장한 키워드: {top_keywords}\n"
     "\n"
@@ -157,7 +162,7 @@ def _fmt_date_ko(date_str: str) -> str:
     return f"{date_str[5:].replace('-', '/')}({_WEEKDAYS_KO[d.weekday()]})"
 
 
-def _weighted_sample_memos(memos: list, max_count: int = 40) -> tuple:
+def _weighted_sample_memos(memos: list, max_count: int = 500) -> tuple:
     """일별 건수 비율로 가중 샘플링. (sampled, peak_day_str, peak_count) 반환."""
     if not memos:
         return [], "", 0
@@ -288,8 +293,11 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
 
     workday_counts = [daily_map.get(day, 0) for day, _ in week_days if not is_off_day(day)]
     total_weekday = sum(workday_counts)
-    nonzero_days = sum(1 for c in workday_counts if c > 0)
-    daily_avg = round(total_weekday / max(nonzero_days, 1), 1)
+    weekday_count = len(workday_counts)
+    # 그 주에 실제로 집계된(건수>0인) 날 수가 아니라, 주말·공휴일을 뺀 평일 수로 나눈다 —
+    # 주 중간에 조회해서 아직 며칠치만 쌓인 경우에도 "지금까지의 일평균"이 아니라 "이 주의
+    # 평일 기준 일평균"을 보여주기 위함이다(정책 6과 같은 이유: 평일만 분모로 삼는다).
+    daily_avg = round(total_weekday / max(weekday_count, 1))
     risk_total = sum(day_risk.get(day, 0) for day, _ in week_days if not is_off_day(day))
     risk_pct = round(risk_total / max(total_weekday, 1) * 100, 1)
 
@@ -356,7 +364,9 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
     risk_memos: dict = defaultdict(list)
     for row in risk_memo_raw:
         if row["sub"] and _is_risk(row["main"], row["sub"]):
-            risk_memos[row["main"]].append({"id": row["id"], "date": row["day"], "text": row["call_memo"] or ""})
+            risk_memos[row["main"]].append(
+                {"id": row["id"], "date": row["day"], "sub": row["sub"], "text": mask_phone_numbers(row["call_memo"]) or ""}
+            )
 
     risk_rows = []
     for main in _MAIN_ORDER:
@@ -380,6 +390,7 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
         "week_end": week_end,
         "total_weekday": total_weekday,
         "daily_avg": daily_avg,
+        "weekday_count": weekday_count,
         "risk_total": risk_total,
         "prev_total_weekday": prev_total_weekday,
         "prev_risk_total": prev_risk_total,
@@ -414,18 +425,44 @@ async def _call_gemma_weekly_risk(week_range: str, risk_rows: list, week_start: 
             row["gemma_error"] = None
             continue
 
-        sampled, peak_day, peak_count = _weighted_sample_memos(memos)
+        # 소분류별 실제 건수·비율 — Gemma가 "N건(P%)" 형식으로 인용할 때 쓸 유일한 숫자
+        # 출처다. 텍스트 중복 제거(dedup) 건수는 문구가 우연히 겹친 것일 뿐이라 대부분
+        # 1건으로 나오는 카테고리(예: 교재·물류·배송처럼 메모마다 상황이 다 다른 경우)도
+        # 있어서, 그것만 주면 Gemma가 인용할 숫자가 없어 지어내는 문제가 있었다.
+        sub_counts: dict = {}
+        for m in memos:
+            sub_counts[m["sub"]] = sub_counts.get(m["sub"], 0) + 1
+        sub_breakdown = ", ".join(
+            f"{sub} {cnt}건({round(cnt / max(row['count'], 1) * 100, 1)}%)"
+            for sub, cnt in sorted(sub_counts.items(), key=lambda x: -x[1])
+        )
+
+        # 확인사항 등에 실제로 적힌 내용이 있는 메모만 남긴 뒤 그 안에서 요일 가중 샘플링한다.
+        # 사유가 비어 있어 extract_symptom_fields()가 빈 문자열을 돌려주는 메모(예: "기기
+        # 교체 요청"의 상당수)까지 포함해 샘플링하면, 최다 접수 요일도 그런 사유 없는
+        # 메모까지 섞여서 계산돼 실제 "이런 사유가 이 요일에 몰렸다"는 서술과 안 맞을 수 있다.
+        usable = []
+        for m in memos:
+            text = extract_symptom_fields(m["text"])
+            text = " ".join(text.split())[:100]
+            if len(text) >= 20:
+                usable.append({"date": m["date"], "text": text})
+
+        if len(usable) < _MIN_ANALYSIS_MEMOS:
+            row["summary"] = INSUFFICIENT_SUMMARY
+            row["gemma_error"] = None
+            continue
+
+        sampled, peak_day, peak_count = _weighted_sample_memos(usable)
 
         text_counts: dict = {}
         text_order: list = []
         for m in sampled:
-            text = extract_symptom_fields(m["text"])
-            text = " ".join(text.split())[:100]
-            if len(text) >= 20:
-                if text not in text_counts:
-                    text_counts[text] = 0
-                    text_order.append(text)
-                text_counts[text] += 1
+            text = m["text"]
+            if text not in text_counts:
+                text_counts[text] = 0
+                text_order.append(text)
+            text_counts[text] += 1
 
         lines = []
         raw_texts = []
@@ -449,6 +486,7 @@ async def _call_gemma_weekly_risk(week_range: str, risk_rows: list, week_start: 
                 cat_label=row["main"],
                 count=row["count"],
                 risk_pct=risk_pct,
+                sub_breakdown=sub_breakdown or "없음",
                 peak_day=peak_day or "-",
                 peak_count=peak_count,
                 top_keywords=", ".join(top_kw) if top_kw else "없음",
@@ -456,7 +494,11 @@ async def _call_gemma_weekly_risk(week_range: str, risk_rows: list, week_start: 
             )
 
         prompt = _build_prompt()
-        while len(prompt) > 3000 and len(lines) > _MIN_ANALYSIS_MEMOS:
+        # 3000자였을 때는 RAG 게이트웨이를 거치던 시절의 안전 마진이었다 — 지금은 Gemma를
+        # 직접 호출하고(core/gemma_client.py) num_ctx=8192(토큰)라 훨씬 여유가 있다. 그래도
+        # 시스템 프롬프트+답변까지 같은 컨텍스트 안에 들어가야 하니 무제한으로 두지 않고
+        # 6000자로 넉넉히만 올린다.
+        while len(prompt) > 6000 and len(lines) > _MIN_ANALYSIS_MEMOS:
             lines.pop()
             raw_texts.pop()
             top_kw = _extract_top_keywords(raw_texts)
@@ -533,6 +575,7 @@ def _build_weekly_content(stats: dict, weekly_summary: str, weekly_summary_error
         "week_end": stats["week_end"],
         "total_weekday": stats["total_weekday"],
         "daily_avg": stats["daily_avg"],
+        "weekday_count": stats["weekday_count"],
         "risk_total": stats["risk_total"],
         "prev_total_weekday": stats.get("prev_total_weekday"),
         "prev_risk_total": stats.get("prev_risk_total"),
@@ -632,7 +675,7 @@ def get_weekly_risk_memos(
         ).fetchall()
 
     return {
-        "memos": [{"date": r["day"], "sub": r["sub"] or "", "text": r["call_memo"] or ""} for r in rows],
+        "memos": [{"date": r["day"], "sub": r["sub"] or "", "text": mask_phone_numbers(r["call_memo"]) or ""} for r in rows],
         "total": total,
         "page": page,
         "page_size": page_size,

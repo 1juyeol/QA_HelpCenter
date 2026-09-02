@@ -75,7 +75,7 @@ function dayBefore(dateStr: string): string {
 
 function signedCount(delta: number): string {
   if (delta === 0) return '±0건'
-  return delta > 0 ? `+${delta}건` : `${delta}건`
+  return delta > 0 ? `+${delta.toLocaleString()}건` : `${delta.toLocaleString()}건`
 }
 
 // "반복 Wings 티켓" 섹션의 카드 아래 문장. 카드가 이미 보여주는 현재 건수를 그대로
@@ -86,9 +86,9 @@ function signedCount(delta: number): string {
 // 카드의 delta=null 처리(배지 없음)와 같은 원칙.
 export function formatWingsRepeatTrend(staleCount: number, newDelta: number | null, staleDelta: number | null): string {
   if (newDelta == null || staleDelta == null) {
-    return `현재 방치 중인 반복 미해결 케이스는 ${staleCount}건입니다.`
+    return `현재 방치 중인 반복 미해결 케이스는 ${staleCount.toLocaleString()}건입니다.`
   }
-  return `지난주 대비 신규 케이스는 ${signedCount(newDelta)}, 방치 케이스는 ${signedCount(staleDelta)} 변동했습니다. 현재 누적 방치 건수는 ${staleCount}건입니다.`
+  return `지난주 대비 신규 케이스는 ${signedCount(newDelta)}, 방치 케이스는 ${signedCount(staleDelta)} 변동했습니다. 현재 누적 방치 건수는 ${staleCount.toLocaleString()}건입니다.`
 }
 
 function getWeekLabel(weekStart: string): string {
@@ -137,8 +137,8 @@ function DeltaBadge({ delta, unit, invert, deltaPct }: { delta: number | null | 
   const arrow = isPositive ? '↑' : '↓'
   return (
     <div style={{ fontSize: 18, color, fontWeight: 600, marginTop: 5 }}>
-      {arrow} {isPositive ? '+' : ''}{delta}{unit}
-      {deltaPct != null && <span style={{ fontSize: 14, fontWeight: 500, marginLeft: 3 }}>({isPositive ? '+' : ''}{deltaPct}%)</span>}
+      {arrow} {isPositive ? '+' : ''}{delta.toLocaleString()}{unit}
+      {deltaPct != null && <span style={{ fontSize: 14, fontWeight: 500, marginLeft: 3 }}>({isPositive ? '+' : ''}{deltaPct.toLocaleString()}%)</span>}
       <span style={{ fontSize: 14, color: '#94a3b8', fontWeight: 400, marginLeft: 4 }}>전주 대비</span>
     </div>
   )
@@ -205,7 +205,17 @@ function TwoWeekSubLineChart({
         },
         scales: {
           y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 13 }, padding: 10 } },
-          x: { grid: { display: false }, ticks: { font: { size: 13 }, padding: 10 } },
+          x: {
+            grid: { display: false },
+            ticks: {
+              padding: 10,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              font: (ctx: any) => {
+                const isThisWeek = ctx.index >= prevData.length
+                return { size: isThisWeek ? 16 : 13, weight: isThisWeek ? 'bold' : 'normal' }
+              },
+            },
+          },
         },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         onClick: (_: unknown, elements: any[]) => {
@@ -489,7 +499,7 @@ export default function WeeklyReport() {
         maintainAspectRatio: false,
         plugins: {
           legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 17 } } },
-          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw}건` } },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${(ctx.raw as number).toLocaleString()}건` } },
         },
         scales: {
           x: { ticks: { font: { size: 13 } } },
@@ -682,9 +692,10 @@ export default function WeeklyReport() {
   const totalDeltaPct = report?.prev_total_weekday && report.prev_total_weekday > 0
     ? Math.round((report.total_weekday - report.prev_total_weekday) / report.prev_total_weekday * 100)
     : null
-  const collectedWeekdays = report
-    ? report.daily_counts.filter(d => !d.is_weekend && d.count > 0).length
-    : 0
+
+  // weekday_count는 이 계산 방식이 추가되기 전에 저장된 보고서엔 없는 필드라, 없으면
+  // daily_counts에서 주말 아닌 날 수를 세어 대신 쓴다(공휴일까지는 못 거르지만 없는 것보단 낫다).
+  const weekdayCount = report?.weekday_count ?? (report ? report.daily_counts.filter(d => !d.is_weekend).length : 0)
 
   // wings_repeat는 insights_cache(현재 열려있는 티켓만 남는 스냅샷) 기반이라 지난주 값을
   // 실시간 재계산할 수 없다 — report_weekly.py가 지난주 생성 시점에 저장해둔 값을 그대로
@@ -795,9 +806,9 @@ export default function WeeklyReport() {
               delta={totalDelta} deltaUnit="건" deltaPct={totalDeltaPct} isSecondary
             />
             <KpiCard
-              label="일 평균" value={report.daily_avg.toLocaleString()} unit="건/일"
+              label="일 평균" value={Math.round(report.daily_avg).toLocaleString()} unit="건/일"
               color={NAVY2}
-              sub={collectedWeekdays > 0 ? `집계 완료 ${collectedWeekdays}일 기준` : undefined}
+              sub={`평일 ${weekdayCount}일 기준`}
               delta={dailyAvgDelta} deltaUnit="건/일" isSecondary
             />
             <KpiCard
@@ -947,7 +958,7 @@ export default function WeeklyReport() {
                             background: '#fef2f2', borderRadius: 6,
                             padding: '2px 8px', border: '1px solid #fecaca', flexShrink: 0,
                           }}>
-                            {row.count}건
+                            {row.count.toLocaleString()}건
                           </span>
                         </div>
                         {cardTopSub && (

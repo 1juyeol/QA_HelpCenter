@@ -69,6 +69,7 @@ PROMPT_REGISTRY = [
             {"field": "week_range", "desc": "분석 대상 주(월~일)", "used": True},
             {"field": "cat_label", "desc": "지금 분석 중인 카테고리 이름", "used": True},
             {"field": "count", "desc": "이 카테고리의 이번 주 전체 건수", "used": False, "note": "이미 화면(카드 배지)에 표시됨"},
+            {"field": "sub_breakdown", "desc": "소분류별 실제 건수·비율", "used": True, "note": "규칙: 사유 인용 시 반드시 이 값의 숫자만 사용, 지어내지 않음"},
             {"field": "risk_pct", "desc": "이번 주 전체 리스크 CS 중 이 카테고리 비중", "used": True, "note": "규칙 마지막 줄: 사유와 부합하면 포함"},
             {"field": "peak_day / peak_count", "desc": "이 카테고리 문의가 가장 많았던 요일과 그날 건수", "used": True, "note": "규칙 마지막 줄: 사유와 부합하면 포함"},
             {"field": "top_keywords", "desc": "이 카테고리 메모에서 자주 등장한 단어", "used": True, "note": "규칙 마지막 줄: 사유와 부합하면 포함"},
