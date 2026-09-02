@@ -41,12 +41,12 @@ export function makeLineChartConfig(
     },
     options: {
       plugins: {
-        legend: { position: 'bottom' as const, labels: { boxWidth: 12, font: { size: 11 } } },
+        legend: { position: 'bottom' as const, labels: { boxWidth: 12, font: { size: 17 } } },
         tooltip: { callbacks: { label: (ctx: any) => `${ctx.dataset.label}: ${ctx.parsed.y}%` } },
       },
       scales: {
-        y: { min: 0, ticks: { callback: (v: any) => `${v}%`, font: { size: 11 } } },
-        x: { ticks: { font: { size: 11 } } },
+        y: { min: 0, ticks: { callback: (v: any) => `${v}%`, font: { size: 13 } } },
+        x: { ticks: { font: { size: 13 } } },
       },
     },
   }

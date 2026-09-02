@@ -201,13 +201,13 @@ export default function Sidebar() {
         <>
           {/* 리스크율 기준 (관리자 전용) */}
           <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 8, padding: '10px 16px 14px' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', marginBottom: 8, letterSpacing: '0.4px' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#94a3b8', marginBottom: 8, letterSpacing: '0.4px' }}>
               🔒 리스크율 기준
             </div>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
+            <div style={{ fontSize: 16, color: '#64748b', marginBottom: 8 }}>
               위험 상담 ÷ 전체 상담 × 100
             </div>
-            <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.9 }}>
+            <div style={{ fontSize: 16, color: '#94a3b8', lineHeight: 1.9 }}>
               <div>• 네트워크·앱 오류 (전체)</div>
               <div>• 기기·하드웨어 오류 (전체)</div>
               <div>• 교재·물류 › 기기 장기미회수</div>
@@ -223,15 +223,15 @@ export default function Sidebar() {
                 width: '100%', padding: '10px 20px',
                 background: 'transparent', border: 'none',
                 color: settingsOpen ? '#1e293b' : '#64748b',
-                fontSize: 14, fontWeight: 500, textAlign: 'left',
+                fontSize: 20, fontWeight: 500, textAlign: 'left',
                 cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
               }}
             >
-              <span style={{ fontSize: 16, width: 20, textAlign: 'center' }}>⚙</span> 🔒 설정
+              <span style={{ fontSize: 18, width: 20, textAlign: 'center' }}>⚙</span> 🔒 설정
             </button>
             {settingsOpen && (
               <div style={{ padding: '0 12px 12px' }}>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>
+                <div style={{ fontSize: 16, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>
                   Gemma 서버
                 </div>
                 <select
@@ -240,7 +240,7 @@ export default function Sidebar() {
                   style={{
                     width: '100%', padding: '6px 8px',
                     background: '#fff', border: '1px solid #e2e8f0',
-                    borderRadius: 6, color: '#374151', fontSize: 12,
+                    borderRadius: 6, color: '#374151', fontSize: 16,
                     marginBottom: 8,
                   }}
                 >
@@ -256,7 +256,7 @@ export default function Sidebar() {
                     background: saved ? '#16a34a' : selectedUrl === currentUrl ? '#f1f5f9' : '#3b82f6',
                     color: selectedUrl === currentUrl ? '#94a3b8' : '#fff',
                     border: 'none', borderRadius: 6,
-                    fontSize: 12, fontWeight: 600,
+                    fontSize: 16, fontWeight: 600,
                     cursor: selectedUrl === currentUrl ? 'default' : 'pointer',
                   }}
                 >
@@ -276,17 +276,17 @@ export default function Sidebar() {
             width: '100%', padding: '10px 20px',
             background: 'transparent', border: 'none',
             color: isAdmin ? '#16a34a' : '#64748b',
-            fontSize: 14, fontWeight: 500, textAlign: 'left',
+            fontSize: 20, fontWeight: 500, textAlign: 'left',
             cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
           }}
         >
-          <span style={{ fontSize: 16, width: 20, textAlign: 'center' }}>{isAdmin ? '🔓' : '🔒'}</span>
+          <span style={{ fontSize: 18, width: 20, textAlign: 'center' }}>{isAdmin ? '🔓' : '🔒'}</span>
           {isAdmin ? '관리자 모드 끄기' : '관리자 모드'}
         </button>
 
         {isAdmin && collectionEnabled !== null && (
           <div style={{ padding: '0 16px 12px' }}>
-            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>
+            <div style={{ fontSize: 16, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>
               CS 상담 수집 API
             </div>
             <button
@@ -296,7 +296,7 @@ export default function Sidebar() {
                 width: '100%', padding: '7px 0',
                 background: collectionEnabled ? '#ef4444' : '#16a34a',
                 color: '#fff', border: 'none', borderRadius: 6,
-                fontSize: 12, fontWeight: 600,
+                fontSize: 16, fontWeight: 600,
                 cursor: collectionBusy ? 'default' : 'pointer',
                 opacity: collectionBusy ? 0.6 : 1,
               }}
@@ -318,10 +318,10 @@ export default function Sidebar() {
           onClick={() => setAdminModalOpen(false)}
         >
           <div
-            style={{ background: '#fff', borderRadius: 12, padding: 20, width: 260 }}
+            style={{ background: '#fff', borderRadius: 12, padding: 20, width: 300 }}
             onClick={e => e.stopPropagation()}
           >
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 10 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', marginBottom: 10 }}>
               관리자 암호 입력
             </div>
             <input
@@ -333,17 +333,17 @@ export default function Sidebar() {
               style={{
                 width: '100%', padding: '8px 10px', boxSizing: 'border-box',
                 border: `1px solid ${adminError ? '#ef4444' : '#e2e8f0'}`,
-                borderRadius: 6, fontSize: 13, marginBottom: 8,
+                borderRadius: 6, fontSize: 16, marginBottom: 8,
               }}
             />
             {adminError && (
-              <div style={{ fontSize: 11, color: '#ef4444', marginBottom: 8 }}>암호가 틀렸습니다.</div>
+              <div style={{ fontSize: 15, color: '#ef4444', marginBottom: 8 }}>암호가 틀렸습니다.</div>
             )}
             <button
               onClick={handleAdminSubmit}
               style={{
                 width: '100%', padding: '7px 0', background: '#3b82f6', color: '#fff',
-                border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                border: 'none', borderRadius: 6, fontSize: 16, fontWeight: 600, cursor: 'pointer',
               }}
             >
               확인

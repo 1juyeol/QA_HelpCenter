@@ -272,7 +272,7 @@ export default function CategoryMemoModal({ categoryMain, dateStart, dateEnd, on
                   {['소분류', '학생번호', '학부모번호', '내용', '등록일'].map(h => (
                     <th key={h} style={{
                       padding: '10px 12px', textAlign: 'left',
-                      fontSize: 12, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap',
+                      fontSize: 16, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap',
                     }}>{h}</th>
                   ))}
                 </tr>
@@ -283,25 +283,25 @@ export default function CategoryMemoModal({ categoryMain, dateStart, dateEnd, on
                     <td style={{ padding: '9px 12px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
                       {m.new_category_sub
                         ? <span style={{
-                            fontSize: 12, fontWeight: 700, color: '#374151',
+                            fontSize: 15, fontWeight: 700, color: '#374151',
                             background: '#f1f5f9', borderRadius: 4, padding: '2px 7px',
                           }}>{m.new_category_sub}</span>
-                        : <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span>
+                        : <span style={{ color: '#cbd5e1', fontSize: 15 }}>—</span>
                       }
                     </td>
-                    <td style={{ padding: '9px 12px', fontSize: 12, color: '#64748b', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '9px 12px', fontSize: 15, color: '#64748b', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
                       {m.student_id || '—'}
                     </td>
-                    <td style={{ padding: '9px 12px', fontSize: 12, color: '#64748b', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '9px 12px', fontSize: 15, color: '#64748b', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
                       {m.parent_id ?? '—'}
                     </td>
-                    <td style={{ padding: '9px 12px', fontSize: 13, color: '#374151', lineHeight: 1.6, verticalAlign: 'top' }}>
+                    <td style={{ padding: '9px 12px', fontSize: 15, color: '#374151', lineHeight: 1.6, verticalAlign: 'top' }}>
                       {m.call_memo
                         ? m.call_memo.split('\n').map((line, i) => <span key={i}>{i > 0 && <br />}{line}</span>)
                         : <span style={{ color: '#cbd5e1' }}>—</span>
                       }
                     </td>
-                    <td style={{ padding: '9px 12px', fontSize: 12, color: '#94a3b8', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '9px 12px', fontSize: 15, color: '#94a3b8', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
                       {m.created_date ? fmtDate(m.created_date) : '—'}
                     </td>
                   </tr>

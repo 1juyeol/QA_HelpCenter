@@ -138,6 +138,11 @@ const CATEGORY_LABEL: Record<Category, string> = {
   report: '보고서·인사이트',
 }
 
+function todayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 const CATEGORY_COLOR: Record<Category, string> = {
   auth: '#7c3aed',
   collection: '#2563eb',
@@ -411,7 +416,7 @@ export default function AuditLog() {
 
   return (
     <div className="section-card">
-      <h2 style={{ fontSize: 21 }}>감사 로그</h2>
+      <h2 style={{ fontSize: 24 }}>감사 로그</h2>
       <p style={{ color: '#64748b', fontSize: 18, marginTop: -6, marginBottom: 14 }}>
         대시보드에서 일어난 수동·자동 작업 이력. 계정 시스템이 없어 "언제·무엇을"만 기록된다.
       </p>
@@ -435,9 +440,9 @@ export default function AuditLog() {
           <option value="auto">자동만</option>
           <option value="test">테스트만</option>
         </select>
-        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={inputStyle} />
+        <input type="date" value={dateFrom} max={todayStr()} onChange={e => setDateFrom(e.target.value)} style={inputStyle} />
         <span style={{ alignSelf: 'center', color: '#94a3b8', fontSize: 18 }}>~</span>
-        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={inputStyle} />
+        <input type="date" value={dateTo} max={todayStr()} onChange={e => setDateTo(e.target.value)} style={inputStyle} />
         <select value={pageSize} onChange={e => setPageSize(Number(e.target.value))} style={inputStyle}>
           {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}개씩</option>)}
         </select>

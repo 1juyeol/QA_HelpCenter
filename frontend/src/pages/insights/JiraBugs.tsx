@@ -22,7 +22,7 @@ function statusBadge(status: string) {
   return (
     <span style={{
       display: 'inline-block', padding: '2px 8px', borderRadius: 12,
-      fontSize: 11, fontWeight: 600, color: '#fff', background: color,
+      fontSize: 13, fontWeight: 600, color: '#fff', background: color,
       whiteSpace: 'nowrap',
     }}>
       {status}
@@ -70,8 +70,8 @@ export default function JiraBugs() {
           tooltip: { callbacks: { label: ctx => `CS ${ctx.parsed.x}건` } },
         },
         scales: {
-          x: { grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { color: '#94a3b8', font: { size: 11 } } },
-          y: { grid: { display: false }, ticks: { color: '#e2e8f0', font: { size: 12 } } },
+          x: { grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { color: '#94a3b8', font: { size: 13 } } },
+          y: { grid: { display: false }, ticks: { color: '#e2e8f0', font: { size: 13 } } },
         },
       },
     })
@@ -126,8 +126,8 @@ export default function JiraBugs() {
       <div className="section-card">
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
           <div>
-            <h2 style={{ marginBottom: 4 }}>🔧 방치된 JIRA 버그</h2>
-            <p style={{ fontSize: 13, color: '#94a3b8', margin: 0 }}>
+            <h2 style={{ marginBottom: 4, fontSize: 24 }}>🔧 방치된 JIRA 버그</h2>
+            <p style={{ fontSize: 18, color: '#94a3b8', margin: 0 }}>
               JIRA에 미해결 상태로 남아 있는 서비스 버그 중, CS 메모에서 같은 증상이 언급된 건수를 집계합니다.
               CS 건수가 많을수록 실제 고객 영향이 큰 방치된 이슈입니다.
             </p>
@@ -174,7 +174,7 @@ export default function JiraBugs() {
               ))}
             </div>
             <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 16 }}>
-              <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 12 }}>이슈별 CS 건수 (CS 연관 상위 12개)</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#e2e8f0', marginBottom: 12 }}>이슈별 CS 건수 (CS 연관 상위 12개)</div>
               <div style={{ height: Math.max(160, bugs.filter(b => b.cs_count > 0).slice(0, 12).length * 32) }}>
                 <canvas ref={barCanvasRef} />
               </div>
@@ -191,12 +191,12 @@ export default function JiraBugs() {
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: 40 }}>#</th>
-                  <th style={{ width: 100 }}>이슈</th>
-                  <th>요약</th>
-                  <th style={{ width: 110 }}>상태</th>
-                  <th style={{ width: 100 }}>생성일</th>
-                  <th style={{ width: 90 }}>CS 건수</th>
+                  <th style={{ width: 40, fontSize: 16 }}>#</th>
+                  <th style={{ width: 100, fontSize: 16 }}>이슈</th>
+                  <th style={{ fontSize: 16 }}>요약</th>
+                  <th style={{ width: 110, fontSize: 16 }}>상태</th>
+                  <th style={{ width: 100, fontSize: 16 }}>생성일</th>
+                  <th style={{ width: 90, fontSize: 16 }}>CS 건수</th>
                 </tr>
               </thead>
               <tbody>
@@ -217,18 +217,18 @@ export default function JiraBugs() {
                             target="_blank"
                             rel="noreferrer"
                             onClick={e => e.stopPropagation()}
-                            style={{ color: '#1a56db', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}
+                            style={{ color: '#1a56db', fontSize: 15, fontWeight: 600, textDecoration: 'none' }}
                           >
                             {bug.key}
                           </a>
                         </td>
-                        <td style={{ fontSize: 13, color: '#374151' }}>
+                        <td style={{ fontSize: 15, color: '#374151' }}>
                           {bug.summary}
                           {bug.cs_keywords && (
                             <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                               {bug.cs_keywords.split(',').filter(Boolean).map(kw => (
                                 <span key={kw} style={{
-                                  fontSize: 11, padding: '1px 6px', background: '#f1f5f9',
+                                  fontSize: 12, padding: '1px 6px', background: '#f1f5f9',
                                   borderRadius: 4, color: '#64748b', border: '1px solid #e2e8f0',
                                 }}>{kw}</span>
                               ))}
@@ -239,13 +239,13 @@ export default function JiraBugs() {
                           </button>
                         </td>
                         <td>{statusBadge(bug.status)}</td>
-                        <td style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>
+                        <td style={{ fontSize: 15, color: '#64748b', whiteSpace: 'nowrap' }}>
                           {bug.created_at}
                         </td>
                         <td>
                           {bug.cs_count > 0
                             ? <span className="count-badge">{bug.cs_count}건</span>
-                            : <span style={{ fontSize: 12, color: '#cbd5e1' }}>—</span>}
+                            : <span style={{ fontSize: 15, color: '#cbd5e1' }}>—</span>}
                         </td>
                       </tr>
                       {isOpen && (

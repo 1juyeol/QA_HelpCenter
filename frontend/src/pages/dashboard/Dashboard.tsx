@@ -17,7 +17,7 @@ type Segment =
   | { type: 'month'; month: string }
 
 interface CatGroup { total: number; subs: CategoryRow[] }
-interface KpiCard { label: string; value: string; sub: string; color: string }
+interface KpiCard { label: string; value: string; color: string }
 
 const CATEGORY_ORDER = ['네트워크·앱 오류', '기기·하드웨어 오류', '미납·결제', '해지·유지 상담', '교재·물류·배송', '체험 관련', '계정·서비스', '기타']
 const PAGE_SIZE = 100
@@ -28,22 +28,32 @@ function todayStr() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function getCurrentBucket(): string {
-  const now = new Date()
-  const total = now.getHours() * 60 + now.getMinutes()
-  const completed = total - (total % 30) - 30
-  if (completed < 9 * 60) return '~09:00'
-  if (completed >= 21 * 60) return '21:00~'
-  const h = Math.floor(completed / 60)
-  const m = completed % 60
-  return `${String(h).padStart(2, '0')}:${m === 0 ? '00' : '30'}`
-}
-
 function snapToSunday(dateStr: string): string {
   const d = new Date(dateStr)
   const dow = d.getUTCDay()
   d.setUTCDate(d.getUTCDate() + (7 - dow) % 7)
   return d.toISOString().slice(0, 10)
+}
+
+function shiftDate(dateStr: string, days: number): string {
+  const d = new Date(dateStr)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+// "8월 3주차" 형식 라벨. 그 주(월요일 시작)의 목요일이 속한 달을 기준 월로 삼고, 그 달 1일이
+// 속한 주(월요일 시작)를 1주차로 세어 나간다 — ISO 8601이 "그 주의 목요일이 속한 해"를
+// 그 주의 연도로 정의하는 것과 같은 원리를 월 단위에 적용한 것. 이러면 08/31~09/06처럼
+// 두 달에 걸친 주도 "9월 1주차"로 자연스럽게 붙는다(목요일인 09/03이 9월이라서).
+function monthWeekLabel(mondayStr: string): string {
+  const monday = new Date(mondayStr + 'T00:00:00Z')
+  const thursday = new Date(monday); thursday.setUTCDate(thursday.getUTCDate() + 3)
+  const anchorYear = thursday.getUTCFullYear(), anchorMonth = thursday.getUTCMonth()
+  const firstOfMonth = new Date(Date.UTC(anchorYear, anchorMonth, 1))
+  const firstMonday = new Date(firstOfMonth)
+  firstMonday.setUTCDate(firstMonday.getUTCDate() - ((firstOfMonth.getUTCDay() + 6) % 7))
+  const weekNo = Math.round((monday.getTime() - firstMonday.getTime()) / (7 * 86400000)) + 1
+  return `${anchorMonth + 1}월 ${weekNo}주차`
 }
 
 function getPeriodRange(period: Period, sd: string, ed: string): { start: string; end: string } {
@@ -120,13 +130,13 @@ export default function Dashboard() {
   const [sorted, setSorted] = useState<[string, CatGroup][]>([])
   const [catEmpty, setCatEmpty] = useState(false)
   const [catLoading, setCatLoading] = useState(true)
-  const [selectedSub, setSelectedSub] = useState<{ main: string; sub: string } | null>(null)
+  const [selectedSub, setSelectedSub] = useState<{ main: string; sub?: string } | null>(null)
 
   const [memoItems, setMemoItems] = useState<Issue[]>([])
   const [memoTotal, setMemoTotal] = useState(0)
   const [memoPage, setMemoPage] = useState(0)
   const [memoLoading, setMemoLoading] = useState(false)
-  const [memoSubKey, setMemoSubKey] = useState<{ main: string; sub: string } | null>(null)
+  const [memoSubKey, setMemoSubKey] = useState<{ main: string; sub?: string } | null>(null)
 
   const [reloadCount, setReloadCount] = useState(0)
 
@@ -219,7 +229,7 @@ export default function Dashboard() {
           legend: {
             display: !!avgData,
             position: 'top',
-            labels: { boxWidth: 16, font: { size: 12 }, color: '#64748b' },
+            labels: { boxWidth: 16, font: { size: 17 }, color: '#64748b' },
           },
           tooltip: {
             callbacks: {
@@ -233,8 +243,17 @@ export default function Dashboard() {
           },
         },
         scales: {
-          y: { beginAtZero: true, ticks: { stepSize: STEP_SIZES[p] }, grid: { color: '#f1f5f9' } },
-          x: { grid: { display: false } },
+          y: { beginAtZero: true, ticks: { stepSize: STEP_SIZES[p], font: { size: 13 } }, grid: { color: '#f1f5f9' } },
+          x: {
+            grid: { display: false },
+            ticks: {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              font: (ctx: any) => {
+                const emphasis = ctx.index === highlightIdx
+                return { size: emphasis ? 16 : 13, weight: emphasis ? 'bold' : 'normal' }
+              },
+            },
+          },
         },
       },
     })
@@ -250,76 +269,49 @@ export default function Dashboard() {
       const data = rows.map(r => r.count)
       const total = data.reduce((s, v) => s + v, 0)
       const multiDay = sd !== ed
-      const isToday = !multiDay && sd === todayStr()
 
       const peakRow = rows.length > 0
         ? rows.reduce((max, r) => r.count > max.count ? r : max, rows[0])
         : { count: 0, bucket: '—' }
-      const highlightIdx = rows.indexOf(peakRow as BucketRow)
-      const titleSuffix = multiDay ? ` (${sd} ~ ${ed} 누적)` : ` (${sd})`
+      // 전부 0건이면 reduce가 첫 버킷(예: 09:00)을 그대로 "피크"로 남겨서 실제로는 데이터가
+      // 없는데도 강조(볼드) 표시가 되는 문제가 있었다 — 실제 건수가 있을 때만 강조한다.
+      const highlightIdx = peakRow.count > 0 ? rows.indexOf(peakRow as BucketRow) : undefined
+      const titleSuffix = multiDay ? ` (${sd} ~ ${ed})` : ` (${sd})`
       buildChart(labels, data, p, `시간대별 상담 건수${titleSuffix}`, { highlightIdx })
 
-      let cmpCard: KpiCard
-      if (isToday) {
-        const cb = getCurrentBucket()
-        const yd = new Date(sd); yd.setUTCDate(yd.getUTCDate() - 1)
-        const ydRows = await api.fetchHourly(yd.toISOString().slice(0, 10), yd.toISOString().slice(0, 10))
-        const cutoff = (chartRowsRef.current as BucketRow[]).findIndex(r => r.bucket === cb)
-        const todayCut = cutoff >= 0 ? (chartRowsRef.current as BucketRow[]).slice(0, cutoff + 1).reduce((s, r) => s + r.count, 0) : total
-        const prev = cutoff >= 0 ? ydRows.slice(0, cutoff + 1).reduce((s, r) => s + r.count, 0) : ydRows.reduce((s, r) => s + r.count, 0)
-        const diff = todayCut - prev, sign = diff >= 0 ? '+' : ''
-        const pct = prev > 0 ? ` (${sign}${Math.round(diff / prev * 100)}%)` : ''
-        cmpCard = { label: '동시간대 대비', value: `${sign}${diff.toLocaleString()}건`, sub: `어제 ~${cb}${pct}`, color: diff >= 0 ? 'green' : 'red' }
-      } else if (sd === ed) {
-        const pe = new Date(sd); pe.setUTCDate(pe.getUTCDate() - 1)
-        const prevRows = await api.fetchHourly(pe.toISOString().slice(0, 10), pe.toISOString().slice(0, 10))
-        const prev = prevRows.reduce((s, r) => s + r.count, 0)
-        const diff = total - prev, sign = diff >= 0 ? '+' : ''
-        const pct = prev > 0 ? ` (${sign}${Math.round(diff / prev * 100)}%)` : ''
-        cmpCard = {
-          label: '전일 대비',
-          value: prev > 0 ? `${sign}${diff.toLocaleString()}건` : '비교 불가',
-          sub: prev > 0 ? `전일 ${prev.toLocaleString()}건${pct}` : '전일 데이터 없음',
-          color: prev > 0 ? (diff >= 0 ? 'green' : 'red') : 'neutral',
-        }
-      } else {
-        let weekdays = 0
-        const cur = new Date(sd + 'T00:00:00')
-        const endD = new Date(ed + 'T00:00:00')
-        while (cur <= endD) {
-          const dow = cur.getDay()
-          if (dow !== 0 && dow !== 6) weekdays++
-          cur.setDate(cur.getDate() + 1)
-        }
-        const avg = weekdays > 0 ? Math.round(total / weekdays) : 0
-        cmpCard = {
-          label: '평일 일평균',
-          value: weekdays > 0 ? `${avg.toLocaleString()}건/일` : '—',
-          sub: `평일 ${weekdays}일 기준`,
-          color: 'blue',
-        }
+      // 오늘 하루만 봐도, 다른 하루만 봐도, 여러 날을 합쳐서 봐도 "얼마나 몰리는지"(집중도)가
+      // 이 뷰의 목적(시간대별 쏠림 경향 파악)에 맞는다 — 그래서 세 경우를 전부 하나로 합친다.
+      // ("동시간대 대비"는 오늘 이제 막 지난 시간대엔 -100% 같은 왜곡된 값이 나와서 뺐다.)
+      const avgBucket = rows.length > 0 ? total / rows.length : 0
+      const ratio = avgBucket > 0 ? peakRow.count / avgBucket : 0
+      const cmpCard: KpiCard = {
+        label: '피크 집중도',
+        value: avgBucket > 0 ? `평균 대비 ${ratio.toFixed(1)}배` : '—',
+        color: 'blue',
       }
 
       setKpiCards([
-        { label: '선택 기간 상담', value: `${total.toLocaleString()}건`, sub: multiDay ? '기간 누적 합계' : '일 합계', color: 'blue' },
-        cmpCard,
+        { label: '선택 기간 상담', value: `${total.toLocaleString()}건`, color: 'blue' },
         {
           label: '피크 시간대',
           value: peakRow.count > 0 ? bucketRangeLabel(peakRow.bucket) : '—',
-          sub: peakRow.count > 0 ? `${peakRow.count.toLocaleString()}건 집중` : '—',
           color: 'amber',
         },
+        cmpCard,
       ])
 
     } else if (p === 'day') {
       const rows = await api.fetchDaily(d, 'week') as DailyRow[]
       chartRowsRef.current = rows
-      const labels = rows.map(r => r.date.slice(5))
+      const labels = rows.map(r => r.date.slice(5).replace('-', '/'))
       const data = rows.map(r => r.count)
 
+      // 오늘(아직 끝나지 않은 날)은 평일 평균에서 뺀다 — 안 그러면 완료된 날들과 미완료인
+      // 오늘을 똑같이 취급해서 평균이 실제보다 낮게 나온다(정책 5: 진행 중인 구간은 비교 제외).
+      const today = todayStr()
       const weekdayRows = rows.filter(r => {
         const dow = new Date(r.date + 'T00:00:00').getDay()
-        return dow !== 0 && dow !== 6
+        return dow !== 0 && dow !== 6 && r.date !== today
       })
       const avg = weekdayRows.length > 0
         ? weekdayRows.reduce((s, r) => s + r.count, 0) / weekdayRows.length
@@ -340,42 +332,48 @@ export default function Dashboard() {
 
       const total = data.reduce((s, v) => s + v, 0)
       setKpiCards([
-        { label: '기간 총 상담', value: `${total.toLocaleString()}건`, sub: `${rows.length}일 합계`, color: 'blue' },
-        { label: '평일 일평균', value: `${avgRounded.toLocaleString()}건`, sub: weekdayRows.length > 0 ? `평일 ${weekdayRows.length}일 기준` : '평일 데이터 없음', color: 'green' },
-        { label: '최대 상담일', value: maxRow?.date.slice(5) ?? '—', sub: maxRow ? `${maxRow.count.toLocaleString()}건` : '—', color: 'amber' },
+        { label: '기간 총 상담', value: `${total.toLocaleString()}건`, color: 'blue' },
+        { label: '평일 평균', value: `${avgRounded.toLocaleString()}건`, color: 'green' },
+        { label: maxRow ? `최대 상담일 (${maxRow.count.toLocaleString()}건)` : '최대 상담일', value: maxRow ? maxRow.date.slice(5).replace('-', '/') : '—', color: 'amber' },
       ])
 
     } else if (p === 'week') {
       const rows = await api.fetchWeekly(d) as WeeklyRow[]
       chartRowsRef.current = rows
-      const labels = rows.map(r => r.week_start.slice(5) + ' ~')
+      const labels = rows.map(r => r.week_start.slice(5).replace('-', '/') + ' ~')
       const data = rows.map(r => r.count)
 
-      const avg4 = data.length > 0 ? Math.round(data.reduce((s, v) => s + v, 0) / data.length) : 0
+      // 이번 주(아직 안 끝남)는 "최다 상담 주"·"4주 평균" 둘 다에서 뺀다 — 정책 5와 같은
+      // 이유로, 진행 중인 주를 완료된 주와 똑같이 취급하면 평균이 실제보다 낮게 나온다.
+      const today = todayStr()
+      const thisMonday = shiftDate(today, -((new Date(today + 'T00:00:00Z').getUTCDay() + 6) % 7))
+      const completedRows = rows.filter(r => r.week_start !== thisMonday)
+
+      const avg4 = completedRows.length > 0
+        ? Math.round(completedRows.reduce((s, r) => s + r.count, 0) / completedRows.length)
+        : 0
       const avgLine4 = data.map(() => avg4)
 
       const lastIdx = data.length - 1
-      buildChart(labels, data, p, `주별 상담 건수 (${d} 기준 4주)`, {
+      buildChart(labels, data, p, `주별 상담 건수 (${d}까지 4주)`, {
         avgData: avgLine4,
         avgLabel: '기간 평균',
         highlightIdx: lastIdx >= 0 ? lastIdx : undefined,
       })
 
       const latest = data[lastIdx] ?? 0
-      const prev = lastIdx > 0 ? data[lastIdx - 1] : null
-
-      const prevCard: KpiCard = prev != null
-        ? (() => {
-            const diff = latest - prev, sign = diff >= 0 ? '+' : ''
-            const pct = prev > 0 ? ` (${sign}${Math.round(diff / prev * 100)}%)` : ''
-            return { label: '전주 대비', value: `${sign}${diff.toLocaleString()}건`, sub: `전주 ${prev.toLocaleString()}건${pct}`, color: diff >= 0 ? 'green' : 'red' }
-          })()
-        : { label: '전주 대비', value: '비교 불가', sub: '이전 주 데이터 없음', color: 'neutral' }
+      const maxRow = completedRows.length > 0
+        ? completedRows.reduce((max, r) => r.count > max.count ? r : max, completedRows[0])
+        : null
 
       setKpiCards([
-        { label: '이번 주 상담', value: `${latest.toLocaleString()}건`, sub: rows[lastIdx] ? `${rows[lastIdx].week_start} 주` : '', color: 'blue' },
-        prevCard,
-        { label: '4주 평균', value: `${avg4.toLocaleString()}건`, sub: `최근 ${data.length}주 기준`, color: 'neutral' },
+        { label: '이번 주 상담', value: `${latest.toLocaleString()}건`, color: 'blue' },
+        {
+          label: maxRow ? `최다 상담 주 (${monthWeekLabel(maxRow.week_start)})` : '최다 상담 주',
+          value: maxRow ? `${maxRow.count.toLocaleString()}건` : '—',
+          color: 'amber',
+        },
+        { label: '최근 4주 평균', value: `${avg4.toLocaleString()}건`, color: 'neutral' },
       ])
 
     } else {
@@ -384,31 +382,36 @@ export default function Dashboard() {
       const labels = rows.map(r => r.month.slice(5) + '월')
       const data = rows.map(r => r.count)
 
-      const avgMo = data.length > 0 ? Math.round(data.reduce((s, v) => s + v, 0) / data.length) : 0
+      // 이번 달(아직 안 끝남)은 "최다 상담 달"·"기간 평균" 둘 다에서 뺀다 — 진행 중인 달을
+      // 완료된 달과 똑같이 취급하면 평균이 실제보다 낮게 나온다(정책 5와 같은 이유).
+      const thisMonth = todayStr().slice(0, 7)
+      const completedRows = rows.filter(r => r.month !== thisMonth)
+
+      const avgMo = completedRows.length > 0
+        ? Math.round(completedRows.reduce((s, r) => s + r.count, 0) / completedRows.length)
+        : 0
       const avgLineMo = data.map(() => avgMo)
 
       const lastIdx = data.length - 1
-      buildChart(labels, data, p, `월별 상담 건수 (${mo} 기준)`, {
+      buildChart(labels, data, p, `월별 상담 건수 (${mo})`, {
         avgData: avgLineMo,
         avgLabel: '기간 평균',
         highlightIdx: lastIdx >= 0 ? lastIdx : undefined,
       })
 
       const latest = data[lastIdx] ?? 0
-      const prev = lastIdx > 0 ? data[lastIdx - 1] : null
-
-      const prevCard: KpiCard = prev != null
-        ? (() => {
-            const diff = latest - prev, sign = diff >= 0 ? '+' : ''
-            const pct = prev > 0 ? ` (${sign}${Math.round(diff / prev * 100)}%)` : ''
-            return { label: '전월 대비', value: `${sign}${diff.toLocaleString()}건`, sub: `전월 ${prev.toLocaleString()}건${pct}`, color: diff >= 0 ? 'green' : 'red' }
-          })()
-        : { label: '전월 대비', value: '비교 불가', sub: '이전 달 데이터 없음', color: 'neutral' }
+      const maxRow = completedRows.length > 0
+        ? completedRows.reduce((max, r) => r.count > max.count ? r : max, completedRows[0])
+        : null
 
       setKpiCards([
-        { label: '이번 달 상담', value: `${latest.toLocaleString()}건`, sub: rows[lastIdx]?.month ?? mo, color: 'blue' },
-        prevCard,
-        { label: '기간 평균', value: `${avgMo.toLocaleString()}건`, sub: `최근 ${data.length}개월 기준`, color: 'neutral' },
+        { label: '이번 달 상담', value: `${latest.toLocaleString()}건`, color: 'blue' },
+        {
+          label: maxRow ? `최다 상담 달 (${Number(maxRow.month.slice(5, 7))}월)` : '최다 상담 달',
+          value: maxRow ? `${maxRow.count.toLocaleString()}건` : '—',
+          color: 'amber',
+        },
+        { label: '최근 4개월 평균', value: `${avgMo.toLocaleString()}건`, color: 'neutral' },
       ])
     }
   }
@@ -438,7 +441,7 @@ export default function Dashboard() {
     }
   }
 
-  async function loadMemos(main: string, sub: string, page: number) {
+  async function loadMemos(main: string, sub: string | undefined, page: number) {
     setMemoLoading(true)
     try {
       const { start, end } = getActiveFilter(period, startDate, endDate, segment)
@@ -494,7 +497,8 @@ export default function Dashboard() {
     if (period !== 'hourly_range' || !chartRef.current) return
     const rows = chartRowsRef.current as BucketRow[]
     if (!rows.length) return
-    const peakBucket = rows.reduce((max, r) => r.count > max.count ? r : max, rows[0]).bucket
+    const peakRow = rows.reduce((max, r) => r.count > max.count ? r : max, rows[0])
+    const peakBucket = peakRow.count > 0 ? peakRow.bucket : null
     const labels = (chartRef.current.data.labels ?? []) as string[]
     const ds = chartRef.current.data.datasets[0]
     ds.backgroundColor = labels.map(l => {
@@ -518,6 +522,14 @@ export default function Dashboard() {
     setMemoSubKey({ main, sub })
     setMemoPage(0)
     await loadMemos(main, sub, 0)
+  }
+
+  // 대카테고리 헤더 클릭 — 소분류 지정 없이 그 대분류 전체 메모를 본다.
+  async function selectMain(main: string) {
+    setSelectedSub({ main })
+    setMemoSubKey({ main })
+    setMemoPage(0)
+    await loadMemos(main, undefined, 0)
   }
 
   async function movePage(dir: number) {
@@ -570,19 +582,24 @@ export default function Dashboard() {
 
         {period === 'hourly_range' && (
           <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            <input type="date" value={startDate} max={todayStr()} onChange={e => setStartDate(e.target.value)} />
             <span style={{ color: '#94a3b8' }}>~</span>
-            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+            <input type="date" value={endDate} max={todayStr()} onChange={e => setEndDate(e.target.value)} />
           </span>
         )}
         {(period === 'day' || period === 'week') && (
-          <input type="date" value={date}
-            step={period === 'week' ? 7 : undefined}
-            min={period === 'week' ? '2020-01-05' : undefined}
-            onChange={e => setDate(e.target.value)} />
+          <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <button className="refresh-btn" style={{ padding: '8px 10px' }} onClick={() => setDate(shiftDate(date, period === 'week' ? -7 : -1))}>‹</button>
+            <input type="date" value={date}
+              step={period === 'week' ? 7 : undefined}
+              min={period === 'week' ? '2020-01-05' : undefined}
+              max={todayStr()}
+              onChange={e => setDate(e.target.value)} />
+            <button className="refresh-btn" style={{ padding: '8px 10px' }} onClick={() => setDate(shiftDate(date, period === 'week' ? 7 : 1))}>›</button>
+          </span>
         )}
         {period === 'month' && (
-          <input type="month" value={month} onChange={e => setMonth(e.target.value)} />
+          <input type="month" value={month} max={todayStr().slice(0, 7)} onChange={e => setMonth(e.target.value)} />
         )}
 
         <button className="refresh-btn" onClick={() => setReloadCount(c => c + 1)}>↻ 새로고침</button>
@@ -593,8 +610,7 @@ export default function Dashboard() {
         {kpiCards.map((card, i) => (
           <div key={i} className={`card ${card.color}`}>
             <div className="label">{card.label}</div>
-            <div className="value" style={card.value.length > 9 ? { fontSize: 20 } : undefined}>{card.value}</div>
-            <div className="sub">{card.sub}</div>
+            <div className="value">{card.value}</div>
           </div>
         ))}
       </div>
@@ -607,18 +623,18 @@ export default function Dashboard() {
 
       {/* Category + Memos */}
       <div className="section-card">
-        <h2>카테고리별 건수</h2>
+        <h2 style={{ fontSize: 20 }}>카테고리별 건수</h2>
         {/* Search bar — full width */}
         <form onSubmit={e => { e.preventDefault(); applySearch(searchQuery.trim()) }}
           style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <div style={{ position: 'relative', flex: 1 }}>
-            <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none', fontSize: 13 }}>🔍</span>
+          <div style={{ position: 'relative', flex: '0 0 50%' }}>
+            <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none', fontSize: 18 }}>🔍</span>
             <input
               type="text"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               placeholder="학부모번호 · 학생번호 · 메모 내용으로 검색"
-              style={{ width: '100%', padding: '9px 32px 9px 32px', border: `1px solid ${activeQuery ? '#3b82f6' : '#e2e8f0'}`, borderRadius: 8, fontSize: 13, color: '#374151', outline: 'none', boxSizing: 'border-box' }}
+              style={{ width: '100%', padding: '14px 32px 14px 32px', border: `1px solid ${activeQuery ? '#3b82f6' : '#e2e8f0'}`, borderRadius: 8, fontSize: 18, color: '#374151', outline: 'none', boxSizing: 'border-box' }}
             />
             {searchQuery && (
               <button type="button" onClick={clearSearch}
@@ -626,7 +642,7 @@ export default function Dashboard() {
             )}
           </div>
           <button type="submit"
-            style={{ padding: '9px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>검색</button>
+            style={{ padding: '14px 18px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, fontSize: 18, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>검색</button>
         </form>
 
         {/* Unified active filter chips — search + time slot in one row */}
@@ -670,9 +686,14 @@ export default function Dashboard() {
               <div className="loading">조회 중...</div>
             ) : !catLoading && catEmpty ? (
               <div className="empty">데이터 없음</div>
-            ) : sorted.map(([main, g]) => (
+            ) : sorted.map(([main, g]) => {
+              const isMainActive = selectedSub?.main === main && !selectedSub?.sub
+              return (
               <div key={main || '__null__'}>
-                <div className="cat-main-header">
+                <div
+                  className={`cat-main-header${isMainActive ? ' active' : ''}`}
+                  onClick={() => selectMain(main)}
+                >
                   <span>{(!main || main === 'null') ? '미분류' : main}</span>
                   <span className="main-count">{g.total.toLocaleString()}</span>
                 </div>
@@ -691,7 +712,8 @@ export default function Dashboard() {
                   )
                 })}
               </div>
-            ))}
+              )
+            })}
           </div>
 
           {/* Memo panel */}
@@ -704,7 +726,8 @@ export default function Dashboard() {
               <>
                 <div className="memo-header">
                   <div className="memo-title">
-                    {(!memoSubKey.main || memoSubKey.main === 'null') ? '미분류' : memoSubKey.main} &rsaquo; {memoSubKey.sub}
+                    {(!memoSubKey.main || memoSubKey.main === 'null') ? '미분류' : memoSubKey.main}
+                    {memoSubKey.sub && <> &rsaquo; {memoSubKey.sub}</>}
                   </div>
                   <div className="memo-count">총 {memoTotal.toLocaleString()}건 · {memoPage + 1} / {totalPages || 1} 페이지</div>
                 </div>
@@ -715,34 +738,34 @@ export default function Dashboard() {
                     <table>
                       <thead>
                         <tr>
-                          <th style={{ width: 90 }}>학생번호</th>
-                          <th style={{ width: 90 }}>학부모번호</th>
-                          <th>상담 메모</th>
-                          <th style={{ width: 130 }}>접수 시각</th>
+                          <th style={{ width: 150, fontSize: 16 }}>학생번호</th>
+                          <th style={{ width: 150, fontSize: 16 }}>학부모번호</th>
+                          <th style={{ fontSize: 16 }}>상담 메모</th>
+                          <th style={{ width: 150, fontSize: 16 }}>접수 시각</th>
                           {isAdmin && <th style={{ width: 120 }}>매칭 키워드</th>}
                         </tr>
                       </thead>
                       <tbody>
                         {memoItems.map(r => (
                           <tr key={r.id}>
-                            <td style={{ fontSize: 12 }}>
+                            <td style={{ fontSize: 15 }}>
                               {r.student_id
                                 ? <a href={adminStudentUrl(r.student_id)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{activeQuery ? highlight(r.student_id, activeQuery) : r.student_id}</a>
                                 : <span style={{ color: '#64748b' }}>—</span>}
                             </td>
-                            <td style={{ fontSize: 12 }}>
+                            <td style={{ fontSize: 15 }}>
                               {r.parent_id
                                 ? <a href={adminParentUrl(r.parent_id!)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{activeQuery ? highlight(r.parent_id, activeQuery) : r.parent_id}</a>
                                 : <span style={{ color: '#94a3b8' }}>비회원</span>}
                             </td>
-                            <td style={{ color: '#374151', fontSize: 13 }}>
+                            <td style={{ color: '#374151', fontSize: 15 }}>
                               {r.call_memo
                                 ? r.call_memo.split('\n').map((line, i) => <span key={i}>{i > 0 && <br />}{activeQuery ? highlight(line, activeQuery) : line}</span>)
                                 : <span style={{ color: '#cbd5e1' }}>없음</span>}
                             </td>
-                            <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 12 }}>{r.created_date ? r.created_date.slice(0, 16) : '—'}</td>
+                            <td style={{ whiteSpace: 'nowrap', color: '#64748b', fontSize: 15 }}>{r.created_date ? r.created_date.slice(0, 16) : '—'}</td>
                             {isAdmin && (
-                              <td style={{ fontSize: 12, color: r.matched_keyword ? '#334155' : '#cbd5e1' }}>
+                              <td style={{ fontSize: 15, color: r.matched_keyword ? '#334155' : '#cbd5e1' }}>
                                 {r.matched_keyword ?? '—'}
                               </td>
                             )}

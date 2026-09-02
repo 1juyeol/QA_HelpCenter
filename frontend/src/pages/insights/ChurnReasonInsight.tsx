@@ -34,7 +34,7 @@ export default function ChurnReasonInsight() {
       options: {
         cutout: '62%',
         plugins: {
-          legend: { position: 'right', labels: { boxWidth: 10, font: { size: 11 }, color: '#6b7689' } },
+          legend: { position: 'right', labels: { boxWidth: 10, font: { size: 17 }, color: '#6b7689' } },
           tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.parsed}건` } },
         },
       },

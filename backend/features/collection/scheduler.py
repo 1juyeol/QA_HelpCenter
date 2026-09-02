@@ -209,11 +209,10 @@ async def update_wings_cache(mode: str = "manual"):
         states = await _fetch_wings_states([t["ticket_id"] for t in wings])
         for t in wings:
             t["state"] = states.get(str(t["ticket_id"]), "확인불가")
-        # "전체 티켓" 카드는 해결된 것까지 포함해서 보여줘야 하니, 걸러내기 전 스냅샷(전체·해결
-        # 건수)을 따로 남긴다 — Wings API를 또 호출하지 않고 방금 조회한 상태를 그대로 쓴다.
+        # 해결된 티켓도 캐시에 그대로 남긴다 — "전체 티켓" 카드에서 전체/미해결/해결 필터로
+        # 골라볼 수 있어야 해서, 상태로 걸러내지 않고 스냅샷 건수(전체·해결)만 같이 남긴다.
         closed_states = ("해결", "요청취소", "merged")
         summary = {"total": len(wings), "resolved": sum(1 for t in wings if t["state"] in closed_states)}
-        wings = [t for t in wings if t["state"] not in closed_states]
     else:
         summary = {"total": 0, "resolved": 0}
     _save_wings_cache(wings, summary)
