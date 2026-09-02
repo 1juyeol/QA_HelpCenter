@@ -228,7 +228,7 @@ def stats_monthly(target_date: str = Query(default=None)):
         target_date = str(date.today())
     d = date.fromisoformat(target_date)
     target_ym = d.strftime('%Y-%m')
-    m, y = d.month - 2, d.year
+    m, y = d.month - 3, d.year
     if m <= 0:
         m += 12
         y -= 1

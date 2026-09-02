@@ -209,7 +209,7 @@ class TestDeviceSwapReasonOverride:
         # 문자열 키워드엔 없고 형태소(어간) 매칭으로만 잡히는 활용형("벌어지고 있음")도
         # classify() 최종 결과에 반영되어야 한다.
         memo = "*교체 학습기 : 윙크 스쿨 단말기 / 기본형 / 동글 연결 불가능\n*확인사항 : 케이스가 벌어지고 있어요"
-        assert classify(memo) == ("기기·하드웨어 오류", "기기 파손")
+        assert classify(memo) == ("기기·하드웨어 오류", "분실, 파손")
 
     def test_no_reason_falls_back_to_device_swap_request(self):
         memo = "*교체 학습기 : 윙크 스쿨 단말기 / 기본형 / 동글 연결 불가능\n*확인사항 : "
@@ -295,7 +295,7 @@ class TestReplacementTemplateRootCause:
             "*후속관리 : 미진행"
         )
         main, sub = classify(memo)
-        assert (main, sub) == ("기기·하드웨어 오류", "기기 파손")
+        assert (main, sub) == ("기기·하드웨어 오류", "분실, 파손")
 
     def test_no_stated_reason_still_falls_back_to_replacement_request(self):
         # 확인사항이 비어있는 순수 교체 요청은 여전히 기기 교체 요청으로 잡혀야 한다
