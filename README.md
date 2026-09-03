@@ -52,7 +52,6 @@ Gemma AI 기반 보고서, 이탈·교체 원인 분석 등을 제공한다.
 │   └── scripts/
 │       ├── reclassify.py                  # 전체 재분류 일괄 실행 (분류 규칙 변경 시 필수)
 │       ├── backfill_ids.py                # student_id·parent_id 누락 보완
-│       ├── backfill_keyword_cache.py      # 과거 날짜별 keyword_trend 캐시 일괄 생성
 │       └── import_backfill_csv.py         # 플랫폼엔지니어링팀 제공 CSV로 과거 데이터 백필
 ├── frontend/                              # Vite + React + TypeScript
 │   ├── Dockerfile                         # 프론트 컨테이너 빌드 정의 (멀티스테이지: npm build → nginx)
@@ -81,7 +80,6 @@ Gemma AI 기반 보고서, 이탈·교체 원인 분석 등을 제공한다.
 │           │   ├── ServiceQualityIndex.tsx    # 서비스 품질 지수
 │           │   ├── WingsTickets.tsx           # 반복 Wings 티켓
 │           │   ├── RepeatParents.tsx          # 학부모 반복 인입
-│           │   ├── KeywordTrend.tsx           # 이슈 후보 탐지 (키워드 급증)
 │           │   ├── JiraBugs.tsx               # 방치된 JIRA 버그 × CS 연관 분석
 │           │   ├── ChurnReasonInsight.tsx     # 해지 사유 분석
 │           │   ├── DeviceSwapInsight.tsx      # 기기 교체 분석
@@ -175,10 +173,6 @@ docker compose up --build -d
 | GET | `/api/stats/weekly` | 주차별 건수 (최근 4주) |
 | GET | `/api/stats/monthly` | 월별 건수 (최근 3개월) |
 | GET | `/api/stats/category_daily` | 일별 보고서용 카테고리별 당일 건수 |
-| GET | `/api/stats/keyword_trend` | 키워드 급증 탐지 (이슈 후보) |
-| GET | `/api/stats/keyword_memos` | 특정 키워드의 당일 메모 목록 |
-| GET | `/api/stats/keyword_history` | 키워드별 최근 N일 이력 |
-| GET | `/api/stats/keyword_trend_dates` | 키워드가 탐지된 날짜 목록 |
 
 **이슈** (`features/issues`)
 
@@ -482,7 +476,6 @@ id 커서 방식이라 내부적으로는 다 같은 `collect_new()`를 부르�
 | 시각 | 잡 | 내용 |
 |------|-----|------|
 | 매일 00:30 | `_generate_yesterday_report` | 전날 일별 보고서 자동 생성 (Gemma 분석 포함) |
-| 매일 08:00 | `_cache_keyword_trend_today` | 키워드 트렌드 캐시 (탐지 이력 누락 방지) |
 | 매주 월요일 00:30 | `_generate_last_week_report` | 직전 주(월~금) 주간 보고서 자동 생성 |
 
 ### 중단 스위치
