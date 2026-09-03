@@ -3,7 +3,7 @@
 // 레이아웃 (위→아래):
 //   1. 컨트롤바 — 주차 선택(드롭다운) + 보고서 생성 버튼
 //   2. 그라디언트 헤더 배너 (주 범위 표시)
-//   3. KPI 카드 4개 — 총상담 / 일평균 / 리스크 CS / SQI (평일 기준)
+//   3. KPI 카드 4개 — 총상담(7일 전체) / 일평균·리스크 상담·SQI(영업일 기준)
 //   4. 일별 건수 바(HTML, 평일=네이비·주말=회색) + SQI 추이 라인(Chart.js)
 //   5. 전체 카테고리 비율 도넛(Chart.js) + 리스크 스택 바(Chart.js)
 //   6. 리스크 카테고리별 AI 분석 카드 (전체 폭)
@@ -16,14 +16,15 @@
 // 의존: api/client.ts (WeeklyReport 타입, fetchWeeklyReport, generateWeeklyReport)
 //       Chart.js (SQI 라인, 도넛, 리스크 스택 바)
 
-import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import Chart from 'chart.js/auto'
 import {
   api,
+  adminStudentUrl, adminParentUrl,
   type WeeklyReport as WeeklyReportType,
   type WeeklyDayCount,
-  type WingsRepeatTrendPoint,
+  type InsightWings,
 } from '../../api/client'
 import CategoryMemoModal from '../../components/CategoryMemoModal'
 import { useAdmin } from '../../hooks/useAdmin'
@@ -31,6 +32,8 @@ import { useAdmin } from '../../hooks/useAdmin'
 const NAVY = '#1e3c72'
 const NAVY2 = '#2a5298'
 const RISK_RED = '#ef4444'
+const AMBER = '#f59e0b'
+const PURPLE = '#8b5cf6'
 
 const RISK_MAINS = [
   '네트워크·앱 오류',
@@ -60,35 +63,6 @@ function fmtDate(dateStr: string): string {
   const dow = new Date(dateStr + 'T12:00:00').getDay()
   const idx = (dow + 6) % 7
   return `${dateStr.slice(5).replace('-', '/')}(${DAYS_KO[idx]})`
-}
-
-// dateStr(YYYY-MM-DD)의 하루 전날을 같은 형식으로 반환. toISOString()은 KST 자정 근처
-// 날짜를 UTC 기준으로 하루 밀리므로 로컬 날짜 구성요소로 직접 조립한다.
-function dayBefore(dateStr: string): string {
-  const d = new Date(dateStr + 'T12:00:00')
-  d.setDate(d.getDate() - 1)
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
-
-function signedCount(delta: number): string {
-  if (delta === 0) return '±0건'
-  return delta > 0 ? `+${delta.toLocaleString()}건` : `${delta.toLocaleString()}건`
-}
-
-// "반복 Wings 티켓" 섹션의 카드 아래 문장. 카드가 이미 보여주는 현재 건수를 그대로
-// 반복하지 않고, 카드에 없는 정보(지난주 대비 증감)만 담는다 — Gemma 없이 규칙 기반으로
-// 계산되고 실제 숫자가 바뀌는 대로 매주 자연스럽게 달라지므로, 매번 똑같이 뜨는 상시
-// 문구(해결방안에서 뺐던 것과 같은 문제)가 되지 않는다. 지난주 보고서가 없어 델타를
-// 알 수 없으면(newDelta/staleDelta가 null) 비교 없이 현재 값만 말한다 — 다른 KPI
-// 카드의 delta=null 처리(배지 없음)와 같은 원칙.
-export function formatWingsRepeatTrend(staleCount: number, newDelta: number | null, staleDelta: number | null): string {
-  if (newDelta == null || staleDelta == null) {
-    return `현재 방치 중인 반복 미해결 케이스는 ${staleCount.toLocaleString()}건입니다.`
-  }
-  return `지난주 대비 신규 케이스는 ${signedCount(newDelta)}, 방치 케이스는 ${signedCount(staleDelta)} 변동했습니다. 현재 누적 방치 건수는 ${staleCount.toLocaleString()}건입니다.`
 }
 
 function getWeekLabel(weekStart: string): string {
@@ -231,36 +205,267 @@ function TwoWeekSubLineChart({
   return <canvas ref={canvasRef} />
 }
 
-function KpiCard({
-  label, value, unit, color, sub, delta, deltaUnit, deltaInvert, deltaPct, isSecondary,
+// Wings 티켓 관리상태 종료값. WingsTickets.tsx의 CLOSED_STATES와 같은 기준이다 — 페이지 간
+// 직접 참조는 하지 않는다는 원칙(정책 8)에 따라 이 파일 안에 똑같이 둔다.
+const WINGS_CLOSED_STATES = new Set(['해결', '요청취소', 'merged'])
+
+function wingsDiffDays(r: InsightWings): number {
+  if (!r.first_date) return 0
+  return Math.floor((Date.now() - new Date(r.first_date).getTime()) / 86400000)
+}
+
+type SeverityBucket = 'under7' | 'between' | 'over30'
+
+function severityBucketOf(r: InsightWings): SeverityBucket {
+  const d = wingsDiffDays(r)
+  if (d >= 30) return 'over30'
+  if (d >= 7) return 'between'
+  return 'under7'
+}
+
+const SEVERITY_SEGMENTS: { key: SeverityBucket; label: string; color: string }[] = [
+  { key: 'under7', label: '7일 미만', color: '#10b981' },
+  { key: 'between', label: '7~29일', color: AMBER },
+  { key: 'over30', label: '30일 이상', color: RISK_RED },
+]
+
+// 장기미해결 상담 현황의 4개 카드(미해결 티켓/2회 이상 상담/7일+/30일+)는 서로 부분집합이라
+// 시계열보다 구성비가 더 잘 읽힌다 — 미해결 티켓 총량을 겹치지 않는 3구간(7일 미만/7~29일/
+// 30일 이상)으로 재구성해 막대 하나로 보여준다. Chart.js 없이 순수 HTML/CSS로 그린다 —
+// 세그먼트 3개짜리 막대 하나에 캔버스까지 쓸 필요는 없다("가벼운 그래프" 요청 취지).
+// 막대 너비는 이 보고서가 생성된 시점의 스냅샷 값(report.wings_*)을 그대로 쓰지만, 세그먼트
+// 클릭 시 뜨는 모달은 반복 Wings 티켓 페이지와 같은 API(/api/insights/wings_tickets)로 지금
+// 조회한 살아있는 목록을 그 자리에서 같은 기준(7일/30일 경과)으로 나눠 보여준다 — 과거 주의
+// 정확한 티켓별 스냅샷은 저장해둔 적이 없어서(위쪽 카드 값과 달리) 목록 자체는 "현재 기준"일
+// 수밖에 없다. 모달 안에 그 사실을 명시한다.
+function UnresolvedSeverityBar({
+  total, delayed7, delayed30, onSegmentClick,
 }: {
-  label: string; value: string; unit: string; color: string; sub?: string
+  total: number; delayed7: number; delayed30: number
+  onSegmentClick: (bucket: SeverityBucket) => void
+}) {
+  if (total <= 0) return null
+  const under7 = Math.max(total - delayed7, 0)
+  const between = Math.max(delayed7 - delayed30, 0)
+  const over30 = Math.max(delayed30, 0)
+  const counts: Record<SeverityBucket, number> = { under7, between, over30 }
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', height: 22, borderRadius: 6, overflow: 'hidden' }}>
+        {SEVERITY_SEGMENTS.map(s => counts[s.key] > 0 && (
+          <div
+            key={s.key}
+            onClick={() => onSegmentClick(s.key)}
+            style={{ width: `${counts[s.key] / total * 100}%`, background: s.color, cursor: 'pointer' }}
+            title={`${s.label}: ${counts[s.key]}건 — 클릭하면 목록 확인`}
+          />
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 18, marginTop: 8, flexWrap: 'wrap' }}>
+        {SEVERITY_SEGMENTS.map(s => (
+          <span
+            key={s.key}
+            onClick={() => counts[s.key] > 0 && onSegmentClick(s.key)}
+            style={{ fontSize: 15, color: '#374151', cursor: counts[s.key] > 0 ? 'pointer' : 'default' }}
+          >
+            <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: s.color, marginRight: 5 }} />
+            {s.label} {counts[s.key].toLocaleString()}건 ({Math.round(counts[s.key] / total * 100)}%)
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const SEVERITY_MODAL_PAGE_SIZE = 50
+
+function SeverityListModal({ bucket, rows, onClose }: { bucket: SeverityBucket; rows: InsightWings[]; onClose: () => void }) {
+  const label = SEVERITY_SEGMENTS.find(s => s.key === bucket)!.label
+  const [page, setPage] = useState(1)
+  const totalPages = Math.max(1, Math.ceil(rows.length / SEVERITY_MODAL_PAGE_SIZE))
+  const pagedRows = rows.slice((page - 1) * SEVERITY_MODAL_PAGE_SIZE, page * SEVERITY_MODAL_PAGE_SIZE)
+
+  // CategoryMemoModal(다른 모달들)과 같은 페이지네이션 UI — 50건씩.
+  const pager = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#64748b' }}>
+      <button
+        disabled={page <= 1}
+        onClick={() => setPage(p => p - 1)}
+        style={{
+          border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 14px',
+          background: '#fff', fontSize: 13,
+          cursor: page <= 1 ? 'default' : 'pointer',
+          color: page <= 1 ? '#cbd5e1' : '#374151',
+        }}
+      >이전</button>
+      <span>{page} / {totalPages} 페이지 (총 {rows.length.toLocaleString()}건)</span>
+      <button
+        disabled={page >= totalPages}
+        onClick={() => setPage(p => p + 1)}
+        style={{
+          border: '1px solid #e2e8f0', borderRadius: 6, padding: '4px 14px',
+          background: '#fff', fontSize: 13,
+          cursor: page >= totalPages ? 'default' : 'pointer',
+          color: page >= totalPages ? '#cbd5e1' : '#374151',
+        }}
+      >다음</button>
+    </div>
+  )
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(15, 23, 42, 0.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 24,
+      }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{
+        background: '#fff', borderRadius: 16,
+        width: '100%', maxWidth: 1040, maxHeight: '90vh',
+        display: 'flex', flexDirection: 'column',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          padding: '18px 32px', borderBottom: '1px solid #e2e8f0',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+        }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#1e293b' }}>경과일 {label}</div>
+            <div style={{ marginTop: 4, fontSize: 15, color: '#475569', fontWeight: 500 }}>
+              현재 시점 기준 목록 · 총 {rows.length}건
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, color: '#94a3b8', lineHeight: 1, padding: 4 }}
+          >✕</button>
+        </div>
+        <div style={{ padding: '10px 32px', borderBottom: '1px solid #f1f5f9', flexShrink: 0 }}>
+          {pager}
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px' }}>
+          {/* 가로 스크롤 없이 한 화면에 들어오도록 tableLayout:fixed + 컬럼별 고정폭(반복 Wings
+              티켓 페이지 표와 같은 방식) — 나머지 폭은 전부 최근 메모 컬럼에 준다. */}
+          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+            <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+              <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                {[
+                  ['티켓 번호', 85], ['학생번호', 70], ['학부모번호', 70], ['카테고리', 110],
+                  ['상담 건수', 70], ['경과일', 50], ['관리상태', 90], ['최근 메모', undefined],
+                ].map(([h, w]) => (
+                  <th key={h as string} style={{ width: w, padding: '10px 12px', textAlign: 'left', fontSize: 16, fontWeight: 700, color: '#64748b' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pagedRows.map(r => (
+                <tr key={r.ticket_id} style={{ borderBottom: '1px solid #f8fafc' }}>
+                  <td style={{ padding: '9px 12px', verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                    <a href={`https://wings.danbiedu.co.kr/#ticket/zoom/${r.ticket_id}`} target="_blank" rel="noreferrer" style={{ color: '#1a56db', fontWeight: 600, textDecoration: 'none' }}>
+                      #{r.ticket_id}
+                    </a>
+                  </td>
+                  <td style={{ padding: '9px 12px', fontSize: 15, verticalAlign: 'top' }}>
+                    {r.student_id
+                      ? <a href={adminStudentUrl(r.student_id)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{r.student_id}</a>
+                      : <span style={{ color: '#374151' }}>—</span>}
+                  </td>
+                  <td style={{ padding: '9px 12px', fontSize: 15, verticalAlign: 'top' }}>
+                    {r.parent_id
+                      ? <a href={adminParentUrl(String(r.parent_id))} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{r.parent_id}</a>
+                      : <span style={{ color: '#374151' }}>—</span>}
+                  </td>
+                  <td style={{ padding: '9px 12px', fontSize: 15, verticalAlign: 'top', color: '#374151' }}>{r.category ?? '미분류'}</td>
+                  <td style={{ padding: '9px 12px', fontSize: 15, verticalAlign: 'top' }}>{r.cs_count}건</td>
+                  <td style={{ padding: '9px 12px', fontSize: 15, verticalAlign: 'top', whiteSpace: 'nowrap' }}>{wingsDiffDays(r)}일</td>
+                  <td style={{ padding: '9px 12px', fontSize: 15, verticalAlign: 'top', color: '#374151' }}>{r.state ?? '조회 안됨'}</td>
+                  <td style={{ padding: '9px 12px', fontSize: 15, color: '#374151', lineHeight: 1.6, verticalAlign: 'top', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+                    {r.memos?.[0]?.memo
+                      ? r.memos[0].memo.split('\n').map((line, i) => <span key={i}>{i > 0 && <br />}{line}</span>)
+                      : <span style={{ color: '#cbd5e1' }}>—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ padding: '12px 32px', borderTop: '1px solid #f1f5f9', flexShrink: 0 }}>
+          {pager}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// DailyReport.tsx의 KpiCard와 크기·정렬 방식을 동일하게 맞춘 것 — 두 보고서 KPI 카드가
+// 서로 다른 폰트 크기·정렬(baseline vs flex-end)을 쓰면 같은 화면 안에서 secondary/일반
+// 카드 사이 숫자 위치가 어긋난다. flex-end + 고정 height로 폰트 크기가 달라도 숫자 밑선이
+// 맞는다.
+function KpiCard({
+  label, value, unit, color, delta, deltaUnit, deltaInvert, deltaPct, isSecondary,
+}: {
+  label: string; value: string; unit: string; color: string
   delta?: number | null; deltaUnit?: string; deltaInvert?: boolean; deltaPct?: number | null; isSecondary?: boolean
 }) {
   return (
     <div style={{
       background: '#fff', borderRadius: 14,
-      padding: isSecondary ? '16px 20px' : '22px 26px',
+      padding: isSecondary ? '22px 20px 16px' : '22px 26px',
       boxShadow: isSecondary ? '0 1px 4px rgba(0,0,0,.06)' : '0 2px 10px rgba(0,0,0,.09)',
       borderTop: `${isSecondary ? 3 : 5}px solid ${color}`,
     }}>
       <div style={{
-        fontSize: 13, fontWeight: 700, color: '#94a3b8',
-        textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8,
+        fontSize: 17, fontWeight: 700, color: '#94a3b8',
+        textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 8,
       }}>
         {label}
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-        <span style={{ fontSize: isSecondary ? 42 : 54, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
-        <span style={{ fontSize: isSecondary ? 19 : 24, color: '#64748b', fontWeight: 600 }}>{unit}</span>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 48 }}>
+        <span style={{ fontSize: isSecondary ? 36 : 48, fontWeight: 800, color, lineHeight: 1 }}>{value}</span>
+        <span style={{ fontSize: isSecondary ? 17 : 22, color: '#64748b', fontWeight: 600 }}>{unit}</span>
       </div>
-      {sub && <div style={{ fontSize: 12, color: '#64748b', marginTop: 5, fontWeight: 500 }}>{sub}</div>}
       <DeltaBadge delta={delta} unit={deltaUnit ?? ''} invert={deltaInvert} deltaPct={deltaPct} />
     </div>
   )
 }
 
 // ── 일별 건수 바 (Chart.js) ───────────────────────────────────────────────────
+
+// 일별 상담 건수(y축 "1,200"처럼 폭이 넓음)와 리스크 비율 추이(y축 "25%"처럼 폭이 좁음)를
+// 나란히 두면, Chart.js가 y축 눈금 텍스트 폭에 맞춰 각자 다른 너비를 잡아서 두 차트의
+// 그래프 시작 위치(가로축)가 어긋난다 — 두 차트 모두 y축 폭을 이 값으로 고정해서 맞춘다.
+const SHARED_Y_AXIS_WIDTH = 54
+
+// Chart.js는 y축(왼쪽) 눈금 텍스트를 기본적으로 축 선에 오른쪽 정렬해서 그린다 — "1,200"과
+// "25%"처럼 자릿수가 다르면 끝나는 지점(축 선)은 같아도 시작 지점은 텍스트 길이만큼 달라
+// 보인다. 왼쪽 정렬로 바꿔서 시작 지점을 맞춘다(끝나는 지점은 텍스트 길이에 따라 달라짐) —
+// Chart.js 옵션에는 y축 눈금 텍스트 정렬을 뒤집는 기능이 없어서, 기본 눈금 렌더링은 끄고
+// (ticks.display:false) 같은 위치에 왼쪽 정렬로 직접 그린다.
+function leftAlignedYTicksPlugin(id: string) {
+  return {
+    id,
+    afterDraw(chart: Chart) {
+      const yScale = chart.scales.y
+      if (!yScale) return
+      const { ctx, chartArea } = chart
+      const x = chartArea.left - SHARED_Y_AXIS_WIDTH + 6
+      ctx.save()
+      ctx.font = '13px Pretendard, sans-serif'
+      ctx.fillStyle = (Chart.defaults.color as string) ?? '#666'
+      ctx.textAlign = 'left'
+      ctx.textBaseline = 'middle'
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      yScale.ticks.forEach((tick: any, i: number) => {
+        ctx.fillText(tick.label ?? '', x, yScale.getPixelForTick(i))
+      })
+      ctx.restore()
+    },
+  }
+}
 
 function DailyBar({ dailyCounts }: { dailyCounts: WeeklyDayCount[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -276,6 +481,8 @@ function DailyBar({ dailyCounts }: { dailyCounts: WeeklyDayCount[] }) {
       return d.count === maxCount ? '#ef4444' : '#3b82f6'
     })
 
+    // 최고치 막대만 16px 볼드 빨강으로 강조 — DailyReport.tsx 피크타임 차트의 강조 폰트
+    // 크기(16px bold)와 맞춘 것. 나머지는 기존대로 11px.
     const datalabels = {
       id: 'datalabels',
       afterDatasetsDraw(chart: Chart) {
@@ -284,9 +491,10 @@ function DailyBar({ dailyCounts }: { dailyCounts: WeeklyDayCount[] }) {
           chart.getDatasetMeta(di).data.forEach((bar, idx) => {
             const val = (chart.data.datasets[di].data[idx] as number)
             if (!val) return
+            const isPeak = bgColors[idx] === '#ef4444'
             ctx.save()
-            ctx.font = 'bold 11px Pretendard, sans-serif'
-            ctx.fillStyle = '#374151'
+            ctx.font = isPeak ? 'bold 16px Pretendard, sans-serif' : 'bold 11px Pretendard, sans-serif'
+            ctx.fillStyle = isPeak ? '#ef4444' : '#374151'
             ctx.textAlign = 'center'
             ctx.textBaseline = 'bottom'
             ctx.fillText(val.toLocaleString(), bar.x, bar.y - 3)
@@ -310,17 +518,20 @@ function DailyBar({ dailyCounts }: { dailyCounts: WeeklyDayCount[] }) {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        layout: { padding: { top: 20 } },
+        layout: { padding: { top: 36 } },
         plugins: {
           legend: { display: false },
           tooltip: { callbacks: { label: ctx => `${(ctx.raw as number).toLocaleString()}건` } },
         },
         scales: {
-          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 13 }, padding: 10 } },
+          y: {
+            beginAtZero: true, grace: '10%', grid: { color: '#f1f5f9' }, ticks: { display: false, font: { size: 13 }, padding: 10 },
+            afterFit: scale => { scale.width = SHARED_Y_AXIS_WIDTH },
+          },
           x: { grid: { display: false }, ticks: { font: { size: 13 }, padding: 10 } },
         },
       },
-      plugins: [datalabels],
+      plugins: [datalabels, leftAlignedYTicksPlugin('dailyBarYTicks')],
     })
 
     return () => { chartRef.current?.destroy() }
@@ -428,8 +639,10 @@ export default function WeeklyReport() {
   const [generating, setGenerating] = useState(false)
   const [aiGenerating, setAiGenerating] = useState(false)
   const [notFound, setNotFound] = useState(false)
-  // 선택한 주와 무관하게(특정 week_start 하나가 아니라 최근 N주 전체) 딱 한 번만 불러온다.
-  const [wingsTrend, setWingsTrend] = useState<WingsRepeatTrendPoint[]>([])
+  // 장기미해결 상담 현황의 막대 세그먼트 클릭용 — 선택한 주와 무관하게 현재 살아있는 Wings
+  // 티켓 목록을 한 번만 불러온다("반복 Wings 티켓" 페이지와 같은 API).
+  const [wingsRows, setWingsRows] = useState<InsightWings[]>([])
+  const [severityModal, setSeverityModal] = useState<SeverityBucket | null>(null)
 
   type ModalState = { main: string; dateStart: string; dateEnd: string; initialSubs?: string[]; fullDateStart?: string; fullDateEnd?: string; allowedSubs?: string[] }
   const [hiddenDonutItems, setHiddenDonutItems] = useState<Set<number>>(new Set())
@@ -439,18 +652,15 @@ export default function WeeklyReport() {
   // Chart.js 캔버스 및 인스턴스
   const sqiRef      = useRef<HTMLCanvasElement>(null)
   const donutRef    = useRef<HTMLCanvasElement>(null)
-  const wingsTrendRef = useRef<HTMLCanvasElement>(null)
   const sqiChart    = useRef<Chart | null>(null)
   const donutChart  = useRef<Chart | null>(null)
-  const wingsTrendChart = useRef<Chart | null>(null)
 
   useEffect(() => {
     loadReport()
   }, [weekStart])
 
-  // 반복 Wings 티켓 추이는 선택한 주와 무관하게 최근 몇 주 전체를 한 번만 불러온다.
   useEffect(() => {
-    api.fetchWingsRepeatTrend(8).then(setWingsTrend).catch(() => setWingsTrend([]))
+    api.fetchWingsTickets().then(res => setWingsRows(res.data || [])).catch(() => setWingsRows([]))
   }, [])
 
   useEffect(() => {
@@ -469,45 +679,7 @@ export default function WeeklyReport() {
   useEffect(() => () => {
     sqiChart.current?.destroy()
     donutChart.current?.destroy()
-    wingsTrendChart.current?.destroy()
   }, [])
-
-  // 장기미해결 CS 추이 차트 — 방치(누적 백로그)는 추세가 중요하니 선으로, 신규(주별 발생량)는
-  // 막대로 섞은 콤보 차트다. 막대 2개보다 "쌓이고 있는지 줄고 있는지"가 한눈에 들어온다.
-  useEffect(() => {
-    if (!wingsTrendRef.current) return
-    wingsTrendChart.current?.destroy()
-    if (wingsTrend.length === 0) return
-    wingsTrendChart.current = new Chart(wingsTrendRef.current, {
-      type: 'bar',
-      data: {
-        labels: wingsTrend.map(t => getWeekLabel(t.week_start)),
-        datasets: [
-          {
-            type: 'bar', label: '신규', data: wingsTrend.map(t => t.new_count),
-            backgroundColor: NAVY, order: 2,
-          },
-          {
-            type: 'line', label: '방치', data: wingsTrend.map(t => t.stale_count),
-            borderColor: RISK_RED, backgroundColor: RISK_RED, pointRadius: 4,
-            tension: 0.3, order: 1,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 17 } } },
-          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${(ctx.raw as number).toLocaleString()}건` } },
-        },
-        scales: {
-          x: { ticks: { font: { size: 13 } } },
-          y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 13 } } },
-        },
-      },
-    })
-  }, [wingsTrend])
 
   // 보고서 변경 시 차트 재생성
   useEffect(() => {
@@ -571,6 +743,36 @@ export default function WeeklyReport() {
     if (!sqiRef.current || r.sqi_daily.length === 0) return
     sqiChart.current?.destroy()
     const baseline = Math.round(r.risk_total / Math.max(r.total_weekday, 1) * 1000) / 10
+
+    // 주 평균(baseline) 초과 지점은 전부 16px 볼드 빨강으로 값을 표시 — DailyBar(일별 상담건수)의
+    // 최고치 강조 폰트 크기(16px bold)와 맞춘 것. 점 크기·선 색 강조(주 평균 초과 시 빨강·확대)와는
+    // 별개로, 숫자 자체도 몇 건이 얼마나 초과했는지 한눈에 보이게 한다.
+    // 첫/마지막 지점처럼 플롯 영역 가장자리에 가까운 점은 중앙 정렬(textAlign:'center')한
+    // 텍스트의 절반이 y축 눈금 영역이나 캔버스 밖으로 잘려나간다 — 실제로 그린 텍스트 폭을
+    // 측정해서 플롯 영역(chartArea) 안에 들어오도록 x좌표를 clamp한다.
+    const aboveBaselineLabel = {
+      id: 'aboveBaselineLabel',
+      afterDatasetsDraw(chart: Chart) {
+        const meta = chart.getDatasetMeta(0)
+        const { ctx, chartArea } = chart
+        r.sqi_daily.forEach((p, i) => {
+          if (p.sqi <= baseline) return
+          const point = meta.data[i]
+          if (!point) return
+          ctx.save()
+          ctx.font = 'bold 16px Pretendard, sans-serif'
+          ctx.fillStyle = RISK_RED
+          ctx.textBaseline = 'bottom'
+          const label = `${p.sqi}%`
+          const halfWidth = ctx.measureText(label).width / 2
+          const x = Math.min(Math.max(point.x, chartArea.left + halfWidth), chartArea.right - halfWidth)
+          ctx.textAlign = 'center'
+          ctx.fillText(label, x, point.y - 12)
+          ctx.restore()
+        })
+      },
+    }
+
     sqiChart.current = new Chart(sqiRef.current, {
       type: 'line',
       data: {
@@ -612,16 +814,21 @@ export default function WeeklyReport() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        layout: { padding: { top: 36 } },
         plugins: {
           legend: { display: false },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           tooltip: { callbacks: { label: (ctx: any) => `${ctx.parsed.y}%` } },
         },
         scales: {
-          y: { beginAtZero: true, ticks: { callback: v => `${v}%`, font: { size: 13 }, padding: 10 } },
+          y: {
+            beginAtZero: true, grace: '10%', ticks: { display: false, callback: v => `${v}%`, font: { size: 13 }, padding: 10 },
+            afterFit: scale => { scale.width = SHARED_Y_AXIS_WIDTH },
+          },
           x: { grid: { display: false }, ticks: { font: { size: 13 }, padding: 10 } },
         },
       },
+      plugins: [aboveBaselineLabel, leftAlignedYTicksPlugin('sqiYTicks')],
     })
   }
 
@@ -673,14 +880,19 @@ export default function WeeklyReport() {
     ? (report.risk_total / report.total_weekday * 100).toFixed(1)
     : '0.0'
 
-  const totalDelta = report?.prev_total_weekday != null
-    ? report.total_weekday - report.prev_total_weekday
-    : null
+  // total_all(주말·공휴일 포함 총합)이 없는 옛 보고서는 total_weekday로 대신한다.
+  const totalAll = report ? report.total_all ?? report.total_weekday : 0
+  const prevTotalAll = report?.prev_total_all ?? report?.prev_total_weekday ?? null
+
+  const totalDelta = prevTotalAll != null ? totalAll - prevTotalAll : null
   const dailyAvgDelta = report?.prev_daily_avg != null
     ? Math.round(report.daily_avg - report.prev_daily_avg)
     : null
   const riskDelta = report?.prev_risk_total != null
     ? report.risk_total - report.prev_risk_total
+    : null
+  const riskDeltaPct = report?.prev_risk_total && report.prev_risk_total > 0
+    ? Math.round((report.risk_total - report.prev_risk_total) / report.prev_risk_total * 100)
     : null
   const prevRiskPct = report?.prev_risk_total != null && report?.prev_total_weekday != null
     ? report.prev_risk_total / Math.max(report.prev_total_weekday, 1) * 100
@@ -689,27 +901,38 @@ export default function WeeklyReport() {
     ? Math.round((Number(riskPct) - prevRiskPct) * 10) / 10
     : null
 
-  const totalDeltaPct = report?.prev_total_weekday && report.prev_total_weekday > 0
-    ? Math.round((report.total_weekday - report.prev_total_weekday) / report.prev_total_weekday * 100)
-    : null
-
   // weekday_count는 이 계산 방식이 추가되기 전에 저장된 보고서엔 없는 필드라, 없으면
   // daily_counts에서 주말 아닌 날 수를 세어 대신 쓴다(공휴일까지는 못 거르지만 없는 것보단 낫다).
   const weekdayCount = report?.weekday_count ?? (report ? report.daily_counts.filter(d => !d.is_weekend).length : 0)
 
-  // wings_repeat는 insights_cache(현재 열려있는 티켓만 남는 스냅샷) 기반이라 지난주 값을
-  // 실시간 재계산할 수 없다 — report_weekly.py가 지난주 생성 시점에 저장해둔 값을 그대로
-  // 내려준다. 지난주 보고서가 없으면 prev_*가 null이라 delta도 null → 다른 KPI 카드와
-  // 똑같이 배지 자체가 안 뜬다(DeltaBadge: delta==null → null 반환).
-  const wingsNewDelta = report?.prev_wings_repeat_new_count != null
-    ? (report.wings_repeat_new_count ?? 0) - report.prev_wings_repeat_new_count
+  // wings 스냅샷은 insights_cache(현재 상태만 남는 캐시) 기반이라 지난주 값을 실시간
+  // 재계산할 수 없다 — report_weekly.py가 지난주 생성 시점에 저장해둔 값을 그대로 내려준다.
+  // 지난주 보고서가 없으면 prev_*가 null이라 delta도 null → 다른 KPI 카드와 똑같이 배지
+  // 자체가 안 뜬다(DeltaBadge: delta==null → null 반환).
+  const wingsUnresolvedDelta = report?.prev_wings_unresolved_count != null
+    ? (report.wings_unresolved_count ?? 0) - report.prev_wings_unresolved_count
     : null
-  const wingsStaleDelta = report?.prev_wings_repeat_stale_count != null
-    ? (report.wings_repeat_stale_count ?? 0) - report.prev_wings_repeat_stale_count
+  const wingsRepeatDelta = report?.prev_wings_repeat_count != null
+    ? (report.wings_repeat_count ?? 0) - report.prev_wings_repeat_count
+    : null
+  const wingsDelayed7Delta = report?.prev_wings_delayed_7_count != null
+    ? (report.wings_delayed_7_count ?? 0) - report.prev_wings_delayed_7_count
+    : null
+  const wingsDelayed30Delta = report?.prev_wings_delayed_30_count != null
+    ? (report.wings_delayed_30_count ?? 0) - report.prev_wings_delayed_30_count
     : null
 
   const sortedBreakdown = report ? [...report.category_breakdown].sort((a, b) => b.count - a.count) : []
   const totalCatCount = sortedBreakdown.reduce((s, c) => s + c.count, 0)
+
+  const unresolvedWingsRows = useMemo(
+    () => wingsRows.filter(r => !r.state || !WINGS_CLOSED_STATES.has(r.state)),
+    [wingsRows]
+  )
+  const severityModalRows = useMemo(
+    () => severityModal ? unresolvedWingsRows.filter(r => severityBucketOf(r) === severityModal) : [],
+    [severityModal, unresolvedWingsRows]
+  )
 
   // id는 사이드바·헤더 없이 이 영역만 스크린샷 찍을 수 있도록 backend/features/mailer/
   // report_screenshot.py가 Playwright로 지정해서 찾는 대상이다.
@@ -801,23 +1024,22 @@ export default function WeeklyReport() {
           {/* KPI 4개 — 좌측 2개(운영 규모) 보조, 우측 2개(리스크) 강조 */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.35fr 1.35fr', gap: 14, marginBottom: 16 }}>
             <KpiCard
-              label="총 상담" value={report.total_weekday.toLocaleString()} unit="건"
-              color={NAVY} sub="평일 기준"
-              delta={totalDelta} deltaUnit="건" deltaPct={totalDeltaPct} isSecondary
+              label="총 상담" value={totalAll.toLocaleString()} unit="건"
+              color={NAVY}
+              delta={totalDelta} deltaUnit="건" isSecondary
             />
             <KpiCard
-              label="일 평균" value={Math.round(report.daily_avg).toLocaleString()} unit="건/일"
+              label={`영업일 ${weekdayCount}일 평균`} value={Math.round(report.daily_avg).toLocaleString()} unit="건/일"
               color={NAVY2}
-              sub={`평일 ${weekdayCount}일 기준`}
               delta={dailyAvgDelta} deltaUnit="건/일" isSecondary
             />
             <KpiCard
-              label="리스크 CS" value={report.risk_total.toLocaleString()} unit="건"
+              label="리스크 상담" value={report.risk_total.toLocaleString()} unit="건"
               color={RISK_RED}
-              delta={riskDelta} deltaUnit="건" deltaInvert
+              delta={riskDelta} deltaUnit="건" deltaPct={riskDeltaPct} deltaInvert
             />
             <KpiCard
-              label="리스크율" value={riskPct} unit="%"
+              label="리스크 비율" value={riskPct} unit="%"
               color={Number(riskPct) > 20 ? RISK_RED : '#4f46e5'}
               delta={riskPctDelta} deltaUnit="%p" deltaInvert
             />
@@ -826,9 +1048,15 @@ export default function WeeklyReport() {
           {/* 일별 건수 + SQI */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
             <div className="section-card">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
-                <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>일별 CS 건수</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
+                <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>일별 상담 건수</h2>
                 <span style={{ fontSize: 15, color: '#94a3b8' }}>최다 요일은 빨간색, 주말은 회색으로 표시합니다</span>
+              </div>
+              {/* 오른쪽(리스크 비율 추이) 카드에만 있는 범례 줄만큼, 안 보이지만 자리는 차지하는
+                  더미 줄 — 안 그러면 그 줄의 높이만큼 두 캔버스의 세로 위치(그래서 가로축 위치도)가
+                  어긋난다. 내용·스타일을 그대로 맞춰야 높이가 정확히 같다. */}
+              <div style={{ display: 'flex', gap: 14, marginBottom: 12, fontSize: 17, color: '#64748b', visibility: 'hidden' }} aria-hidden="true">
+                <span>더미</span>
               </div>
               <div style={{ height: 200, position: 'relative' }}>
                 <DailyBar dailyCounts={report.daily_counts} />
@@ -836,8 +1064,8 @@ export default function WeeklyReport() {
             </div>
             <div className="section-card">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
-                <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>리스크율 추이</h2>
-                <span style={{ fontSize: 15, color: '#94a3b8' }}>일별 리스크율 변화를 주 평균 기준으로 표시합니다</span>
+                <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>리스크 비율 추이</h2>
+                <span style={{ fontSize: 15, color: '#94a3b8' }}>일별 리스크 비율 변화를 주 평균 기준으로 표시합니다</span>
               </div>
               <div style={{ display: 'flex', gap: 14, marginBottom: 12, fontSize: 17, color: '#64748b' }}>
                 <span><span style={{ color: NAVY, fontWeight: 700 }}>●</span> 주 평균 이하</span>
@@ -856,7 +1084,7 @@ export default function WeeklyReport() {
           {/* 도넛 — 좌: 차트+범례, 우: 상위 유형 요약 */}
           <div className="section-card" style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
-              <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>이번 주 CS 유형 분포</h2>
+              <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>이번 주 상담 유형 분포</h2>
               <span style={{ fontSize: 15, color: '#94a3b8' }}>전체 상담을 카테고리별로 분류한 비율입니다</span>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, alignItems: 'start' }}>
@@ -1030,34 +1258,57 @@ export default function WeeklyReport() {
           </div>
           )}
 
-          {/* 장기미해결 CS 현황 — 같은 건으로 CS가 여러 차례 이어지는 케이스의 신규/방치 건수.
-              카테고리 비중은 위 "리스크 카테고리별 AI 분석"과 겹쳐서 다루지 않고, 개별
-              학부모를 짚는 내용도 넣지 않는다(그건 인사이트 페이지의 반복 Wings 티켓
-              표에서만 다룬다) — 순수 집계는 report_weekly.py의 _wings_repeat_counts. */}
+          {/* 장기미해결 상담 현황 — 반복 Wings 티켓 페이지 KPI 카드와 같은 기준(미해결/2회 이상
+              상담/7일+/30일+ 처리 지연)의 스냅샷. 그 페이지 카드가 항상 "지금 이 순간" 기준인
+              것과 달리, 여기 값은 이 보고서가 생성된 시점 기준으로 고정 저장되어 매주 그
+              시점의 스냅샷끼리 비교(전주 대비 증감)할 수 있다 — 순수 집계는
+              insight_aggregations.py의 compute_wings_snapshot_counts. 카테고리 비중은 위
+              "리스크 카테고리별 AI 분석"과 겹쳐서 다루지 않고, 개별 학부모를 짚는 내용도
+              넣지 않는다(그건 인사이트 페이지의 반복 Wings 티켓 표에서만 다룬다). */}
           <div className="section-card" style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
-              <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>장기미해결 CS 현황</h2>
-              <span style={{ fontSize: 15, color: '#94a3b8' }}>같은 건으로 CS가 여러 차례 이어질수록 해당 가정의 이탈(해지) 위험이 커집니다</span>
+              <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>장기미해결 상담 현황</h2>
+              <span style={{ fontSize: 15, color: '#94a3b8' }}>동일 사안으로 상담이 반복될수록 해당 가정의 해지 위험이 높아집니다</span>
             </div>
-            <div style={{ display: 'flex', gap: 14, marginBottom: 14, flexWrap: 'wrap' }}>
-              <KpiCard
-                label="신규 (이번 주)" value={(report.wings_repeat_new_count ?? 0).toLocaleString()} unit="건"
-                color={NAVY} isSecondary delta={wingsNewDelta} deltaUnit="건" deltaInvert
-              />
-              <KpiCard
-                label={`방치 (${fmtDate(dayBefore(report.week_start))} 이전부터)`} value={(report.wings_repeat_stale_count ?? 0).toLocaleString()} unit="건"
-                color={RISK_RED} isSecondary delta={wingsStaleDelta} deltaUnit="건" deltaInvert
-              />
+            <div style={{ fontSize: 15, color: '#94a3b8', marginBottom: 10 }}>
+              카드를 클릭하면 반복 Wings 티켓 페이지에서 그 조건으로 바로 확인할 수 있습니다.
             </div>
-            <div style={{ fontSize: 14, color: '#374151', lineHeight: 1.7, marginBottom: wingsTrend.length > 0 ? 14 : 0 }}>
-              {formatWingsRepeatTrend(report.wings_repeat_stale_count ?? 0, wingsNewDelta, wingsStaleDelta)}
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+              <Link to="/insights/wings?filter=all" style={{ textDecoration: 'none', color: 'inherit', flex: '1 1 0' }}>
+                <KpiCard
+                  label="미해결 티켓" value={(report.wings_unresolved_count ?? 0).toLocaleString()} unit="건"
+                  color={NAVY} isSecondary delta={wingsUnresolvedDelta} deltaUnit="건" deltaInvert
+                />
+              </Link>
+              <Link to="/insights/wings?filter=repeat" style={{ textDecoration: 'none', color: 'inherit', flex: '1 1 0' }}>
+                <KpiCard
+                  label="2회 이상 상담" value={(report.wings_repeat_count ?? 0).toLocaleString()} unit="건"
+                  color={PURPLE} isSecondary delta={wingsRepeatDelta} deltaUnit="건" deltaInvert
+                />
+              </Link>
+              <Link to="/insights/wings?filter=delayed" style={{ textDecoration: 'none', color: 'inherit', flex: '1 1 0' }}>
+                <KpiCard
+                  label="7일 이상 처리 지연" value={(report.wings_delayed_7_count ?? 0).toLocaleString()} unit="건"
+                  color={AMBER} isSecondary delta={wingsDelayed7Delta} deltaUnit="건" deltaInvert
+                />
+              </Link>
+              <Link to="/insights/wings?filter=longUnresolved" style={{ textDecoration: 'none', color: 'inherit', flex: '1 1 0' }}>
+                <KpiCard
+                  label="30일 이상 처리 지연" value={(report.wings_delayed_30_count ?? 0).toLocaleString()} unit="건"
+                  color={RISK_RED} isSecondary delta={wingsDelayed30Delta} deltaUnit="건" deltaInvert
+                />
+              </Link>
             </div>
-            {wingsTrend.length > 0 && (
-              <div style={{ height: 180, paddingTop: 10, borderTop: '1px dashed #e2e8f0' }}>
-                <canvas ref={wingsTrendRef} />
-              </div>
-            )}
+            <UnresolvedSeverityBar
+              total={report.wings_unresolved_count ?? 0}
+              delayed7={report.wings_delayed_7_count ?? 0}
+              delayed30={report.wings_delayed_30_count ?? 0}
+              onSegmentClick={setSeverityModal}
+            />
           </div>
+          {severityModal && (
+            <SeverityListModal key={severityModal} bucket={severityModal} rows={severityModalRows} onClose={() => setSeverityModal(null)} />
+          )}
 
           {/* 주간 종합 분석 (전체 폭) */}
           <div className="section-card" id="summary-section">
@@ -1065,13 +1316,13 @@ export default function WeeklyReport() {
               display: 'flex', alignItems: 'center', gap: 10,
               marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
             }}>
-              <h2 style={{ margin: 0, color: NAVY, fontSize: 25 }}>이번 주 CS 종합 브리핑</h2>
-              <span style={{ fontSize: 15, color: '#94a3b8' }}>이번 주 CS 전반을 AI가 핵심 패턴 중심으로 종합 분석합니다</span>
+              <h2 style={{ margin: 0, color: NAVY, fontSize: 25 }}>이번 주 상담 종합 브리핑</h2>
+              <span style={{ fontSize: 15, color: '#94a3b8' }}>이번 주 상담 전반을 AI가 핵심 패턴 중심으로 종합 분석합니다</span>
             </div>
             {report.weekly_summary
               ? (
                 <div style={{
-                  fontSize: 13, color: '#374151', lineHeight: 1.7,
+                  fontSize: 18, color: '#374151', lineHeight: 1.7,
                   background: '#f0f4fb', borderRadius: 6,
                   padding: '10px 14px', borderLeft: `3px solid ${NAVY}`,
                   whiteSpace: 'pre-line',
@@ -1080,12 +1331,12 @@ export default function WeeklyReport() {
                 </div>
               )
               : report.weekly_summary_error
-                ? <div style={{ fontSize: 13, color: '#ef4444' }} title={report.weekly_summary_error}>
+                ? <div style={{ fontSize: 18, color: '#ef4444' }} title={report.weekly_summary_error}>
                     AI 분석 실패 — 다시 시도해주세요
                   </div>
                 : aiGenerating
-                  ? <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
-                  : <div style={{ fontSize: 13, color: '#94a3b8' }}>분석 없음</div>
+                  ? <div style={{ fontSize: 18, color: '#94a3b8', fontStyle: 'italic' }}>AI 분석 중...</div>
+                  : <div style={{ fontSize: 18, color: '#94a3b8' }}>분석 없음</div>
             }
           </div>
 

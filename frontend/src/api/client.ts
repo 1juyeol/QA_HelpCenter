@@ -351,8 +351,6 @@ export interface WeeklyRiskRow   { main: string; count: number; summary: string;
 // risk_stack: [{ date, "네트워크·앱 오류": number, "기기·하드웨어 오류": number, ... }]
 export type WeeklyRiskStackDay = { date: string } & Record<string, number>
 
-export interface WingsRepeatTrendPoint { week_start: string; new_count: number; stale_count: number }
-
 export interface WeeklyMemoItem  { date: string; sub: string; text: string }
 export interface WeeklyMemosPage {
   memos: WeeklyMemoItem[]
@@ -365,10 +363,12 @@ export interface WeeklyReport {
   week_start: string
   week_end: string
   generated_at: string
+  total_all?: number // 주말·공휴일 포함 7일 전체 합. 이 필드 추가 전에 저장된 보고서엔 없음
   total_weekday: number
   daily_avg: number
   weekday_count?: number // 이 필드 추가 전에 저장된 보고서엔 없음
   risk_total: number
+  prev_total_all?: number | null
   prev_total_weekday?: number | null
   prev_risk_total?: number | null
   prev_daily_avg?: number | null
@@ -380,10 +380,14 @@ export interface WeeklyReport {
   risk_sub_stack_prev?: Record<string, Array<{ date: string } & Record<string, number>>>
   peak_daily: WeeklyPeakDay[]
   risk_rows: WeeklyRiskRow[]
-  wings_repeat_new_count?: number | null
-  wings_repeat_stale_count?: number | null
-  prev_wings_repeat_new_count?: number | null
-  prev_wings_repeat_stale_count?: number | null
+  wings_unresolved_count?: number | null
+  wings_repeat_count?: number | null
+  wings_delayed_7_count?: number | null
+  wings_delayed_30_count?: number | null
+  prev_wings_unresolved_count?: number | null
+  prev_wings_repeat_count?: number | null
+  prev_wings_delayed_7_count?: number | null
+  prev_wings_delayed_30_count?: number | null
   weekly_summary: string
   weekly_summary_error?: string | null
 }
@@ -646,10 +650,6 @@ export const api = {
     const p = new URLSearchParams({ week_start: weekStart, main, page: String(page) })
     if (sub) p.set('sub', sub)
     return get<WeeklyMemosPage>(`/api/report/weekly/memos?${p}`)
-  },
-
-  fetchWingsRepeatTrend(limitWeeks = 8) {
-    return get<WingsRepeatTrendPoint[]>(`/api/report/weekly/wings_repeat_trend?limit_weeks=${limitWeeks}`)
   },
 
   fetchGemmaSettings() {

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # features/report/report_weekly.py 의 순수 유틸 함수 단위 테스트.
-# 테스트 대상: _fmt_date_ko, _weighted_sample_memos, _extract_top_keywords, _classify_wings_repeat
+# 테스트 대상: _fmt_date_ko, _weighted_sample_memos, _extract_top_keywords
 # DB·Gemma 의존 없이 실행 가능 (import 시 연결하지 않고 호출 시점에 연결하는 구조).
 import sys
 from pathlib import Path
@@ -11,7 +11,6 @@ from features.report.report_weekly import (
     _fmt_date_ko,
     _weighted_sample_memos,
     _extract_top_keywords,
-    _classify_wings_repeat,
 )
 
 
@@ -130,44 +129,3 @@ class TestExtractTopKeywords:
         result = _extract_top_keywords(texts)
         assert result.index('해지') < result.index('오류')
         assert result.index('오류') < result.index('결제')
-
-
-class TestClassifyWingsRepeat:
-    WEEK_START = '2026-08-24'
-    WEEK_END = '2026-08-30'
-
-    def _ticket(self, first_date):
-        return {"ticket_id": "1", "first_date": first_date}
-
-    def test_empty_list(self):
-        result = _classify_wings_repeat([], self.WEEK_START, self.WEEK_END)
-        assert result == {"new_count": 0, "stale_count": 0}
-
-    def test_first_date_within_week_is_new(self):
-        tickets = [self._ticket('2026-08-26 00:00:00')]
-        result = _classify_wings_repeat(tickets, self.WEEK_START, self.WEEK_END)
-        assert result == {"new_count": 1, "stale_count": 0}
-
-    def test_first_date_before_week_is_stale(self):
-        tickets = [self._ticket('2026-07-01 00:00:00')]
-        result = _classify_wings_repeat(tickets, self.WEEK_START, self.WEEK_END)
-        assert result == {"new_count": 0, "stale_count": 1}
-
-    def test_week_boundaries_monday_sunday_are_new(self):
-        tickets = [self._ticket('2026-08-24 09:00:00'), self._ticket('2026-08-30 23:59:00')]
-        result = _classify_wings_repeat(tickets, self.WEEK_START, self.WEEK_END)
-        assert result == {"new_count": 2, "stale_count": 0}
-
-    def test_first_date_after_week_end_ignored(self):
-        tickets = [self._ticket('2026-09-05 00:00:00')]
-        result = _classify_wings_repeat(tickets, self.WEEK_START, self.WEEK_END)
-        assert result == {"new_count": 0, "stale_count": 0}
-
-    def test_mixed_new_and_stale(self):
-        tickets = [
-            self._ticket('2026-08-26 00:00:00'),
-            self._ticket('2026-07-01 00:00:00'),
-            self._ticket('2026-07-05 00:00:00'),
-        ]
-        result = _classify_wings_repeat(tickets, self.WEEK_START, self.WEEK_END)
-        assert result == {"new_count": 1, "stale_count": 2}
