@@ -67,43 +67,6 @@ export interface InsightParent {
 
 export interface CategoryDailyRow { day: string; main: string | null; sub: string | null; count: number }
 
-// keyword_trend 엔드포인트 응답 한 행.
-// growth_rate = this_week / max(avg_per_week, 1). is_new = 직전 4주 동안 0회 등장.
-export interface KeywordTrendRow {
-  word: string
-  this_week: number
-  avg_per_week: number
-  growth_rate: number
-  is_new: boolean
-}
-
-export interface KeywordMemoRow {
-  memo: string
-  date: string
-}
-
-export interface KeywordHistoryRow {
-  word: string
-  first_detected: string
-  last_detected: string
-  peak_date: string
-  peak_count: number
-  peak_growth: number
-  latest_count: number
-  latest_growth: number
-  detection_days: number
-  recent_detection_days: number
-  auto_status: '지속 탐지' | '재탐지' | '신규 탐지' | '일회성 탐지' | '감소 추세' | '최근 미탐지'
-}
-
-export interface KeywordTrendDateRow {
-  date: string
-  this_week: number
-  avg_per_week: number
-  growth_rate: number
-  is_new: boolean
-}
-
 export interface CollectionLatest {
   collected_at: string
   target_date: string
@@ -587,22 +550,6 @@ export const api = {
 
   fetchCategoryDaily(targetDate: string) {
     return get<CategoryDailyRow[]>(`/api/stats/category_daily?target_date=${targetDate}`)
-  },
-
-  fetchKeywordTrend(targetDate: string) {
-    return get<KeywordTrendRow[]>(`/api/stats/keyword_trend?target_date=${targetDate}`)
-  },
-
-  fetchKeywordMemos(keyword: string, targetDate: string) {
-    return get<KeywordMemoRow[]>(`/api/stats/keyword_memos?keyword=${encodeURIComponent(keyword)}&target_date=${targetDate}`)
-  },
-
-  fetchKeywordHistory(days = 30) {
-    return get<KeywordHistoryRow[]>(`/api/stats/keyword_history?days=${days}`)
-  },
-
-  fetchKeywordTrendDates(keyword: string, days = 30) {
-    return get<KeywordTrendDateRow[]>(`/api/stats/keyword_trend_dates?keyword=${encodeURIComponent(keyword)}&days=${days}`)
   },
 
   fetchJiraBugs() {
