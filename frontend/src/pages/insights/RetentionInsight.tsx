@@ -1,7 +1,7 @@
 // 해지 방어 성과 분석 인사이트 페이지. "이탈·교체 원인 분석" 하위 메뉴 세 번째 항목.
 // "해지 방어"(성공) 건수 대 "해지 확정"(실패) 건수로 방어 성공률을 보여주고, 방어 성공 메모에
 // 남는 "-성공(<오퍼명>)" 구조화 필드를 집계해 어떤 리텐션 오퍼(과목 전환·기존 학습 유지 등)가
-// 가장 많이 쓰였는지 보여준다. 오퍼 카드를 클릭하면 실제 CS 메모 원문을 펼쳐 볼 수 있다.
+// 가장 많이 쓰였는지 보여준다. 오퍼 카드를 클릭하면 실제 상담 메모 원문을 펼쳐 볼 수 있다.
 // 데이터: GET /api/insights/retention (캐시 없이 즉시 집계).
 import { useEffect, useRef, useState } from 'react'
 import Chart from 'chart.js/auto'
@@ -77,8 +77,7 @@ export default function RetentionInsight() {
         <div className="qi-head-text">
           <h1>해지 방어 성과</h1>
           <p>
-            해지를 시도한 상담 중 얼마나 막아냈는지("해지 방어" vs "해지 확정"), 그리고 방어에 성공한 건 중
-            어떤 리텐션 오퍼(과목 전환·기존 학습 유지 등)가 가장 많이 쓰였는지 봐요.
+            해지 방어율과 방어 성공 시 적용된 리텐션 오퍼 유형을 확인할 수 있습니다.
           </p>
         </div>
         <span className="qi-chip">{stats ? `해지 시도 ${(stats.defense_count + stats.confirmed_count).toLocaleString()}건 기준` : '조회 중'}</span>

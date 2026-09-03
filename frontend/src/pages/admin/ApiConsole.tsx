@@ -108,9 +108,8 @@ function CollectionCallCounts() {
     <div className="section-card">
       <h2 style={{ fontSize: 16 }}>CS 수집 호출 횟수 (최근 {CALL_COUNT_DAYS}일)</h2>
       <p style={{ color: '#64748b', fontSize: 14, marginTop: -6, marginBottom: 14 }}>
-        collection_log는 실제로 API를 호출했을 때만 기록되므로, 이 표의 횟수가 곧 승인된
-        하루 최대 {DAILY_CALL_LIMIT}회를 지키고 있는지 그대로 보여준다. 한도를 넘긴 날은
-        펼쳐서 개별 호출 내역을 볼 수 있다.
+        API 호출 시에만 기록되는 데이터로, 일일 한도({DAILY_CALL_LIMIT}회) 준수 여부를
+        확인합니다. 초과일은 개별 내역 확인이 가능합니다.
       </p>
       {counts === null ? (
         <div style={{ fontSize: 14, color: '#94a3b8' }}>불러오는 중...</div>
@@ -266,7 +265,7 @@ function CollectionLogList() {
     <div className="section-card">
       <h2 style={{ fontSize: 16 }}>오늘 호출별 상세 로그</h2>
       <p style={{ color: '#64748b', fontSize: 14, marginTop: -6, marginBottom: 14 }}>
-        각 호출을 클릭하면 그 호출에서 실제로 가져온 이슈 목록을 정확하게(근사치 아님) 볼 수 있다.
+        호출별로 실제 조회된 이슈 목록을 정확하게 확인할 수 있습니다.
       </p>
       {entries === null ? (
         <div style={{ fontSize: 14, color: '#94a3b8' }}>불러오는 중...</div>

@@ -340,7 +340,7 @@ export default function Dashboard() {
     } else if (p === 'week') {
       const rows = await api.fetchWeekly(d) as WeeklyRow[]
       chartRowsRef.current = rows
-      const labels = rows.map(r => r.week_start.slice(5).replace('-', '/') + ' ~')
+      const labels = rows.map(r => monthWeekLabel(r.week_start))
       const data = rows.map(r => r.count)
 
       // 이번 주(아직 안 끝남)는 "최다 상담 주"·"4주 평균" 둘 다에서 뺀다 — 정책 5와 같은
@@ -741,7 +741,7 @@ export default function Dashboard() {
                           <th style={{ width: 150, fontSize: 16 }}>학생번호</th>
                           <th style={{ width: 150, fontSize: 16 }}>학부모번호</th>
                           <th style={{ fontSize: 16 }}>상담 메모</th>
-                          <th style={{ width: 150, fontSize: 16 }}>접수 시각</th>
+                          <th style={{ width: 150, fontSize: 16 }}>상담일</th>
                           {isAdmin && <th style={{ width: 120 }}>매칭 키워드</th>}
                         </tr>
                       </thead>

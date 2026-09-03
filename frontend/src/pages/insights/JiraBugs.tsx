@@ -1,7 +1,7 @@
-// JIRA 미해결 버그 × CS 연관 분석 인사이트 페이지.
+// JIRA 미해결 버그 × 상담 연관 분석 인사이트 페이지.
 // DQ-424 에픽 하위 이슈 중 [학생앱]·[학부모앱]·[PC홈페이지] 태그가 있고 종료·완료 아닌 이슈를 표시한다.
-// 각 이슈별로 CS 메모 키워드 매칭으로 집계된 연관 CS 건수를 보여주며, 건수 내림차순으로 정렬된다.
-// 행 클릭 시 해당 이슈에 연관된 CS 메모 전체를 펼쳐 보여준다 (지연 로딩).
+// 각 이슈별로 상담 메모 키워드 매칭으로 집계된 연관 상담 건수를 보여주며, 건수 내림차순으로 정렬된다.
+// 행 클릭 시 해당 이슈에 연관된 상담 메모 전체를 펼쳐 보여준다 (지연 로딩).
 // 데이터: GET /api/jira/bugs (캐시 60분), GET /api/jira/bugs/{key}/memos, POST /api/jira/sync(관리자 전용).
 import { Fragment, useEffect, useRef, useState } from 'react'
 import Chart from 'chart.js/auto'
@@ -67,7 +67,7 @@ export default function JiraBugs() {
         maintainAspectRatio: false,
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { label: ctx => `CS ${ctx.parsed.x}건` } },
+          tooltip: { callbacks: { label: ctx => `상담 ${ctx.parsed.x}건` } },
         },
         scales: {
           x: { grid: { color: 'rgba(255,255,255,0.08)' }, ticks: { color: '#94a3b8', font: { size: 13 } } },
@@ -128,13 +128,11 @@ export default function JiraBugs() {
           <div>
             <h2 style={{ marginBottom: 4, fontSize: 24 }}>🔧 방치된 JIRA 버그</h2>
             <p style={{ fontSize: 18, color: '#94a3b8', margin: 0 }}>
-              JIRA에 미해결 상태로 남아 있는 서비스 버그 중, CS 메모에서 같은 증상이 언급된 건수를 집계합니다.
-              CS 건수가 많을수록 실제 고객 영향이 큰 방치된 이슈입니다.
+              JIRA에 미해결 상태로 남아 있는 서비스 버그 중, 상담 메모에서 같은 증상이 언급된 건수를 집계합니다.
+              상담 건수가 많을수록 실제 고객 영향이 큰 방치된 이슈입니다.
             </p>
             <p style={{ fontSize: 12, color: '#cbd5e1', margin: '8px 0 0', lineHeight: 1.6 }}>
-              분석 흐름: JIRA 이슈 요약 → 키워드 추출 → CS 메모 LIKE 검색 (AND 조건)<br />
-              현재는 규칙 기반 추출 (정확도 제한적) · 예정: Gemma(gemma4:12b)가 이슈를 읽고
-              CS 신고 가능 여부 판단 후 키워드 직접 생성
+              JIRA 이슈 키워드를 기준으로 상담 메모를 매칭해 집계한 결과입니다.
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, marginLeft: 24 }}>
@@ -164,8 +162,8 @@ export default function JiraBugs() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
                 { label: '전체 이슈', value: bugs.length },
-                { label: 'CS 연관 이슈', value: bugs.filter(b => b.cs_count > 0).length },
-                { label: '총 CS 건수', value: bugs.reduce((a, b) => a + b.cs_count, 0) },
+                { label: '상담 연관 이슈', value: bugs.filter(b => b.cs_count > 0).length },
+                { label: '총 상담 건수', value: bugs.reduce((a, b) => a + b.cs_count, 0) },
               ].map(kpi => (
                 <div key={kpi.label} style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: '16px 20px', border: '1px solid rgba(255,255,255,0.08)' }}>
                   <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>{kpi.label}</div>
@@ -174,7 +172,7 @@ export default function JiraBugs() {
               ))}
             </div>
             <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 16 }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: '#e2e8f0', marginBottom: 12 }}>이슈별 CS 건수 (CS 연관 상위 12개)</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#e2e8f0', marginBottom: 12 }}>이슈별 상담 건수 (상위 12개)</div>
               <div style={{ height: Math.max(160, bugs.filter(b => b.cs_count > 0).slice(0, 12).length * 32) }}>
                 <canvas ref={barCanvasRef} />
               </div>
@@ -191,16 +189,15 @@ export default function JiraBugs() {
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: 40, fontSize: 16 }}>#</th>
                   <th style={{ width: 100, fontSize: 16 }}>이슈</th>
                   <th style={{ fontSize: 16 }}>요약</th>
                   <th style={{ width: 110, fontSize: 16 }}>상태</th>
                   <th style={{ width: 100, fontSize: 16 }}>생성일</th>
-                  <th style={{ width: 90, fontSize: 16 }}>CS 건수</th>
+                  <th style={{ width: 90, fontSize: 16 }}>상담 건수</th>
                 </tr>
               </thead>
               <tbody>
-                {bugs.map((bug, i) => {
+                {bugs.map(bug => {
                   const isOpen = expandedKey === bug.key
                   return (
                     <Fragment key={bug.key}>
@@ -208,9 +205,6 @@ export default function JiraBugs() {
                         onClick={() => toggleRow(bug.key)}
                         style={{ cursor: 'pointer', background: isOpen ? '#f8fafc' : undefined }}
                       >
-                        <td>
-                          <span className={`rank-badge${i < 3 ? ' top' : ''}`}>{i + 1}</span>
-                        </td>
                         <td>
                           <a
                             href={jiraUrl(bug.key)}
@@ -235,7 +229,7 @@ export default function JiraBugs() {
                             </div>
                           )}
                           <button className="memo-toggle" style={{ marginTop: 4 }}>
-                            {isOpen ? '▼ 접기' : `▶ CS 메모 보기`}
+                            {isOpen ? '▼ 접기' : `▶ 상담 메모 보기`}
                           </button>
                         </td>
                         <td>{statusBadge(bug.status)}</td>
@@ -250,12 +244,12 @@ export default function JiraBugs() {
                       </tr>
                       {isOpen && (
                         <tr>
-                          <td colSpan={6} style={{ padding: 0 }}>
+                          <td colSpan={5} style={{ padding: 0 }}>
                             <div className="memo-expand-inner">
                               {memosLoading ? (
                                 <div style={{ padding: 16, color: '#94a3b8', fontSize: 13 }}>조회 중...</div>
                               ) : !memos.length ? (
-                                <div style={{ padding: 16, color: '#94a3b8', fontSize: 13 }}>매칭된 CS 메모 없음</div>
+                                <div style={{ padding: 16, color: '#94a3b8', fontSize: 13 }}>매칭된 상담 메모 없음</div>
                               ) : (
                                 memos.map((m, mi) => (
                                   <div key={mi} className="memo-item">

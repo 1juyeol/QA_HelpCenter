@@ -5,16 +5,16 @@
 //   1. 네이비 브리핑 영역
 //      - 헤더: 기간 + 업데이트 시점
 //      - 리스크 알림 배너: 주의 필요한 신호 1줄 요약 (조건부 표시)
-//      - 비대칭 KPI: 리스크율(크게, 좌) + 총CS건수(보조, 중) + Wings미해결(보조, 우)
+//      - 비대칭 KPI: 리스크 비율(크게, 좌) + 총상담건수(보조, 중) + Wings미해결(보조, 우)
 //   2. 운영 이슈 영역 (좌: Wings / 우: 학부모)
 //      - 각 카드: 상태 배지 + 항목별 건수 + 비율 progress bar
 //   3. 보고서 진입 카드 2개
 //
 // 데이터 흐름:
 //   fetchDaily × 2                → 이번 주 / 전주 일별 건수 (전주 대비)
-//   fetchCategory × 2             → 이번 주 / 전주 리스크율
+//   fetchCategory × 2             → 이번 주 / 전주 리스크 비율
 //   fetchWingsTickets             → 미해결 / 처리지연 / 이번주 신규
-//   fetchRepeatParents            → 반복인입 / 동일이슈반복 / 복합이슈 / 단기재인입
+//   fetchRepeatParents            → 반복상담 / 동일이슈반복 / 복합이슈 / 단기재상담
 //
 // 의존: api/client.ts, api/categories.ts (isAllowed)
 import React, { useEffect, useState } from 'react'
@@ -92,7 +92,7 @@ function parentHasShortGap(r: InsightParent): boolean {
   return false
 }
 
-// ── 리스크율 계산 ────────────────────────────────────────────────────────────
+// ── 리스크 비율 계산 ────────────────────────────────────────────────────────────
 
 function calcRiskRate(cats: { new_category_main: string; new_category_sub: string; count: number }[]): number {
   const risk  = cats.filter(c => isAllowed(c.new_category_main, c.new_category_sub)).reduce((s, c) => s + c.count, 0)
@@ -224,7 +224,7 @@ export default function StrategicDashboard() {
   // 리스크 알림 배너 항목
   const riskAlerts: string[] = []
   if (!loading) {
-    if (riskDelta !== null && riskDelta > 0) riskAlerts.push(`리스크율 ↑ +${riskDelta}%`)
+    if (riskDelta !== null && riskDelta > 0) riskAlerts.push(`리스크 비율 ↑ +${riskDelta}%`)
     if (delayedWings.length > 0)             riskAlerts.push(`처리 지연 ${delayedWings.length}건`)
     if (parentSameIssue > 0)                 riskAlerts.push(`동일 이슈 반복 ${parentSameIssue}명`)
   }
@@ -277,7 +277,7 @@ export default function StrategicDashboard() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.5fr 1.5fr', gap: 14 }}>
 
-            {/* 리스크율 — 크게 */}
+            {/* 리스크 비율 — 크게 */}
             <div style={{
               background: 'rgba(255,255,255,0.07)',
               border: `1px solid ${(riskRate ?? 0) >= 20 ? 'rgba(239,68,68,0.35)' : 'rgba(255,255,255,0.1)'}`,
@@ -285,7 +285,7 @@ export default function StrategicDashboard() {
               borderRadius: 12, padding: '22px 26px',
             }}>
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: 600, letterSpacing: '0.4px', marginBottom: 14 }}>
-                리스크율
+                리스크 비율
               </div>
               <div style={{ display: 'flex', alignItems: 'flex-end', gap: 14, marginBottom: 10 }}>
                 <span style={{ fontSize: 52, fontWeight: 800, color: (riskRate ?? 0) >= 20 ? '#f87171' : '#fff', lineHeight: 1 }}>
@@ -295,7 +295,7 @@ export default function StrategicDashboard() {
               </div>
             </div>
 
-            {/* 총 CS 건수 — 보조 */}
+            {/* 총 상담 건수 — 보조 */}
             <div style={{
               background: 'rgba(255,255,255,0.05)',
               border: '1px solid rgba(255,255,255,0.08)',
@@ -303,7 +303,7 @@ export default function StrategicDashboard() {
               borderRadius: 12, padding: '22px 24px',
             }}>
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: 600, letterSpacing: '0.4px', marginBottom: 14 }}>
-                총 CS 건수
+                총 상담 건수
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginBottom: 6 }}>
                 <span style={{ fontSize: 38, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{weekTotal ?? '—'}</span>
@@ -358,7 +358,7 @@ export default function StrategicDashboard() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#111827', marginBottom: 3 }}>반복 Wings 티켓</div>
-                  <div style={{ fontSize: 12, color: '#94a3b8' }}>여러 CS에서 반복 언급된 미해결 티켓</div>
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>여러 상담에서 반복 언급된 미해결 티켓</div>
                 </div>
                 {delayedWings.length > 0 && (
                   <span style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', background: '#fee2e2', padding: '4px 10px', borderRadius: 6, whiteSpace: 'nowrap' }}>
@@ -385,7 +385,7 @@ export default function StrategicDashboard() {
             </div>
 
             <div style={{ padding: '14px 24px 18px', borderTop: '1px solid #f1f5f9', marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>총 CS 언급 {totalWingsCs}건</span>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>총 상담 언급 {totalWingsCs}건</span>
               <DetailButton to="/insights/wings" />
             </div>
           </div>
@@ -395,8 +395,8 @@ export default function StrategicDashboard() {
             <div style={{ padding: '22px 24px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#111827', marginBottom: 3 }}>학부모 반복 인입</div>
-                  <div style={{ fontSize: 12, color: '#94a3b8' }}>최근 30일 내 3회 이상 CS 인입</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#111827', marginBottom: 3 }}>학부모 반복 상담</div>
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>최근 30일 내 3회 이상 상담</div>
                 </div>
                 {parentSameIssue > 0 && (
                   <span style={{ fontSize: 11, fontWeight: 700, color: '#d97706', background: '#fef3c7', padding: '4px 10px', borderRadius: 6, whiteSpace: 'nowrap' }}>
@@ -409,14 +409,14 @@ export default function StrategicDashboard() {
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginBottom: 18 }}>
                 <span style={{ fontSize: 32, fontWeight: 800, color: '#111827', lineHeight: 1 }}>{parents.length}</span>
                 <span style={{ fontSize: 13, color: '#94a3b8' }}>명</span>
-                <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>반복 인입 학부모</span>
+                <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>반복 상담 학부모</span>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>
                 {[
                   { label: '동일 이슈 반복', value: parentSameIssue, total: parents.length, color: '#f59e0b', note: '미해결 가능성' },
                   { label: '복합 이슈',       value: parentComplex,   total: parents.length, color: '#ef4444', note: '유형 3개 이상' },
-                  { label: '단기간 재인입',   value: parentShortGap,  total: parents.length, color: '#8b5cf6', note: '2일 내 재인입' },
+                  { label: '단기간 재상담',   value: parentShortGap,  total: parents.length, color: '#8b5cf6', note: '2일 내 재상담' },
                 ].map(item => (
                   <div key={item.label}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
@@ -433,7 +433,7 @@ export default function StrategicDashboard() {
             </div>
 
             <div style={{ padding: '14px 24px 18px', borderTop: '1px solid #f1f5f9', marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>최다 인입 {maxParentCs}건</span>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>최다 상담 {maxParentCs}건</span>
               <DetailButton to="/insights/parents" />
             </div>
           </div>
@@ -503,7 +503,7 @@ export default function StrategicDashboard() {
                     <div style={{ fontSize: 24, fontWeight: 800, color: '#111827', lineHeight: 1 }}>
                       {weeklyReport.total_weekday.toLocaleString()}<span style={{ fontSize: 13, fontWeight: 500, color: '#64748b', marginLeft: 3 }}>건</span>
                     </div>
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>총 상담 (평일)</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>총 상담 (영업일)</div>
                   </div>
                   <div>
                     <div style={{ fontSize: 24, fontWeight: 800, color: '#111827', lineHeight: 1 }}>
@@ -515,7 +515,7 @@ export default function StrategicDashboard() {
                     <div style={{ fontSize: 24, fontWeight: 800, color: '#ef4444', lineHeight: 1 }}>
                       {weeklyReport.total_weekday > 0 ? (weeklyReport.risk_total / weeklyReport.total_weekday * 100).toFixed(1) : '0.0'}<span style={{ fontSize: 13, fontWeight: 500, color: '#64748b', marginLeft: 3 }}>%</span>
                     </div>
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>리스크율</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>리스크 비율</div>
                   </div>
                 </div>
                 {weeklyReport.risk_rows.length > 0 && (

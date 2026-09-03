@@ -8,23 +8,31 @@
 #   가정별 이탈 위험 파악 양쪽에 다 쓰여서, parent_id·카테고리(new_category_main)도 같이 뽑는다.
 # compute_repeat_parents: parent_id 기준 30일 내 3회 이상 인입한 학부모를 집계한다.
 #   parent_id <= 100000은 내부 테스트 계정이므로 제외한다.
+# compute_wings_delay_counts: group_wings_tickets() 결과(상태 포함)에서 "7일 이상 처리 지연"·
+#   "30일 이상 처리 지연" 건수를 센다. WingsTickets.tsx의 isDelayedTicket/isLongUnresolvedTicket과
+#   동일한 기준(첫 CS 언급일 기준 경과일, 해결/요청취소/merged 제외)이라 카드 숫자와 항상 일치한다.
+#   scheduler.py가 매 갱신 때 이 값을 wings_delay_snapshots에 하루 1건씩 기록해 주간 추이를 쌓는다.
 import re
 from collections import defaultdict
+from datetime import date, datetime
 from core.db import get_conn
 from core.pii_mask import mask_phone_numbers
 
 WINGS_TICKET_RE = re.compile(r'wings\.danbiedu\.co\.kr/#ticket/zoom/(\d+)')
 
 
-def group_wings_tickets(rows: list, limit: int = 50) -> list:
+def group_wings_tickets(rows: list, limit: int | None = None) -> list:
     """compute_wings_tickets()의 순수 집계 부분. rows는 kst_date·call_memo·student_id·parent_id·
     new_category_main 키를 가진 행(dict 또는 sqlite3.Row) 목록 — DB 조회와 분리해서 이 부분만
-    단위 테스트한다. 같은 티켓에 여러 memo가 있어도 student_id·parent_id·카테고리는 첫 번째로
-    발견되는 값 하나만 쓴다(같은 가정 케이스라 값이 갈릴 이유가 없다 — null인 행이 섞여 있을
-    때만 대비). parent_id <= 100000은 내부 테스트 계정(compute_repeat_parents와 동일 기준)이라
-    채택하지 않는다 — student_id는 이 기준을 쓰는 곳이 따로 없어(운영현황 표와 동일하게) 값이
-    있으면 그대로 채택한다. 언급이 1건뿐인 티켓도 결과에 포함한다 — "여러번 인입"(cs_count > 1)
-    여부는 호출부가 필요에 따라 걸러 쓴다."""
+    단위 테스트한다. rows는 호출부(compute_wings_tickets)에서 kst_date 내림차순(최신 먼저)으로
+    들어온다. student_id·parent_id는 첫 번째로 발견되는(=가장 최근) 값을 쓴다(같은 가정 케이스라
+    값이 갈릴 이유가 없다 — null인 행이 섞여 있을 때만 대비). category는 반대로 가장 오래된
+    (최초 인입) 값을 쓴다 — 처음 접수 당시 분류를 기준으로 삼기 위함이며, 최초 건에 카테고리가
+    비어 있을 때만 그다음으로 오래된 값으로 대체한다. parent_id <= 100000은 내부 테스트
+    계정(compute_repeat_parents와 동일 기준)이라 채택하지 않는다. 언급이 1건뿐인 티켓도
+    결과에 포함한다 — "여러번 인입"(cs_count > 1) 여부는 호출부가 필요에 따라 걸러 쓴다.
+    limit은 기본적으로 없다 — "전체 티켓" 요약이 실제 전체 건수를 반영해야 해서, 예전처럼
+    CS 건수 상위 N개만 남기고 나머지를 버리면 안 된다."""
     counts = defaultdict(lambda: {
         "cs_count": 0, "latest_date": None, "first_date": None, "memos": [],
         "student_id": None, "parent_id": None, "category": None,
@@ -41,7 +49,9 @@ def group_wings_tickets(rows: list, limit: int = 50) -> list:
                 entry["student_id"] = r["student_id"]
             if entry["parent_id"] is None and r["parent_id"] is not None and r["parent_id"] > 100000:
                 entry["parent_id"] = r["parent_id"]
-            if entry["category"] is None and r["new_category_main"]:
+            # rows가 최신순이라, category는 매번 값이 있을 때 덮어써서 마지막에 처리되는(=가장
+            # 오래된) 값이 최종적으로 남게 한다 — "최초 인입 카테고리" 기준.
+            if r["new_category_main"]:
                 entry["category"] = r["new_category_main"]
 
     result = [
@@ -51,10 +61,10 @@ def group_wings_tickets(rows: list, limit: int = 50) -> list:
         for tid, info in counts.items()
     ]
     result.sort(key=lambda x: -x["cs_count"])
-    return result[:limit]
+    return result[:limit] if limit else result
 
 
-def compute_wings_tickets(start_date: str, end_date: str, limit: int = 50) -> list:
+def compute_wings_tickets(start_date: str, end_date: str, limit: int | None = None) -> list:
     with get_conn() as conn:
         rows = conn.execute(
             """
@@ -67,6 +77,45 @@ def compute_wings_tickets(start_date: str, end_date: str, limit: int = 50) -> li
             (start_date, end_date),
         ).fetchall()
     return group_wings_tickets(rows, limit)
+
+
+_CLOSED_WINGS_STATES = ("해결", "요청취소", "merged")
+
+
+def compute_wings_delay_counts(wings: list, today: date | None = None) -> tuple[int, int]:
+    """상태가 채워진 wings 티켓 목록(update_wings_cache가 만든 형태)에서 (7일 이상 처리 지연
+    건수, 30일 이상 처리 지연 건수)를 센다. today를 안 넘기면 실행 시점의 오늘 날짜를 쓴다
+    (테스트에서는 고정 날짜를 넘겨 검증한다)."""
+    today = today or date.today()
+    delayed_7 = 0
+    delayed_30 = 0
+    for t in wings:
+        if t.get("state") in _CLOSED_WINGS_STATES:
+            continue
+        first_date = t.get("first_date")
+        if not first_date:
+            continue
+        diff_days = (today - datetime.fromisoformat(first_date[:10]).date()).days
+        if diff_days >= 7:
+            delayed_7 += 1
+        if diff_days >= 30:
+            delayed_30 += 1
+    return delayed_7, delayed_30
+
+
+def compute_wings_snapshot_counts(wings: list, today: date | None = None) -> dict:
+    """주간보고서 "장기미해결 CS 현황" 카드용 스냅샷 4종. 반복 Wings 티켓 페이지의 KPI
+    카드(미해결 티켓/2회 이상 인입/7일 이상 처리 지연/30일 이상 처리 지연)와 동일한 기준으로
+    센다. wings는 update_wings_cache가 만든 형태(state 포함, 해결·요청취소·merged 티켓도
+    섞여 있음)."""
+    unresolved = [t for t in wings if t.get("state") not in _CLOSED_WINGS_STATES]
+    delayed_7, delayed_30 = compute_wings_delay_counts(wings, today)
+    return {
+        "unresolved_count": len(unresolved),
+        "repeat_count": sum(1 for t in unresolved if t.get("cs_count", 0) > 1),
+        "delayed_7_count": delayed_7,
+        "delayed_30_count": delayed_30,
+    }
 
 
 def compute_repeat_parents(start_date: str, end_date: str, limit: int = 100) -> list:

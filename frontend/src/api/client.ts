@@ -43,7 +43,7 @@ export interface Issue {
 export interface IssueList { total: number; items: Issue[] }
 
 // Wings 티켓 하나 = 한 가정의 개별 A/S 건 (여러 고객이 공유하지 않음). cs_count가 큰 건
-// "이 가정이 이 문제로 CS를 여러 번 거쳤는데도 안 풀렸다"는 신호 — 미해결 버그 트래킹(원래
+// "이 가정이 이 문제로 상담을 여러 번 거쳤는데도 안 풀렸다"는 신호 — 미해결 버그 트래킹(원래
 // 표)과 가정별 이탈 위험 섹션(카테고리 분포·주간 추이) 양쪽에서 이 타입을 그대로 같이 쓴다.
 export interface InsightWings {
   ticket_id: string
@@ -55,6 +55,14 @@ export interface InsightWings {
   student_id: string | null
   parent_id: number | null
   category: string | null
+}
+
+// 7일+/30일+ 처리 지연 건수 일별 스냅샷 (wings_delay_snapshots 테이블). 과거 상태를 저장해둔
+// 적이 없어 최초 배포 시점부터 하루 1건씩 쌓인다 — 주간 추이 차트는 이 값을 주 단위로 묶어 그린다.
+export interface WingsDelaySnapshot {
+  snapshot_date: string
+  delayed_7_count: number
+  delayed_30_count: number
 }
 
 export interface InsightParent {
@@ -534,6 +542,10 @@ export const api = {
 
   fetchRepeatParents() {
     return get<{ data: InsightParent[]; updated_at: string | null }>('/api/insights/repeat_parents')
+  },
+
+  fetchWingsDelayTrend() {
+    return get<{ data: WingsDelaySnapshot[] }>('/api/insights/wings_delay_trend')
   },
 
   refreshWingsInsights(token: string) {

@@ -1,7 +1,7 @@
 // WingsTickets.tsx의 compareRows()·isRepeatTicket() 유닛 테스트.
-// compareRows: 표 헤더 클릭 정렬의 실제 비교 로직 — 특히 "CS 건수 1순위, 동률이면 경과일
+// compareRows: 표 헤더 클릭 정렬의 실제 비교 로직 — 특히 "상담 건수 1순위, 동률이면 경과일
 // 2순위"라는 기본 정렬 요건과, 그 외 컬럼은 단순 단일 기준 정렬이라는 점을 검증한다.
-// isRepeatTicket: "여러번 인입" KPI 카드 필터 조건("같은 티켓 2회+ 언급").
+// isRepeatTicket: "여러번 상담" KPI 카드 필터 조건("같은 티켓 2회+ 언급").
 import { describe, it, expect } from 'vitest'
 import { compareRows, isRepeatTicket } from './WingsTickets'
 import type { InsightWings } from '../../api/client'
@@ -58,11 +58,11 @@ describe('compareRows', () => {
 })
 
 describe('isRepeatTicket', () => {
-  it('cs_count가 1이면 여러번 인입이 아니다', () => {
+  it('cs_count가 1이면 여러번 상담이 아니다', () => {
     expect(isRepeatTicket(ticket({ cs_count: 1 }))).toBe(false)
   })
 
-  it('cs_count가 2 이상이면 여러번 인입이다', () => {
+  it('cs_count가 2 이상이면 여러번 상담이다', () => {
     expect(isRepeatTicket(ticket({ cs_count: 2 }))).toBe(true)
   })
 })

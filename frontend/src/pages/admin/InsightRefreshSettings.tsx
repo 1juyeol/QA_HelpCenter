@@ -1,4 +1,4 @@
-// Wings 티켓·학부모 반복 인입 캐시 자동 갱신 설정 화면. "자동화 관리" 페이지
+// Wings 티켓·학부모 반복 상담 캐시 자동 갱신 설정 화면. "자동화 관리" 페이지
 // (AutomationManagement.tsx)의 "인사이트 자동 갱신" 탭이 이 파일이 내보내는
 // InsightRefreshSettingsSection을 jobType만 바꿔 그대로 가져다 쓴다.
 //
@@ -6,7 +6,7 @@
 // 그 즉시 스케줄 재등록, 이력은 감사 로그 필터링)지만 두 가지가 다르다:
 //   - AI(Gemma) 분석이 없는 단순 집계+DB/Wings API 조회라 VPN 경고 배너가 필요 없다.
 //   - "지금 갱신해보기" 링크는 보고서 페이지가 아니라 실제 새로고침 버튼이 있는 인사이트
-//     페이지(반복 Wings 티켓/학부모 반복 인입)로 보낸다.
+//     페이지(반복 Wings 티켓/학부모 반복 상담)로 보낸다.
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, type GenerationSettings, type AuditLogEntry } from '../../api/client'
@@ -19,7 +19,7 @@ type InsightJobType = 'wings_refresh' | 'repeat_parents_refresh'
 
 const INSIGHT_LABEL: Record<InsightJobType, string> = {
   wings_refresh: '반복 Wings 티켓',
-  repeat_parents_refresh: '학부모 반복 인입',
+  repeat_parents_refresh: '학부모 반복 상담',
 }
 
 const INSIGHT_LINK: Record<InsightJobType, string> = {

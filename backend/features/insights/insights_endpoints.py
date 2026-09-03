@@ -6,6 +6,9 @@
 #                                               상태로 필터링한다(기본은 미해결).
 # GET  /api/insights/wings_summary            : "전체 티켓" 카드용 — 해결 포함 전체 건수·해결 건수 스냅샷.
 # GET  /api/insights/repeat_parents           : 학부모 반복 인입 캐시 조회.
+# GET  /api/insights/wings_delay_trend        : 7일+/30일+ 처리 지연 건수 일별 스냅샷(최근 100일).
+#                                               과거 상태를 저장해둔 적이 없어 최초 배포 시점부터
+#                                               쌓인다 — 프론트가 주 단위로 묶어서 추이 차트를 그린다.
 # POST /api/insights/refresh/wings            : Wings 티켓 캐시만 즉시 재집계(Wings 상태 조회 포함). 관리자 전용.
 # POST /api/insights/refresh/repeat_parents   : 학부모 반복 인입 캐시만 즉시 재집계. 관리자 전용.
 #   두 갱신을 나눈 이유: 서로 무관한 집계라 자동 갱신 시각도 자동화 관리에서 각자 따로
@@ -16,7 +19,7 @@
 # GET  /api/insights/retention      : 해지 방어 성공률·리텐션 오퍼별 집계 (캐시 없이 즉시 계산).
 import json
 from fastapi import APIRouter, Depends
-from features.insights.insights_cache import _read_cache
+from features.insights.insights_cache import _read_cache, get_wings_delay_trend
 from features.collection.scheduler import update_wings_cache, update_repeat_parents_cache
 from features.issues.churn_device_insights import get_churn_reason_stats, get_device_swap_stats
 from features.issues.retention_insights import get_retention_stats
@@ -48,6 +51,11 @@ def insights_repeat_parents():
     if not row:
         return {"data": [], "updated_at": None}
     return {"data": json.loads(row["data"]), "updated_at": row["updated_at"]}
+
+
+@router.get("/api/insights/wings_delay_trend")
+def insights_wings_delay_trend():
+    return {"data": get_wings_delay_trend()}
 
 
 @router.post("/api/insights/refresh/wings")

@@ -1,4 +1,4 @@
-// CS 카테고리 허용 기준과 필터 트리를 한 곳에서 관리한다.
+// 상담 카테고리 허용 기준과 필터 트리를 한 곳에서 관리한다.
 // ALLOWED_MAIN·ALLOWED_SPECIFIC·FILTER_TREE·isAllowed·isAllowedCategory를 export하며,
 // 이 기준을 참조하는 모든 컴포넌트(RepeatParents, InsightsSummary 등)는 여기서만 import한다.
 // ALLOWED 기준이 바뀌면 이 파일만 수정하면 된다.

@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
-# features/insights/insight_aggregations.py의 group_wings_tickets() 유닛 테스트.
-# DB 조회(compute_wings_tickets)는 제외하고, 이미 조회된 행을 Wings 티켓 ID별로 묶어
-# parent_id·카테고리·건수를 집계하는 순수 로직만 검증한다. 이 티켓 목록은 미해결 버그
-# 트래킹(원래 표)과 가정별 이탈 위험 섹션(카테고리·주간 추이) 양쪽에서 같이 쓰인다.
+# features/insights/insight_aggregations.py의 group_wings_tickets()·compute_wings_delay_counts()·
+# compute_wings_snapshot_counts() 유닛 테스트. DB 조회(compute_wings_tickets)는 제외하고, 이미
+# 조회된 행을 Wings 티켓 ID별로 묶어 parent_id·카테고리·건수를 집계하는 순수 로직과, 그 결과에서
+# 7일+/30일+ 처리 지연 건수를 세는 로직, 주간보고서 "장기미해결 CS 현황" 카드용 스냅샷 4종
+# (미해결/반복/7일+/30일+)을 세는 로직을 검증한다. 이 티켓 목록은 미해결 버그 트래킹(원래 표)과
+# 가정별 이탈 위험 섹션(카테고리·주간 추이) 양쪽에서 같이 쓰인다.
 import sys
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from features.insights.insight_aggregations import group_wings_tickets
+from features.insights.insight_aggregations import group_wings_tickets, compute_wings_delay_counts, compute_wings_snapshot_counts
 
 TICKET = "wings.danbiedu.co.kr/#ticket/zoom/1234"
 
@@ -57,6 +60,24 @@ class TestGroupWingsTickets:
         ]
         result = group_wings_tickets(rows)
         assert result[0]["student_id"] == "1234567"
+
+    def test_category_uses_earliest_mention_not_latest(self):
+        # 처음 접수 당시 분류를 기준으로 삼는다 — 나중에 재분류돼도 최초 카테고리를 유지한다.
+        rows = [
+            row("2026-08-22 09:00:00", f"2차 {TICKET}", category="기타"),
+            row("2026-08-18 09:00:00", f"1차 {TICKET}", category="기기·하드웨어 오류"),
+        ]
+        result = group_wings_tickets(rows)
+        assert result[0]["category"] == "기기·하드웨어 오류"
+
+    def test_category_falls_back_when_earliest_row_has_no_category(self):
+        rows = [
+            row("2026-08-25 09:00:00", f"3차 {TICKET}", category=None),
+            row("2026-08-22 09:00:00", f"2차 {TICKET}", category="기기·하드웨어 오류"),
+            row("2026-08-18 09:00:00", f"1차 {TICKET}", category=None),
+        ]
+        result = group_wings_tickets(rows)
+        assert result[0]["category"] == "기기·하드웨어 오류"
 
     def test_missing_parent_id_on_first_row_falls_back_to_later_row(self):
         rows = [
@@ -107,3 +128,91 @@ class TestGroupWingsTickets:
             rows.append(row("2026-08-20 09:00:00", t))
         result = group_wings_tickets(rows, limit=2)
         assert len(result) == 2
+
+    def test_no_limit_by_default_returns_all_tickets(self):
+        # "전체 티켓" 요약이 실제 전체 건수를 반영해야 해서, limit을 안 넘기면 CS 건수 상위
+        # 몇 개로 잘리지 않고 언급된 티켓이 전부 나와야 한다.
+        rows = [row("2026-08-21 09:00:00", f"wings.danbiedu.co.kr/#ticket/zoom/{i}") for i in range(60)]
+        result = group_wings_tickets(rows)
+        assert len(result) == 60
+
+
+def ticket(state, first_date, cs_count=1):
+    return {"state": state, "first_date": first_date, "cs_count": cs_count}
+
+
+class TestComputeWingsSnapshotCounts:
+    TODAY = date(2026, 9, 3)
+
+    def test_empty_list_returns_all_zero(self):
+        assert compute_wings_snapshot_counts([], today=self.TODAY) == {
+            "unresolved_count": 0, "repeat_count": 0, "delayed_7_count": 0, "delayed_30_count": 0,
+        }
+
+    def test_closed_tickets_excluded_from_unresolved_and_repeat(self):
+        rows = [ticket("해결", "2026-01-01", cs_count=5), ticket("merged", "2026-01-01", cs_count=3)]
+        result = compute_wings_snapshot_counts(rows, today=self.TODAY)
+        assert result["unresolved_count"] == 0
+        assert result["repeat_count"] == 0
+
+    def test_single_mention_ticket_not_counted_as_repeat(self):
+        rows = [ticket("신규", "2026-09-02", cs_count=1)]
+        result = compute_wings_snapshot_counts(rows, today=self.TODAY)
+        assert result["unresolved_count"] == 1
+        assert result["repeat_count"] == 0
+
+    def test_repeat_ticket_counted_in_both_unresolved_and_repeat(self):
+        rows = [ticket("진행 중", "2026-09-02", cs_count=2)]
+        result = compute_wings_snapshot_counts(rows, today=self.TODAY)
+        assert result["unresolved_count"] == 1
+        assert result["repeat_count"] == 1
+
+    def test_delayed_counts_match_compute_wings_delay_counts(self):
+        rows = [ticket("진행 중", "2026-08-20", cs_count=1), ticket("결과 확인 중", "2026-07-01", cs_count=2)]
+        result = compute_wings_snapshot_counts(rows, today=self.TODAY)
+        assert result["delayed_7_count"] == 2
+        assert result["delayed_30_count"] == 1
+
+    def test_mixed_snapshot(self):
+        rows = [
+            ticket("신규", "2026-09-02", cs_count=1),          # 미해결, 반복 아님, 지연 아님
+            ticket("진행 중", "2026-08-20", cs_count=3),        # 미해결, 반복, 7일↑
+            ticket("결과 확인 중", "2026-07-01", cs_count=2),   # 미해결, 반복, 7·30일↑
+            ticket("해결", "2026-01-01", cs_count=9),           # 해결이라 전부 제외
+        ]
+        result = compute_wings_snapshot_counts(rows, today=self.TODAY)
+        assert result == {
+            "unresolved_count": 3, "repeat_count": 2, "delayed_7_count": 2, "delayed_30_count": 1,
+        }
+
+
+class TestComputeWingsDelayCounts:
+    TODAY = date(2026, 9, 3)
+
+    def test_empty_list_returns_zero_zero(self):
+        assert compute_wings_delay_counts([], today=self.TODAY) == (0, 0)
+
+    def test_closed_ticket_excluded_even_if_very_old(self):
+        rows = [ticket("해결", "2026-01-01"), ticket("요청취소", "2026-01-01"), ticket("merged", "2026-01-01")]
+        assert compute_wings_delay_counts(rows, today=self.TODAY) == (0, 0)
+
+    def test_under_7_days_not_counted(self):
+        rows = [ticket("신규", "2026-09-01")]  # 2일 경과
+        assert compute_wings_delay_counts(rows, today=self.TODAY) == (0, 0)
+
+    def test_between_7_and_29_days_counted_only_in_7(self):
+        rows = [ticket("진행 중", "2026-08-20")]  # 14일 경과
+        assert compute_wings_delay_counts(rows, today=self.TODAY) == (1, 0)
+
+    def test_30_days_or_more_counted_in_both(self):
+        rows = [ticket("결과 확인 중", "2026-07-20")]  # 45일 경과
+        assert compute_wings_delay_counts(rows, today=self.TODAY) == (1, 1)
+
+    def test_mixed_tickets_summed_correctly(self):
+        rows = [
+            ticket("신규", "2026-09-02"),          # 1일 - 미포함
+            ticket("진행 중", "2026-08-25"),        # 9일 - 7일만
+            ticket("결과 확인 중", "2026-07-01"),   # 64일 - 둘 다
+            ticket("해결", "2026-01-01"),           # 해결이라 제외
+        ]
+        assert compute_wings_delay_counts(rows, today=self.TODAY) == (2, 1)

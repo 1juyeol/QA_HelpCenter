@@ -98,8 +98,8 @@ describe('formatField', () => {
     expect(formatField('date', '2026-08-19')).toBe('보고서 날짜: 2026-08-19')
   })
 
-  it('week_start는 "주"를 붙인다', () => {
-    expect(formatField('week_start', '2026-08-10')).toBe('2026-08-10 주')
+  it('week_start는 "X월 X주차" 형식으로 바꾼다', () => {
+    expect(formatField('week_start', '2026-08-10')).toBe('8월 3주차')
   })
 
   it('gemma_failed는 "실패 항목: "을 붙인다', () => {

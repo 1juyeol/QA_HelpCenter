@@ -11,7 +11,6 @@
 #   _generate_last_week_report()    : 직전 주 주간 보고서 자동 생성 (매주 월요일, 생성 시각은 위와 동일하게 설정)
 #   reschedule_mail_job(report_type)      : 메일링 설정 저장 직후 해당 발송 시각을 즉시 재등록
 #   reschedule_generation_job(report_type): 생성 설정 저장 직후 해당 생성 시각을 즉시 재등록
-#   _cache_keyword_trend_today()    : 오늘 keyword_trend 미리 계산해 캐시 저장 (탐지 이력 누락 방지)
 #   collect_new(trigger)            : 실제 수집 로직 — 마지막 저장 id 이후 신규분을 id 커서 방식으로
 #                                      가져오고, 어떤 트리거가 호출했는지(collection_log.source)를 남긴다.
 #   collect_regular()                : 업무시간 정기 수집 (trigger="정기")
@@ -36,6 +35,7 @@
 # _wings_token: Wings(Zammad) API 토큰. 인사이트 캐시 갱신 시 티켓 상태를 실시간으로 조회하는 데 사용한다.
 # collect_new()는 성공·실패 모두 collection_log 테이블에 기록해 수집 이력을 추적한다.
 import asyncio
+import json
 from datetime import date, datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import httpx
@@ -44,8 +44,8 @@ import pytz
 from features.collection.helpdesk_client import HelpdeskClient
 from core.db import get_conn
 from features.issues.classifier import classify
-from features.insights.insight_aggregations import compute_wings_tickets, compute_repeat_parents
-from features.insights.insights_cache import _save_wings_cache, _save_repeat_parents_cache
+from features.insights.insight_aggregations import compute_wings_tickets, compute_repeat_parents, compute_wings_delay_counts
+from features.insights.insights_cache import _save_wings_cache, _save_repeat_parents_cache, _read_cache, _save_wings_delay_snapshot
 from core.collection_settings import get_collection_enabled
 from core.audit_log import log_action
 
@@ -69,17 +69,28 @@ _client = None
 _WINGS_STATE = {1: "신규", 2: "진행 중", 4: "해결", 5: "merged", 7: "요청취소", 8: "결과 확인 중"}
 
 
+_WINGS_STATE_CONCURRENCY = 20  # 티켓이 많아져도(전체 티켓 캡 제거) Wings API를 한꺼번에 몰아치지 않도록 제한
+
+
 async def _fetch_wings_states(ticket_ids: list) -> dict:
-    """Wings API로 티켓 상태를 비동기 병렬 조회한다. 토큰이 없으면 빈 dict 반환."""
+    """Wings API로 티켓 상태를 비동기 병렬 조회한다. 토큰이 없으면 빈 dict 반환.
+    동시 요청 수를 _WINGS_STATE_CONCURRENCY로 제한한다 — 티켓 캡을 없앤 뒤로는 한 번에
+    수백~수천 건을 조회해야 할 수 있어, 제한 없이 다 쏘면 Wings 서버가 레이트리밋을 걸거나
+    타임아웃이 늘어 "확인불가"(=미해결 취급) 오탐이 늘어날 수 있다."""
     if not _wings_token:
         return {}
     headers = {"Authorization": f"Token token={_wings_token}"}
+    semaphore = asyncio.Semaphore(_WINGS_STATE_CONCURRENCY)
+
+    async def _fetch_one(client: httpx.AsyncClient, tid):
+        async with semaphore:
+            try:
+                return await client.get(f"https://wings.danbiedu.co.kr/api/v1/tickets/{tid}", headers=headers)
+            except Exception as e:
+                return e
+
     async with httpx.AsyncClient(timeout=10) as client:
-        responses = await asyncio.gather(
-            *[client.get(f"https://wings.danbiedu.co.kr/api/v1/tickets/{tid}", headers=headers)
-              for tid in ticket_ids],
-            return_exceptions=True,
-        )
+        responses = await asyncio.gather(*[_fetch_one(client, tid) for tid in ticket_ids])
     result = {}
     for tid, resp in zip(ticket_ids, responses):
         if isinstance(resp, Exception) or resp.status_code != 200:
@@ -201,21 +212,34 @@ async def update_wings_cache(mode: str = "manual"):
     페이지 새로고침)·자동(자동화 관리에서 설정한 시각) 양쪽에서 호출되는 공용 함수라 감사
     로그 기록도 여기 한 곳에서만 남긴다. mode는 호출부가 명시해서 수동/자동을 구분한다.
     조회 기간을 180일로 잡는다 — "장기미해결(30일+)"까지 놓치지 않으려면 30일보다 넉넉하게
-    봐야 한다."""
+    봐야 한다. compute_wings_tickets가 CS 건수 상위 N개로 자르지 않고 180일 내 언급된 티켓을
+    전부 반환하므로(예전엔 50개로 잘라서 "전체 티켓" 요약 자체가 틀렸었다), Wings API 조회
+    대상도 그만큼 늘어난다 — 지난 갱신에서 이미 해결/요청취소/merged로 확인된 티켓은 이번엔
+    다시 묻지 않고 그 상태를 재사용해서 API 호출을 줄인다(재오픈되는 사례는 드물다고 보고
+    감수한다)."""
     end = str(date.today())
     start = str(date.today() - timedelta(days=180))
     wings = compute_wings_tickets(start, end)
+    closed_states = ("해결", "요청취소", "merged")
     if wings:
-        states = await _fetch_wings_states([t["ticket_id"] for t in wings])
+        prev_row = _read_cache("wings_tickets")
+        prev_states = {t["ticket_id"]: t["state"] for t in json.loads(prev_row["data"])} if prev_row else {}
+
+        to_check = [t["ticket_id"] for t in wings if prev_states.get(t["ticket_id"]) not in closed_states]
+        states = await _fetch_wings_states(to_check)
         for t in wings:
-            t["state"] = states.get(str(t["ticket_id"]), "확인불가")
+            reused = prev_states.get(t["ticket_id"])
+            t["state"] = reused if reused in closed_states else states.get(str(t["ticket_id"]), "확인불가")
         # 해결된 티켓도 캐시에 그대로 남긴다 — "전체 티켓" 카드에서 전체/미해결/해결 필터로
         # 골라볼 수 있어야 해서, 상태로 걸러내지 않고 스냅샷 건수(전체·해결)만 같이 남긴다.
-        closed_states = ("해결", "요청취소", "merged")
         summary = {"total": len(wings), "resolved": sum(1 for t in wings if t["state"] in closed_states)}
     else:
         summary = {"total": 0, "resolved": 0}
     _save_wings_cache(wings, summary)
+    # 7일+/30일+ 처리 지연 건수를 오늘 날짜로 하루 1건 기록한다 — 과거 상태를 저장해둔 적이
+    # 없어서, 주간 추이 차트는 이제부터 쌓이는 값으로만 그릴 수 있다.
+    delayed_7, delayed_30 = compute_wings_delay_counts(wings)
+    _save_wings_delay_snapshot(str(date.today()), delayed_7, delayed_30)
     log_action("wings_cache_refresh", mode=mode)
     now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{now}] wings cache updated")
@@ -252,20 +276,6 @@ async def _repeat_parents_refresh_job():
         log_action("repeat_parents_cache_refresh_skipped", "자동 갱신 꺼짐", mode="auto")
         return
     await update_repeat_parents_cache(mode="auto")
-
-
-async def _cache_keyword_trend_today():
-    """오늘 날짜의 keyword_trend를 미리 계산해 캐시에 저장한다. COLLECTION_ENABLED 무관하게 실행."""
-    from features.stats.stats_endpoints import stats_keyword_trend
-    today = str(date.today())
-    now = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-    try:
-        await asyncio.to_thread(stats_keyword_trend, today)
-        log_action("keyword_trend_cache", f"date={today}", mode="auto")
-        print(f"[{now}] keyword_trend 캐시 저장 완료: {today}")
-    except Exception as e:
-        log_action("keyword_trend_cache_failed", f"date={today}, error={e}", mode="auto")
-        print(f"[{now}] keyword_trend 캐시 저장 실패: {e}")
 
 
 async def _generate_yesterday_report():
@@ -438,9 +448,6 @@ def _register_jobs(scheduler: AsyncIOScheduler) -> None:
     # 일별/주간 보고서 생성: 시각은 관리자 페이지("자동화 관리")에서 설정한 값을 그대로
     # 읽어와 등록한다 (기본 00:30). 설정이 바뀌면 reschedule_generation_job()이 즉시 다시 등록한다.
     _register_generation_jobs(scheduler)
-
-    # keyword_trend 캐시: 매일 08:00 KST (탐지 이력 누락 방지 — 접속 여부와 무관하게 저장)
-    scheduler.add_job(_cache_keyword_trend_today, "cron", hour=8, minute=0)
 
     # 일별/주간 보고서 메일 발송: 시각은 관리자 페이지("자동화 관리")에서 설정한 값을 그대로
     # 읽어와 등록한다 (기본 11:00). 설정이 바뀌면 reschedule_mail_job()이 즉시 다시 등록한다.

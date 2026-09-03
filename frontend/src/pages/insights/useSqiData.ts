@@ -1,5 +1,5 @@
 // 서비스 품질 지수(SQI) 데이터 로딩 공용 훅. (일별, 주말·공휴일 제외 — 백엔드 category_daily가 제외 처리)
-// SQI = ALLOWED 카테고리(비용성 CS) 건수 ÷ 전체 CS 건수 × 100. CS 0건인 날은 추가로 제외.
+// SQI = ALLOWED 카테고리(비용성 상담) 건수 ÷ 전체 상담 건수 × 100. 상담 0건인 날은 추가로 제외.
 // 기준선 = 구간 초반 절반의 평균. 반환: { loading, points(일별 SQI), latest, baseline, isHigh, peak }.
 import { useEffect, useState } from 'react'
 import { api, type CategoryDailyRow } from '../../api/client'
