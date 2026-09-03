@@ -169,12 +169,27 @@ async def call_gemma(system: str, prompt: str, timeout: int = 600) -> str:
             return ""
 
 
+def _unescape_literal_newlines(value):
+    """Gemma가 가끔 JSON 문자열 안에 실제 줄바꿈 대신 리터럴 백슬래시+n 두 글자를 그대로
+    출력하는 경우가 있다(같은 응답 안에서도 불릿 구분자 일부만 이렇게 깨짐) — json.loads()는
+    스펙대로 정확히 파싱한 것이라 이건 파싱 버그가 아니라 모델 출력 자체의 문제다. 파싱 후
+    문자열 값에 남아있는 리터럴 "\\n"을 실제 줄바꿈으로 바꿔서, 화면에 "\\n"이 그대로
+    노출되는 걸 막는다."""
+    if isinstance(value, str):
+        return value.replace("\\n", "\n")
+    if isinstance(value, dict):
+        return {k: _unescape_literal_newlines(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_unescape_literal_newlines(v) for v in value]
+    return value
+
+
 def parse_json_response(text: str) -> dict | None:
     """LLM 응답 텍스트에서 JSON 블록 추출. 실패 시 None."""
     m = re.search(r"\{[\s\S]*\}", text)
     if not m:
         return None
     try:
-        return json.loads(m.group(0))
+        return _unescape_literal_newlines(json.loads(m.group(0)))
     except json.JSONDecodeError:
         return None
