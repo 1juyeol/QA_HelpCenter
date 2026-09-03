@@ -3,7 +3,7 @@
 //
 // 리디자인 구성 (Pretendard 폰트, 네이비 브랜드 컬러 #1e3c72):
 //   1. 그라디언트 헤더 배너 — 날짜 표시
-//   2. KPI 카드 3개 — 총 상담 / 리스크 이슈 / 리스크 비율
+//   2. KPI 카드 3개 — 총 상담 / 리스크 상담 / 리스크 비율
 //   3. 리스크 카테고리 현황 — 수평 바 차트 (대분류별 top 소분류 건수)
 //   4. 카테고리별 AI 분석 — 소분류 + AI 요약(최대 4문장) + 메모 드롭다운(20개씩 페이징)
 //   5. 피크타임 특이사항 (17~20시) — 최다 버킷 AI 분석
@@ -505,7 +505,7 @@ function PeakMemoModal({ buckets, date, onClose }: { buckets: string[]; date: st
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
                 <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
-                  {['대분류', '소분류', '학생번호', '학부모번호', '내용', '등록일'].map(h => (
+                  {['대분류', '소분류', '학생번호', '학부모번호', '상담 메모', '상담일'].map(h => (
                     <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 16, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -841,7 +841,7 @@ export default function DailyReport() {
               delta={totalDelta} deltaUnit="건" deltaNeutral isSecondary
             />
             <KpiCard
-              label="리스크 이슈" value={report.risk_total.toLocaleString()} unit="건" color={RISK_RED}
+              label="리스크 상담" value={report.risk_total.toLocaleString()} unit="건" color={RISK_RED}
               delta={riskDelta} deltaUnit="건" deltaInvert
             />
             <KpiCard

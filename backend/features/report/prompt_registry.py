@@ -33,7 +33,7 @@ PROMPT_REGISTRY = [
         "fields": [
             {"field": "date_str", "desc": "분석 대상 날짜", "used": True},
             {"field": "cat_label", "desc": "지금 분석 중인 카테고리 이름 (호출마다 바뀜)", "used": True},
-            {"field": "memos", "desc": "그 카테고리의 CS 메모 — 증상별로 묶여 건수와 함께 제공됨", "used": True},
+            {"field": "memos", "desc": "그 카테고리의 상담 메모 — 증상별로 묶여 건수와 함께 제공됨", "used": True},
         ],
     },
     {
@@ -70,7 +70,7 @@ PROMPT_REGISTRY = [
             {"field": "cat_label", "desc": "지금 분석 중인 카테고리 이름", "used": True},
             {"field": "count", "desc": "이 카테고리의 이번 주 전체 건수", "used": False, "note": "이미 화면(카드 배지)에 표시됨"},
             {"field": "sub_breakdown", "desc": "소분류별 실제 건수·비율", "used": True, "note": "규칙: 사유 인용 시 반드시 이 값의 숫자만 사용, 지어내지 않음"},
-            {"field": "risk_pct", "desc": "이번 주 전체 리스크 CS 중 이 카테고리 비중", "used": True, "note": "규칙 마지막 줄: 사유와 부합하면 포함"},
+            {"field": "risk_pct", "desc": "이번 주 전체 리스크 상담 중 이 카테고리 비중", "used": True, "note": "규칙 마지막 줄: 사유와 부합하면 포함"},
             {"field": "peak_day / peak_count", "desc": "이 카테고리 문의가 가장 많았던 요일과 그날 건수", "used": True, "note": "규칙 마지막 줄: 사유와 부합하면 포함"},
             {"field": "top_keywords", "desc": "이 카테고리 메모에서 자주 등장한 단어", "used": True, "note": "규칙 마지막 줄: 사유와 부합하면 포함"},
             {"field": "memos", "desc": "증상별로 묶인 메모와 건수", "used": True},
@@ -85,9 +85,9 @@ PROMPT_REGISTRY = [
         "default_text": _SYSTEM_WEEKLY_SUMMARY,
         "fields": [
             {"field": "week_range", "desc": "분석 대상 주", "used": True},
-            {"field": "total_weekday", "desc": "이번 주 총 상담 건수(평일 기준)", "used": "partial", "note": "개별 지시는 없지만 '종합 분석하라'는 포괄 지시 범위 안"},
+            {"field": "total_weekday", "desc": "이번 주 총 상담 건수(영업일 기준)", "used": "partial", "note": "개별 지시는 없지만 '종합 분석하라'는 포괄 지시 범위 안"},
             {"field": "daily_avg", "desc": "일평균 상담 건수", "used": "partial", "note": "개별 지시는 없지만 '종합 분석하라'는 포괄 지시 범위 안"},
-            {"field": "risk_total", "desc": "이번 주 리스크 CS 건수", "used": "partial", "note": "개별 지시는 없지만 '종합 분석하라'는 포괄 지시 범위 안"},
+            {"field": "risk_total", "desc": "이번 주 리스크 상담 건수", "used": "partial", "note": "개별 지시는 없지만 '종합 분석하라'는 포괄 지시 범위 안"},
             {"field": "risk_pct", "desc": "전체 상담 중 리스크 비율", "used": "partial", "note": "개별 지시는 없지만 '종합 분석하라'는 포괄 지시 범위 안"},
             {"field": "category_summary", "desc": "카테고리별 건수 목록", "used": "partial", "note": "개별 지시는 없지만 '종합 분석하라'는 포괄 지시 범위 안"},
             {"field": "risk_analysis", "desc": "카테고리 분석 단계에서 이미 나온 요약문들", "used": True, "note": "규칙: '제공된 분석에 나타난 내용만' 명시"},

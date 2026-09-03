@@ -12,8 +12,6 @@
 # POST /api/report/weekly/generate-stats?week_start=YYYY-MM-DD : 통계만 생성 (1단계).
 # POST /api/report/weekly/generate?week_start=YYYY-MM-DD     : 통계 + AI 분석 전체 생성 (2단계).
 # GET  /api/report/weekly/memos?week_start=&main=&page=      : 카테고리별 리스크 메모 20개씩 페이지네이션.
-# GET  /api/report/weekly/wings_repeat_trend?limit_weeks=    : 반복 Wings 티켓 신규/방치 건수의 주차별 추이
-#   (저장된 주간보고서 중 이 필드가 있는 것만, 오래된 주부터).
 #
 # week_start는 반드시 월요일 날짜(ISO 형식)여야 한다.
 # 주간은 아직 generate-stats → generate 2단계 방식이다(일별처럼 백그라운드+진행 상태 표시로
@@ -32,7 +30,7 @@ from features.report.report_daily import (
 from features.report.report_weekly import (
     generate_weekly_report, generate_weekly_report_stats,
     get_weekly_report, get_latest_weekly_report, get_weekly_risk_memos,
-    analyze_weekly_category, analyze_weekly_summary, get_wings_repeat_trend,
+    analyze_weekly_category, analyze_weekly_summary,
 )
 from features.report.report_utils import gemma_detail as _gemma_detail
 from core.audit_log import log_action
@@ -155,8 +153,3 @@ def get_weekly_memos_endpoint(
     sub: str = Query("", description="소분류 필터 (빈 문자열이면 전체)"),
 ):
     return get_weekly_risk_memos(week_start, main, page, sub=sub)
-
-
-@router.get("/api/report/weekly/wings_repeat_trend")
-def get_wings_repeat_trend_endpoint(limit_weeks: int = Query(8, ge=1, le=52)):
-    return get_wings_repeat_trend(limit_weeks)

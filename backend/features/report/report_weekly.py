@@ -9,12 +9,13 @@
 #     ├─ _call_gemma_weekly_summary() : Gemma Call N+1 — 주간 종합 3문장 분석
 #     └─ reports 테이블 UPSERT (report_type='weekly') → 결과 반환
 #
-# KPI·SQI·스택바·피크는 평일(월~금)만 집계. 일별 바 차트와 AI 분석 메모는 7일 전부 포함.
+# KPI·SQI·스택바·피크는 영업일(주말·공휴일 제외)만 집계. 일별 바 차트와 AI 분석 메모는 7일 전부 포함.
 # week_start는 항상 월요일 날짜(ISO 형식).
 #
-# 반복 Wings 티켓(wings_repeat_new_count/stale_count)은 insights_cache의 wings_tickets를
-# 그대로 읽어 이번 주 신규/방치로만 센다(_wings_repeat_counts) — AI 분석이 아니라 카테고리
-# 비중도 다루지 않는 단순 집계다. 개별 학부모를 짚는 내용은 인사이트 페이지에서만 다룬다.
+# 장기미해결 상담 현황(wings_unresolved_count/repeat_count/delayed_7_count/delayed_30_count)은
+# insights_cache의 wings_tickets를 그대로 읽어, 반복 Wings 티켓 페이지의 KPI 카드와 같은
+# 기준으로 스냅샷을 뜬다(_wings_snapshot_counts) — AI 분석이 아니라 카테고리 비중도 다루지
+# 않는 단순 집계다. 개별 학부모를 짚는 내용은 인사이트 페이지에서만 다룬다.
 #
 # 공유 상수·유틸: report_utils.py (RISK_MAIN, _is_risk, _SYSTEM_CATEGORY 등)
 # Gemma 클라이언트: core/gemma_client.py
@@ -32,6 +33,7 @@ from core.gemma_client import call_gemma, parse_json_response
 from core.prompt_settings import get_prompt_text
 from features.issues.classifier import extract_symptom_fields
 from features.insights.insights_cache import _read_cache
+from features.insights.insight_aggregations import compute_wings_snapshot_counts
 from features.report.report_utils import (
     INSUFFICIENT_SUMMARY, _MIN_ANALYSIS_MEMOS,
     _MAIN_ORDER, _is_risk,
@@ -55,7 +57,7 @@ from features.report.report_utils import (
 # 없어서 데이터만 던져지고 방치되고 있었다).
 _SYSTEM_WEEKLY_CATEGORY = (
     "<role>\n"
-    "당신은 단비교육 공감센터의 CS 데이터 분석가입니다. 한 주간 쌓인 리스크 카테고리별 CS 상담\n"
+    "당신은 단비교육 공감센터의 상담 데이터 분석가입니다. 한 주간 쌓인 리스크 카테고리별 상담\n"
     "메모를 검토해서 개발·서비스 품질팀이 우선 조사할 결함 패턴과 그 주의 흐름을 파악하는\n"
     "요약을 작성합니다.\n"
     "</role>\n\n"
@@ -70,7 +72,7 @@ _SYSTEM_WEEKLY_CATEGORY = (
     "- High/Medium/Low 같은 우선순위 레이블은 쓰지 않습니다.\n"
     "- 해석·판단이 들어가면 '~로 보입니다', '~가능성이 있습니다', '~추정됩니다' 같은 추측 표현을\n"
     "  씁니다. 단정하지 않습니다.\n"
-    "- 건수만 반복하는 문장('N건 접수됨')으로 문장을 채우지 마세요. CS 운영 조언도 쓰지 않습니다.\n"
+    "- 건수만 반복하는 문장('N건 접수됨')으로 문장을 채우지 마세요. 상담 운영 조언도 쓰지 않습니다.\n"
     "- 메모 앞에 '사유별 건수'가 제공됩니다. 상위 1개만 언급하지 말고 **제공된 사유를 최대한\n"
     "  많이(문장 수 한도 안에서)** 인용하세요. 1위만 언급하면 카테고리 순위는 매일 거의 고정되어\n"
     "  있어서 보고서가 매번 똑같은 내용처럼 보입니다. 인용하는 사유마다 'N건(P%)' 형식으로 건수와\n"
@@ -104,8 +106,8 @@ _SYSTEM_WEEKLY_CATEGORY = (
 )
 
 _PROMPT_WEEKLY_CATEGORY = (
-    "아래는 {week_range} [{cat_label}] 관련 CS 상담 메모입니다.\n"
-    "이번 주 접수: {count}건 (전체 리스크 CS의 {risk_pct}%)\n"
+    "아래는 {week_range} [{cat_label}] 관련 상담 메모입니다.\n"
+    "이번 주 접수: {count}건 (전체 리스크 상담의 {risk_pct}%)\n"
     "사유별 건수: {sub_breakdown}\n"
     "이번 주 최다 접수 요일: {peak_day} ({peak_count}건)\n"
     "자주 등장한 키워드: {top_keywords}\n"
@@ -114,24 +116,24 @@ _PROMPT_WEEKLY_CATEGORY = (
 )
 
 _SYSTEM_WEEKLY_SUMMARY = (
-    "당신은 단비교육 공감센터 CS 분석 전문가입니다.\n"
+    "당신은 단비교육 공감센터 상담 분석 전문가입니다.\n"
     "CS팀 운영이 아닌 개발·서비스 품질 관점에서 분석하세요.\n"
     "규칙: 코드 블록 없이 JSON만 출력\n"
     "규칙: Jira 이슈 번호, 배포 버전, 내부 시스템 ID 등 프롬프트에 없는 구체적 레퍼런스를 절대 언급하지 마세요.\n"
     "규칙: High/Medium/Low 등 우선순위 레이블을 사용하지 마세요.\n"
     "규칙: 제공된 분석에 직접 나타난 내용만 작성하세요. 원인 추론·권고사항·UX 개선 제안은 절대 하지 마세요.\n"
-    "규칙: 이번 주 CS를 3~4개 항목(•)으로 종합 분석하세요.\n"
+    "규칙: 이번 주 상담을 3~4개 항목(•)으로 종합 분석하세요.\n"
     "규칙: 각 항목은 핵심 현상 + 서비스·제품 관점 의미 또는 모니터링 포인트로 구성합니다.\n"
     "규칙: 해석이나 판단이 포함될 경우 반드시 '~로 보입니다', '~가능성이 있습니다' 같은 추측 표현을 사용하세요.\n"
-    "규칙: 마지막 항목은 반드시 다음 주 확인이 필요한 영역(반복 인입, 관련 티켓, 세부 유형 지속 여부 등)으로 마무리하세요.\n"
-    "규칙: 건수 단순 나열이나 CS 운영 조언은 쓰지 마세요.\n"
+    "규칙: 마지막 항목은 반드시 다음 주 확인이 필요한 영역(반복 상담, 관련 티켓, 세부 유형 지속 여부 등)으로 마무리하세요.\n"
+    "규칙: 건수 단순 나열이나 상담 운영 조언은 쓰지 마세요.\n"
     '응답 형식:\n{"summary": "• 항목1\\n• 항목2\\n• 항목3"}'
 )
 
 _PROMPT_WEEKLY_SUMMARY = (
-    "{week_range} 주간 CS 요약입니다.\n"
-    "총 상담: {total_weekday}건 (평일 기준, 일평균 {daily_avg}건)\n"
-    "리스크 CS: {risk_total}건 (리스크율 {risk_pct}%)\n"
+    "{week_range} 주간 상담 요약입니다.\n"
+    "총 상담: {total_weekday}건 (영업일 기준, 일평균 {daily_avg}건)\n"
+    "리스크 CS: {risk_total}건 (리스크 비율 {risk_pct}%)\n"
     "카테고리별 건수: {category_summary}\n"
     "\n"
     "리스크 카테고리별 분석:\n"
@@ -142,7 +144,7 @@ _PROMPT_WEEKLY_SUMMARY = (
 
 _WEEKDAYS_KO = ['월', '화', '수', '목', '금', '토', '일']
 
-# 키워드 추출 시 제거할 공통 CS 용어
+# 키워드 추출 시 제거할 공통 상담 용어
 _KW_STOPWORDS = {
     '문의', '상담', '접수', '처리', '고객', '확인', '요청', '연락', '해결', '완료',
     '관련', '사항', '내용', '부분', '경우', '문제', '발생', '계속', '현재', '이용',
@@ -191,35 +193,22 @@ def _extract_top_keywords(texts: list, top_n: int = 7) -> list:
     return sorted(freq, key=lambda w: freq[w], reverse=True)[:top_n]
 
 
-def _classify_wings_repeat(tickets: list, week_start: str, week_end: str) -> dict:
-    """반복 Wings 티켓 목록(이미 로드된 것) 중 이번 주(week_start~week_end)에 처음 반복
-    언급된 건은 신규, 그 이전부터 이어져 아직 열려있는 건은 방치로 센다. 프론트
-    weeklyRiskSummary.ts의 buildWeeklyRiskSummary()와 같은 로직."""
-    new_count = 0
-    stale_count = 0
-    for t in tickets:
-        first_day = (t.get("first_date") or "")[:10]
-        if week_start <= first_day <= week_end:
-            new_count += 1
-        elif first_day < week_start:
-            stale_count += 1
-    return {"new_count": new_count, "stale_count": stale_count}
-
-
-def _wings_repeat_counts(week_start: str, week_end: str) -> dict:
-    """insights_cache의 wings_tickets(현재 열려있는 반복 Wings 티켓만)를 읽어 신규/방치를
-    센다. 캐시가 비어 있으면(수집 미승인 등) 0/0을 반환한다."""
+def _wings_snapshot_counts() -> dict:
+    """insights_cache의 wings_tickets를 읽어 반복 Wings 티켓 페이지 KPI 카드와 같은 기준의
+    스냅샷 4종(미해결/2회 이상 상담/7일+/30일+ 처리 지연)을 센다. 보고서 생성 시점의 상태를
+    그대로 담아 저장하므로, 다음 주 보고서가 이 값을 "지난주"로 읽어 증감을 비교할 수 있다.
+    캐시가 비어 있으면(수집 미승인 등) 전부 0을 반환한다."""
     row = _read_cache("wings_tickets")
     if not row:
-        return {"new_count": 0, "stale_count": 0}
-    return _classify_wings_repeat(json.loads(row["data"]), week_start, week_end)
+        return {"unresolved_count": 0, "repeat_count": 0, "delayed_7_count": 0, "delayed_30_count": 0}
+    return compute_wings_snapshot_counts(json.loads(row["data"]))
 
 
 # ── 내부 함수 ─────────────────────────────────────────────────────────────────
 
 
 def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
-    """해당 주(월~일) 통계를 집계한다. KPI·SQI·스택바·피크는 평일(월~금)만, 차트·AI 분석은 7일 전부.
+    """해당 주(월~일) 통계를 집계한다. KPI·SQI·스택바·피크는 영업일(주말·공휴일 제외)만, 차트·AI 분석은 7일 전부.
     include_prev=False면 전주 비교값을 계산하지 않는다 — 전주 값 계산 시 자기 자신을 한 번 더
     호출하므로, 재귀가 전전주까지 이어지지 않도록 막는 용도."""
     d0 = date.fromisoformat(week_start)
@@ -291,12 +280,17 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
             continue
         sqi_daily.append({"date": day, "sqi": round(day_risk.get(day, 0) / total * 100, 1)})
 
+    # total_all: 주말·공휴일 포함 7일 전체 합 — "총 상담" KPI 카드가 실제 총량을 보여주기
+    # 위한 값이다. total_weekday(아래)는 이름과 달리 이제 영업일만의 합이라 일평균·리스크 비율
+    # 분모로만 쓰고, "총 상담" 카드 표시엔 total_all을 쓴다.
+    total_all = sum(daily_map.get(day, 0) for day, _ in week_days)
+
     workday_counts = [daily_map.get(day, 0) for day, _ in week_days if not is_off_day(day)]
     total_weekday = sum(workday_counts)
     weekday_count = len(workday_counts)
-    # 그 주에 실제로 집계된(건수>0인) 날 수가 아니라, 주말·공휴일을 뺀 평일 수로 나눈다 —
+    # 그 주에 실제로 집계된(건수>0인) 날 수가 아니라, 주말·공휴일을 뺀 영업일 수로 나눈다 —
     # 주 중간에 조회해서 아직 며칠치만 쌓인 경우에도 "지금까지의 일평균"이 아니라 "이 주의
-    # 평일 기준 일평균"을 보여주기 위함이다(정책 6과 같은 이유: 평일만 분모로 삼는다).
+    # 영업일 기준 일평균"을 보여주기 위함이다(정책 6과 같은 이유: 영업일만 분모로 삼는다).
     daily_avg = round(total_weekday / max(weekday_count, 1))
     risk_total = sum(day_risk.get(day, 0) for day, _ in week_days if not is_off_day(day))
     risk_pct = round(risk_total / max(total_weekday, 1) * 100, 1)
@@ -315,7 +309,7 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
         for day, _ in week_days if not is_off_day(day)
     ]
 
-    # 소분류 일별 추이: { main → [{date, sub1: N, ...}, ...] } (평일만)
+    # 소분류 일별 추이: { main → [{date, sub1: N, ...}, ...] } (영업일만)
     risk_sub_day: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
     for row in cat_daily:
         if row["sub"] and _is_risk(row["main"], row["sub"]):
@@ -344,22 +338,27 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
     if include_prev:
         prev_week_start = str(d0 - timedelta(days=7))
         prev_stats = _fetch_week_stats(prev_week_start, include_prev=False)
+        prev_total_all = prev_stats["total_all"]
         prev_total_weekday = prev_stats["total_weekday"]
         prev_risk_total = prev_stats["risk_total"]
         prev_daily_avg = prev_stats["daily_avg"]
         prev_risk_sub_stack = prev_stats["risk_sub_stack"]
-        # wings_repeat 카운트는 insights_cache(현재 열려있는 티켓만 남는 스냅샷)에 의존해서
-        # 위 항목들처럼 실시간 재계산으로 과거를 재현할 수 없다 — 해결된 티켓은 캐시에서
-        # 이미 빠져있어서 지난주를 다시 계산하면 과소 집계된다. 그래서 지난주 생성 시점에
-        # 저장해둔 값을 그대로 가져온다 — 지난주 보고서가 없으면(생성 전 등) None이며,
-        # 프론트는 다른 KPI 카드의 delta=None과 같은 방식으로 처리한다(배지 자체를 안 보여줌).
+        # wings 스냅샷은 insights_cache(현재 상태만 남는 캐시)에 의존해서 위 항목들처럼
+        # 실시간 재계산으로 과거를 재현할 수 없다 — 지금은 해결된 티켓이 그 사이 캐시에서
+        # 상태만 바뀌었을 뿐 아니라, 지난주 시점엔 미해결이었을 수도 있어 다시 계산하면
+        # 부정확하다. 그래서 지난주 생성 시점에 저장해둔 값을 그대로 가져온다 — 지난주
+        # 보고서가 없으면(생성 전 등) None이며, 프론트는 다른 KPI 카드의 delta=None과 같은
+        # 방식으로 처리한다(배지 자체를 안 보여줌).
         prev_report = get_weekly_report(prev_week_start)
-        prev_wings_repeat_new_count = prev_report.get("wings_repeat_new_count") if prev_report else None
-        prev_wings_repeat_stale_count = prev_report.get("wings_repeat_stale_count") if prev_report else None
+        prev_wings_unresolved_count = prev_report.get("wings_unresolved_count") if prev_report else None
+        prev_wings_repeat_count = prev_report.get("wings_repeat_count") if prev_report else None
+        prev_wings_delayed_7_count = prev_report.get("wings_delayed_7_count") if prev_report else None
+        prev_wings_delayed_30_count = prev_report.get("wings_delayed_30_count") if prev_report else None
     else:
-        prev_total_weekday = prev_risk_total = prev_daily_avg = None
+        prev_total_all = prev_total_weekday = prev_risk_total = prev_daily_avg = None
         prev_risk_sub_stack = {}
-        prev_wings_repeat_new_count = prev_wings_repeat_stale_count = None
+        prev_wings_unresolved_count = prev_wings_repeat_count = None
+        prev_wings_delayed_7_count = prev_wings_delayed_30_count = None
 
     risk_memos: dict = defaultdict(list)
     for row in risk_memo_raw:
@@ -383,15 +382,17 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
             "summary": "",
         })
 
-    wings_repeat = _wings_repeat_counts(week_start, week_end)
+    wings_snapshot = _wings_snapshot_counts()
 
     return {
         "week_start": week_start,
         "week_end": week_end,
+        "total_all": total_all,
         "total_weekday": total_weekday,
         "daily_avg": daily_avg,
         "weekday_count": weekday_count,
         "risk_total": risk_total,
+        "prev_total_all": prev_total_all,
         "prev_total_weekday": prev_total_weekday,
         "prev_risk_total": prev_risk_total,
         "prev_daily_avg": prev_daily_avg,
@@ -403,10 +404,14 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
         "risk_rows": risk_rows,
         "risk_sub_stack": risk_sub_stack,
         "risk_sub_stack_prev": prev_risk_sub_stack,
-        "wings_repeat_new_count": wings_repeat["new_count"],
-        "wings_repeat_stale_count": wings_repeat["stale_count"],
-        "prev_wings_repeat_new_count": prev_wings_repeat_new_count,
-        "prev_wings_repeat_stale_count": prev_wings_repeat_stale_count,
+        "wings_unresolved_count": wings_snapshot["unresolved_count"],
+        "wings_repeat_count": wings_snapshot["repeat_count"],
+        "wings_delayed_7_count": wings_snapshot["delayed_7_count"],
+        "wings_delayed_30_count": wings_snapshot["delayed_30_count"],
+        "prev_wings_unresolved_count": prev_wings_unresolved_count,
+        "prev_wings_repeat_count": prev_wings_repeat_count,
+        "prev_wings_delayed_7_count": prev_wings_delayed_7_count,
+        "prev_wings_delayed_30_count": prev_wings_delayed_30_count,
     }
 
 
@@ -573,10 +578,12 @@ def _build_weekly_content(stats: dict, weekly_summary: str, weekly_summary_error
     return {
         "week_start": stats["week_start"],
         "week_end": stats["week_end"],
+        "total_all": stats["total_all"],
         "total_weekday": stats["total_weekday"],
         "daily_avg": stats["daily_avg"],
         "weekday_count": stats["weekday_count"],
         "risk_total": stats["risk_total"],
+        "prev_total_all": stats.get("prev_total_all"),
         "prev_total_weekday": stats.get("prev_total_weekday"),
         "prev_risk_total": stats.get("prev_risk_total"),
         "prev_daily_avg": stats.get("prev_daily_avg"),
@@ -591,10 +598,14 @@ def _build_weekly_content(stats: dict, weekly_summary: str, weekly_summary_error
             {"main": r["main"], "count": r["count"], "summary": r.get("summary", ""), "gemma_error": r.get("gemma_error")}
             for r in stats["risk_rows"]
         ],
-        "wings_repeat_new_count": stats.get("wings_repeat_new_count", 0),
-        "wings_repeat_stale_count": stats.get("wings_repeat_stale_count", 0),
-        "prev_wings_repeat_new_count": stats.get("prev_wings_repeat_new_count"),
-        "prev_wings_repeat_stale_count": stats.get("prev_wings_repeat_stale_count"),
+        "wings_unresolved_count": stats.get("wings_unresolved_count", 0),
+        "wings_repeat_count": stats.get("wings_repeat_count", 0),
+        "wings_delayed_7_count": stats.get("wings_delayed_7_count", 0),
+        "wings_delayed_30_count": stats.get("wings_delayed_30_count", 0),
+        "prev_wings_unresolved_count": stats.get("prev_wings_unresolved_count"),
+        "prev_wings_repeat_count": stats.get("prev_wings_repeat_count"),
+        "prev_wings_delayed_7_count": stats.get("prev_wings_delayed_7_count"),
+        "prev_wings_delayed_30_count": stats.get("prev_wings_delayed_30_count"),
         "weekly_summary": weekly_summary,
         "weekly_summary_error": weekly_summary_error,
     }
@@ -754,25 +765,3 @@ def get_latest_weekly_report() -> dict | None:
     return result
 
 
-def get_wings_repeat_trend(limit_weeks: int = 8) -> list[dict]:
-    """저장된 주간보고서들의 반복 Wings 티켓 신규/방치 건수를 주차 오름차순으로 모은다 —
-    "반복 Wings 티켓" 섹션의 미니 추이 차트용. wings_repeat_new_count가 없는 보고서(이
-    필드를 추가하기 전에 생성된 것)는 건너뛴다."""
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT report_date, content FROM reports WHERE report_type = 'weekly' "
-            "ORDER BY report_date DESC LIMIT ?",
-            (limit_weeks,),
-        ).fetchall()
-    trend = []
-    for row in rows:
-        content = json.loads(row["content"])
-        if "wings_repeat_new_count" not in content:
-            continue
-        trend.append({
-            "week_start": row["report_date"],
-            "new_count": content["wings_repeat_new_count"],
-            "stale_count": content["wings_repeat_stale_count"],
-        })
-    trend.sort(key=lambda t: t["week_start"])
-    return trend
