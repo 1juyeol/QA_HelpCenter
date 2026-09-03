@@ -1,5 +1,5 @@
 // 서비스 품질 지수(SQI) 인사이트 페이지. (일별, 주말·공휴일 제외)
-// SQI = ALLOWED 카테고리(기기·앱 오류, 해지, 미납 등 회사 비용 발생 CS) 건수 ÷ 전체 CS 건수 × 100.
+// SQI = ALLOWED 카테고리(기기·앱 오류, 해지, 미납 등 회사 비용 발생 상담) 건수 ÷ 전체 상담 건수 × 100.
 // 레이아웃: 헤더 → 원형 게이지(최근 SQI) + KPI 타일 2개(최근·최고일) → 일별 추이 차트 → 집계 기준.
 // 색은 인디고+무채색으로 절제. 데이터·계산은 useSqiData.ts(category_daily 기반).
 import { useEffect, useRef } from 'react'
@@ -42,7 +42,7 @@ export default function ServiceQualityIndex() {
         <div className="qi-icon">🛡️</div>
         <div className="qi-head-text">
           <h1>서비스 품질 지수</h1>
-          <p>기기·앱 오류, 해지, 미납 등 회사 비용이 발생하는 CS가 전체에서 차지하는 비율이에요. 높을수록 제품·서비스 쪽 부담이 크다는 신호예요. 주말·공휴일은 제외한 일별 기준이에요.</p>
+          <p>비용 발생 상담 비중 지표입니다(기기·앱 오류, 해지, 미납 등 포함). 높을수록 부담이 크다는 신호이며, 주말·공휴일은 집계에서 제외합니다.</p>
         </div>
         <span className="qi-chip">최근 1달 · 일별</span>
       </div>
@@ -75,7 +75,7 @@ export default function ServiceQualityIndex() {
 
           <div className="qi-chart">
             <div className="qi-chart-title">일별 추이</div>
-            <div className="qi-chart-sub">기준선(초반 평균)을 넘은 날은 빨간색 (CS 0건인 날·주말·공휴일 제외)</div>
+            <div className="qi-chart-sub">기준선(초반 평균)을 넘은 날은 빨간색 (상담 0건인 날·주말·공휴일 제외)</div>
             <canvas ref={lineRef} />
           </div>
 

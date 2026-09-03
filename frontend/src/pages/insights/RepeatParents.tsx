@@ -1,13 +1,13 @@
-// 학부모 반복 인입 인사이트 페이지. 30일 내 동일 학부모가 3회 이상 CS 인입한 목록을 표시한다.
+// 학부모 반복 상담 인사이트 페이지. 30일 내 동일 학부모가 3회 이상 상담한 목록을 표시한다.
 // 단순 횟수 순이 아니라 위험도(긴급·주의·관찰)로 정렬해 미해결 가능성이 높은 학부모를 우선 확인한다.
 //
 // 우선순위 기준 (조건 기반):
-//   긴급: 동일 이슈 반복 AND 2일 내 재인입 (미해결 가능성 가장 높음)
-//   주의: 동일 이슈 반복 OR 최근 7일 내 재인입 (한 가지 위험 신호)
+//   긴급: 동일 이슈 반복 AND 2일 내 재상담 (미해결 가능성 가장 높음)
+//   주의: 동일 이슈 반복 OR 최근 7일 내 재상담 (한 가지 위험 신호)
 //   관찰: 30일 3회 이상이지만 위 조건 미해당
 //
-// 상단: KPI 4개 (각 모수 관계 표시) + 반복 인입 학부모 문의 유형 분포 차트
-// 테이블 열: 우선순위·학부모번호·반복위험신호·인입횟수·유형수·최근접수·최근메모
+// 상단: KPI 4개 (각 모수 관계 표시) + 반복 상담 학부모 문의 유형 분포 차트
+// 테이블 열: 학부모번호·반복위험신호·상담건수·유형수·마지막상담·상담메모 (정렬 기준은 위 위험도, 우선순위 컬럼은 표시하지 않는다)
 //
 // 의존: api/client.ts (InsightParent), api/categories.ts (ALLOWED_MAIN, isAllowedCategory 등)
 import { Fragment, useEffect, useRef, useState } from 'react'
@@ -88,12 +88,6 @@ function getPriorityLevel(r: InsightParent): PriorityLevel {
   if (sameIssue && shortGap) return 'urgent'
   if (sameIssue || recentGap) return 'warning'
   return 'watch'
-}
-
-function getPriorityBadge(level: PriorityLevel): { text: string; color: string; bg: string } {
-  if (level === 'urgent')  return { text: '긴급', color: '#fff',    bg: '#ef4444' }
-  if (level === 'warning') return { text: '주의', color: '#fff',    bg: '#f97316' }
-  return                          { text: '관찰', color: '#64748b', bg: '#f1f5f9' }
 }
 
 function priorityOrder(r: InsightParent): number {
@@ -236,9 +230,9 @@ export default function RepeatParents() {
     <div className="container">
 
       <div style={{ marginBottom: 20 }}>
-        <h2 style={{ margin: 0, marginBottom: 4, fontSize: 24, fontWeight: 700, color: '#1e293b' }}>학부모 반복 인입</h2>
+        <h2 style={{ margin: 0, marginBottom: 4, fontSize: 24, fontWeight: 700, color: '#1e293b' }}>학부모 반복 상담</h2>
         <p style={{ margin: 0, fontSize: 18, color: '#94a3b8' }}>
-          위험도 순 정렬 — 긴급(동일이슈 + 2일 내 재인입) · 주의(동일이슈 또는 최근 7일 내 재인입) · 관찰(그 외)
+          긴급·주의·관찰 3단계 위험도로 분류해 정렬했습니다. 긴급은 동일 이슈 2일 내, 주의는 7일 내 재상담 기준입니다.
         </p>
       </div>
 
@@ -248,7 +242,7 @@ export default function RepeatParents() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
             {[
               {
-                label: '반복 인입 학부모',
+                label: '반복 상담 학부모',
                 value: total,
                 unit: '명',
               },
@@ -263,7 +257,7 @@ export default function RepeatParents() {
                 unit: '명',
               },
               {
-                label: '단기간 재인입',
+                label: '단기간 재상담',
                 value: shortGapCount,
                 unit: '명',
               },
@@ -293,7 +287,7 @@ export default function RepeatParents() {
           {/* 문의 유형 분포 차트 */}
           <div className="section-card" style={{ marginBottom: 16 }}>
             <h2 style={{ fontSize: 20 }}>
-              반복 인입 학부모 문의 유형 분포
+              반복 상담 학부모 문의 유형 분포
               <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400, marginLeft: 8 }}>최근 30일</span>
             </h2>
             <div style={{ height: 180 }}>
@@ -352,26 +346,23 @@ export default function RepeatParents() {
           {loading ? (
             <div className="loading">조회 중...</div>
           ) : !data.length ? (
-            <div className="empty">해당 기간에 반복 인입 없음</div>
+            <div className="empty">해당 기간에 반복 상담 없음</div>
           ) : !rows.length ? (
-            <div className="empty">해당 분류의 반복 인입 없음</div>
+            <div className="empty">해당 분류의 반복 상담 없음</div>
           ) : (
             <table>
               <thead>
                 <tr>
-                  <th style={{ width: 64, fontSize: 16 }}>우선순위</th>
-                  <th style={{ width: 120, fontSize: 16 }}>학부모 번호</th>
+                  <th style={{ width: 120, fontSize: 16 }}>학부모번호</th>
                   <th style={{ width: 190, fontSize: 16 }}>반복 위험 신호</th>
-                  <th style={{ width: 70, fontSize: 16 }}>인입 횟수</th>
+                  <th style={{ width: 70, fontSize: 16 }}>상담 건수</th>
                   <th style={{ width: 58, fontSize: 16 }}>유형 수</th>
-                  <th style={{ width: 130, fontSize: 16 }}>최근 접수</th>
-                  <th style={{ fontSize: 16 }}>최근 메모</th>
+                  <th style={{ width: 130, fontSize: 16 }}>마지막 상담</th>
+                  <th style={{ fontSize: 16 }}>상담 메모</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => {
-                  const level    = getPriorityLevel(r)
-                  const badge    = getPriorityBadge(level)
                   const isOpen   = expanded.has(i)
                   const qMemos   = filter.main
                     ? r.memos.filter(m => memoMatches(m.category, filter))
@@ -383,24 +374,11 @@ export default function RepeatParents() {
                   const tags: { label: string; color: string; bg: string }[] = []
                   if (hasSameIssueRepeat(r)) tags.push({ label: '동일이슈반복', color: '#1d4ed8', bg: '#dbeafe' })
                   if (isComplexIssue(r))     tags.push({ label: '복합이슈',     color: '#6d28d9', bg: '#ede9fe' })
-                  if (hasShortGap(r))        tags.push({ label: '단기재인입',   color: '#b91c1c', bg: '#fee2e2' })
+                  if (hasShortGap(r))        tags.push({ label: '단기재상담',   color: '#b91c1c', bg: '#fee2e2' })
 
                   return (
                     <Fragment key={i}>
                       <tr>
-                        <td>
-                          <span style={{
-                            display: 'inline-block',
-                            padding: '3px 8px',
-                            borderRadius: 6,
-                            fontSize: 13,
-                            fontWeight: 700,
-                            color: badge.color,
-                            background: badge.bg,
-                          }}>
-                            {badge.text}
-                          </span>
-                        </td>
                         <td style={{ fontSize: 15, fontWeight: 600 }}>
                           {r.parent_id
                             ? <a href={adminParentUrl(r.parent_id)} target="_blank" rel="noreferrer" style={{ color: '#1a56db', textDecoration: 'none' }}>{r.parent_id}</a>
@@ -445,7 +423,7 @@ export default function RepeatParents() {
                       </tr>
                       {isOpen && (
                         <tr>
-                          <td colSpan={7} style={{ padding: 0 }}>
+                          <td colSpan={6} style={{ padding: 0 }}>
                             <div className="memo-expand-inner">
                               {qMemos.map((m, mi) => (
                                 <div key={mi} className="memo-item">

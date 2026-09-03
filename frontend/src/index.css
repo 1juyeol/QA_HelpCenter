@@ -301,18 +301,6 @@ tr:last-child td { border-bottom: none; }
 .insight-table-wrap { overflow-x: auto; }
 .ticket-link { color: #1a56db; text-decoration: none; font-size: 15px; }
 .ticket-link:hover { text-decoration: underline; }
-.rank-badge {
-  display: inline-block;
-  width: 24px; height: 24px;
-  border-radius: 50%;
-  background: #f1f5f9;
-  color: #64748b;
-  font-size: 13px;
-  font-weight: 700;
-  text-align: center;
-  line-height: 24px;
-}
-.rank-badge.top { background: #fef3c7; color: #d97706; }
 .cat-filter-btn {
   padding: 5px 12px;
   border-radius: 999px;

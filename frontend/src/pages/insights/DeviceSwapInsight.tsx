@@ -5,7 +5,7 @@
 // 나간 것으로 의심되는 것)로 나눈다. 후자가 비용 절감 관점에서 실제로 봐야 할 대상이라
 // 기본으로 펼쳐두고, 전자는 궁금할 때만 펼쳐보게 접어둔다 (tier 판정은 백엔드
 // device_swap_reason_tier()가 한다 — 프론트에서 카테고리명으로 다시 판단하지 않는다).
-// 기종 카드를 클릭하면 실제 CS 메모의 확인사항·증상 원문을 펼쳐서 확인할 수 있다.
+// 기종 카드를 클릭하면 실제 상담 메모의 확인사항·증상 원문을 펼쳐서 확인할 수 있다.
 // 데이터: GET /api/insights/device_swaps (캐시 없이 즉시 집계).
 import { useEffect, useRef, useState } from 'react'
 import Chart from 'chart.js/auto'
@@ -72,9 +72,8 @@ export default function DeviceSwapInsight() {
         <div className="qi-head-text">
           <h1>기기 교체 분석</h1>
           <p>
-            "기기 교체 요청" 전체 건을 왜 교체됐는지(사유)와 기종별로 나눠서 봐요.
-            사유 중 고장이 아닌데 바뀐 것·이력이 없는 것만 따로 모아 비용 절감 관점에서
-            검토할 수 있게 했어요.
+            기기 교체 요청 전체 건을 사유별·기종별로 분석합니다. 고장이 아닌 사유로 교체된
+            건은 별도 집계해 비용 절감 관점에서 검토할 수 있도록 구성했습니다.
           </p>
         </div>
         <span className="qi-chip">{devices ? `전체 ${devices.total.toLocaleString()}건 기준` : '조회 중'}</span>
@@ -124,7 +123,7 @@ export default function DeviceSwapInsight() {
 
               <div className="qi-section-title">🔎 확인 필요 — 고장 아닌데 교체됐거나 사유가 불분명한 건</div>
               <p className="qi-section-sub">
-                이 중 상당수가 실제로는 방지 가능한 비용일 수 있습니다. 카드를 눌러 실제 CS 메모를 확인하세요.
+                이 중 상당수가 실제로는 방지 가능한 비용일 수 있습니다. 카드를 눌러 실제 상담 메모를 확인하세요.
               </p>
               <div className="qi-list">
                 {reviewReasons.map(r => {

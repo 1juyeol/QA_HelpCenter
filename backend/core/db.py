@@ -20,6 +20,9 @@
 #   뷰는 정의가 바뀌어도 그대로 남아있어서, 제외 조건을 늘려도 재배포 후 반영되지 않는다.
 #
 # 관리하는 테이블: issues(CS 이슈), collection_log(수집 이력), insights_cache(인사이트 집계 캐시),
+#                  wings_delay_snapshots(Wings 티켓 7일+/30일+ 지연 건수를 날짜별로 기록 —
+#                  과거 상태를 따로 저장해둔 적이 없어 주간 추이 차트를 그리려면 이제부터
+#                  쌓아야 한다. scheduler.py의 update_wings_cache가 갱신할 때마다 기록),
 #                  jira_issues(JIRA 미해결 버그 캐시 — CS 메모 매칭 건수 포함),
 #                  audit_log(관리자 제어 액션·보고서 생성 이력 — core/audit_log.py가 기록·조회 담당),
 #                  mail_settings(보고서 메일링 설정 — core/mail_settings.py가 기록·조회 담당),
@@ -119,6 +122,13 @@ def init_db():
                 key TEXT PRIMARY KEY,
                 data TEXT,
                 updated_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS wings_delay_snapshots (
+                snapshot_date TEXT PRIMARY KEY,
+                delayed_7_count INTEGER,
+                delayed_30_count INTEGER
             )
         """)
         conn.execute("""

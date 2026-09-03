@@ -1,4 +1,4 @@
-// 대분류별 CS 메모 목록 모달 (공통 컴포넌트).
+// 대분류별 상담 메모 목록 모달 (공통 컴포넌트).
 // 지정된 날짜 범위 내 대분류 메모를 소분류 체크박스 필터 + 50건씩 페이지네이션으로 보여준다.
 // 위아래 양쪽에 페이지네이션 배치, 소분류 라벨은 기본 전체 선택.
 // 재사용: 주간 보고서 도넛·라인 차트, 일별 보고서, 운영현황 등 어디서나 categoryMain + 날짜 범위만 넘기면 동작.
@@ -269,7 +269,7 @@ export default function CategoryMemoModal({ categoryMain, dateStart, dateEnd, on
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
                 <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
-                  {['소분류', '학생번호', '학부모번호', '내용', '등록일'].map(h => (
+                  {['소분류', '학생번호', '학부모번호', '상담 메모', '상담일'].map(h => (
                     <th key={h} style={{
                       padding: '10px 12px', textAlign: 'left',
                       fontSize: 16, fontWeight: 700, color: '#64748b', whiteSpace: 'nowrap',

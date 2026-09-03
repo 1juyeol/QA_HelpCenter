@@ -4,7 +4,6 @@
 //   admin_login / admin_login_failed, collection_toggle, gemma_url_change, jira_sync,
 //   wings_cache_refresh(수동 /api/insights/refresh/wings + 자동, 자동화 관리에서 시각 설정),
 //   repeat_parents_cache_refresh(수동 /api/insights/refresh/repeat_parents + 자동, 자동화 관리에서 시각 설정),
-//   keyword_trend_cache(자동, 매일 08:00),
 //   daily_report_*(수동 API), daily_report_auto_generate(자동, 매일 00:30),
 //   weekly_report_*(수동 API), weekly_report_auto_generate(자동, 매주 월 00:30)
 // 조회(GET)성 액션은 남기지 않는다 — 상태를 바꾸는 작업만 기록 대상.
@@ -69,10 +68,8 @@ const ACTION_LABEL: Record<string, string> = {
   jira_sync: 'JIRA 동기화',
   wings_cache_refresh: 'Wings 티켓 캐시 갱신',
   wings_cache_refresh_skipped: 'Wings 티켓 캐시 갱신 건너뜀',
-  repeat_parents_cache_refresh: '학부모 반복 인입 캐시 갱신',
-  repeat_parents_cache_refresh_skipped: '학부모 반복 인입 캐시 갱신 건너뜀',
-  keyword_trend_cache: '키워드 트렌드 캐시 저장',
-  keyword_trend_cache_failed: '키워드 트렌드 캐시 저장 실패',
+  repeat_parents_cache_refresh: '학부모 반복 상담 캐시 갱신',
+  repeat_parents_cache_refresh_skipped: '학부모 반복 상담 캐시 갱신 건너뜀',
   daily_report_generate_stats: '일별 보고서 통계 생성',
   daily_report_analyze_category: '일별 보고서 카테고리 분석',
   daily_report_analyze_peak: '일별 보고서 피크타임 분석',
@@ -106,8 +103,6 @@ const ACTION_CATEGORY: Record<string, Category> = {
   wings_cache_refresh_skipped: 'report',
   repeat_parents_cache_refresh: 'report',
   repeat_parents_cache_refresh_skipped: 'report',
-  keyword_trend_cache: 'report',
-  keyword_trend_cache_failed: 'report',
   daily_report_generate_stats: 'report',
   daily_report_analyze_category: 'report',
   daily_report_analyze_peak: 'report',
@@ -182,6 +177,19 @@ const STATUS_LABEL: Record<string, string> = {
   skipped: '스킵됨',
 }
 
+// "8월 3주차" 형식 라벨. 운영 현황(Dashboard.tsx)의 monthWeekLabel과 동일한 방식 — 그 주
+// 목요일이 속한 달을 기준 월로 삼고, 그 달 1일이 속한 주를 1주차로 센다.
+export function monthWeekLabel(mondayStr: string): string {
+  const monday = new Date(mondayStr + 'T00:00:00Z')
+  const thursday = new Date(monday); thursday.setUTCDate(thursday.getUTCDate() + 3)
+  const anchorYear = thursday.getUTCFullYear(), anchorMonth = thursday.getUTCMonth()
+  const firstOfMonth = new Date(Date.UTC(anchorYear, anchorMonth, 1))
+  const firstMonday = new Date(firstOfMonth)
+  firstMonday.setUTCDate(firstMonday.getUTCDate() - ((firstOfMonth.getUTCDay() + 6) % 7))
+  const weekNo = Math.round((monday.getTime() - firstMonday.getTime()) / (7 * 86400000)) + 1
+  return `${anchorMonth + 1}월 ${weekNo}주차`
+}
+
 // 특정 액션(주로 daily_report_mail/weekly_report_mail)이 남기는 reason= 값을 사람이 바로
 // 이해할 수 있는 문장으로 바꾼다. 매핑에 없는 값은 formatField가 "사유: {값}"으로 그대로
 // 보여준다 — 새 사유가 생겨도 정보 자체는 잃지 않는다.
@@ -197,7 +205,7 @@ const REASON_LABEL: Record<string, string> = {
 export function formatField(key: string, value: string): string | null {
   switch (key) {
     case 'date': return `보고서 날짜: ${value}`
-    case 'week_start': return `${value} 주`
+    case 'week_start': return monthWeekLabel(value)
     case 'main': return value
     case 'reason': return `사유: ${REASON_LABEL[value] ?? value}`
     case 'gemma_failed': return `실패 항목: ${value}`
@@ -418,7 +426,7 @@ export default function AuditLog() {
     <div className="section-card">
       <h2 style={{ fontSize: 24 }}>감사 로그</h2>
       <p style={{ color: '#64748b', fontSize: 18, marginTop: -6, marginBottom: 14 }}>
-        대시보드에서 일어난 수동·자동 작업 이력. 계정 시스템이 없어 "언제·무엇을"만 기록된다.
+        대시보드 내 수동·자동 작업 이력입니다. 별도 계정 구분 없이 시각과 작업 내용만 기록됩니다.
       </p>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>

@@ -5,7 +5,7 @@
 // 수 있게 하기 위함이다.
 //
 // 탭 구성: API 관리 / 일별 보고서 생성 / 주간 보고서 생성 / 일별 보고서 발송 / 주간 보고서 발송 /
-// 반복 Wings 티켓 갱신 / 학부모 반복 인입 갱신 / 일간보고서 프롬프트 / 주간보고서 프롬프트 /
+// 반복 Wings 티켓 갱신 / 학부모 반복 상담 갱신 / 일간보고서 프롬프트 / 주간보고서 프롬프트 /
 // 분류 키워드 관리.
 // API 관리는 기존 ApiConsole 컴포넌트를 그대로 재사용(수정 없음). 생성·발송 탭은 각각
 // GenerationSettingsSection/MailSettingsSection을 report_type만 바꿔 재사용하고, 인사이트
@@ -30,7 +30,7 @@ const TABS = [
   { key: 'daily-send', label: '일별 보고서 발송' },
   { key: 'weekly-send', label: '주간 보고서 발송' },
   { key: 'wings-refresh', label: '반복 Wings 티켓 갱신' },
-  { key: 'repeat-parents-refresh', label: '학부모 반복 인입 갱신' },
+  { key: 'repeat-parents-refresh', label: '학부모 반복 상담 갱신' },
   { key: 'daily-prompt', label: '일간보고서 프롬프트' },
   { key: 'weekly-prompt', label: '주간보고서 프롬프트' },
   { key: 'classifier-keywords', label: '분류 키워드 관리' },

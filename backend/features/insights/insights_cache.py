@@ -11,6 +11,9 @@
 # _init_insights_cache : 서버 시작 시 캐시가 비어 있을 때만 최초 집계를 실행한다 (이미 있으면 스킵).
 #   Wings 상태 조회 없이 채우는 임시값이라 wings_summary.resolved는 0으로 둔다 — 첫 자동/수동
 #   갱신 때 정확한 값으로 바로 교체된다.
+# _save_wings_delay_snapshot : 오늘 날짜 기준 7일+/30일+ 지연 건수를 하루 1건(INSERT OR REPLACE)
+#   기록한다. 과거 상태를 저장해둔 적이 없어 주간 추이 차트는 이 시점부터 새로 쌓인다.
+# get_wings_delay_trend : 최근 N일치 스냅샷을 날짜 오름차순으로 반환 (주 단위 묶기는 프론트에서).
 import json
 from datetime import date, timedelta
 from core.db import get_conn
@@ -41,6 +44,26 @@ def _read_cache(key):
     with get_conn() as conn:
         row = conn.execute("SELECT data, updated_at FROM insights_cache WHERE key=?", (key,)).fetchone()
     return row
+
+
+def _save_wings_delay_snapshot(snapshot_date: str, delayed_7_count: int, delayed_30_count: int):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO wings_delay_snapshots VALUES (?, ?, ?)",
+            (snapshot_date, delayed_7_count, delayed_30_count),
+        )
+        conn.commit()
+
+
+def get_wings_delay_trend(days: int = 100) -> list:
+    start = str(date.today() - timedelta(days=days))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT snapshot_date, delayed_7_count, delayed_30_count FROM wings_delay_snapshots "
+            "WHERE snapshot_date >= ? ORDER BY snapshot_date ASC",
+            (start,),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 async def _init_insights_cache():
