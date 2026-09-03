@@ -48,26 +48,52 @@ export function withDefaultDomain(raw: string): string {
   return trimmed + DEFAULT_EMAIL_DOMAIN
 }
 
+// toISOString()은 UTC 기준으로 변환하므로, KST(UTC+9)에서는 자정 근처(0~8시대) 날짜가
+// 하루 밀려서 잘못 계산된다 — 반드시 로컬 날짜 구성요소를 직접 조립한다.
+function toLocalDateString(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 function yesterday(): string {
   const d = new Date()
   d.setDate(d.getDate() - 1)
-  return d.toISOString().slice(0, 10)
+  return toLocalDateString(d)
 }
 
 // 주간 보고서는 week_start가 반드시 월요일이어야 해서(정책), 사용자가 아무 날짜나 골라도
 // 그 주의 월요일로 자동 보정한다.
-function mondayOf(dateStr: string): string {
+export function mondayOf(dateStr: string): string {
   const d = new Date(`${dateStr}T00:00:00`)
   const day = d.getDay()
   const diff = (day === 0 ? -6 : 1) - day
   d.setDate(d.getDate() + diff)
-  return d.toISOString().slice(0, 10)
+  return toLocalDateString(d)
+}
+
+// "8월 3주차" 형식 라벨. 이 화면이 다루는 대상이 주간 보고서라, 그 주 선택 드롭다운에 쓰는
+// WeeklyReport.tsx의 getWeekLabel과 반드시 같은 기준으로 맞춘다 — Dashboard.tsx/
+// CaseRiskSection.tsx 등 차트 축 라벨에 쓰는 monthWeekLabel은 "그 달 1일이 속한 주(전달로
+// 넘어갈 수 있음)"를 1주차로 세는 다른 기준이라, 그대로 가져다 쓰면 같은 주인데도 여기와
+// 주간보고서 화면에서 번호가 다르게 보인다.
+export function getWeekLabel(mondayStr: string): string {
+  const d = new Date(mondayStr + 'T12:00:00')
+  const year = d.getFullYear()
+  const month = d.getMonth()
+  const firstDay = new Date(year, month, 1)
+  const firstDow = firstDay.getDay()
+  const daysToFirstMon = (1 - firstDow + 7) % 7
+  const firstMonDate = 1 + daysToFirstMon
+  const weekNum = Math.floor((d.getDate() - firstMonDate) / 7) + 1
+  return `${month + 1}월 ${weekNum}주차`
 }
 
 function lastMonday(): string {
   const d = new Date()
   d.setDate(d.getDate() - 7)
-  return mondayOf(d.toISOString().slice(0, 10))
+  return mondayOf(toLocalDateString(d))
 }
 
 // 백엔드(core/mail_settings.py의 MIN_DEADLINE_SEND_GAP_MINUTES/has_min_deadline_gap)와
@@ -211,7 +237,7 @@ function TestSendControl({ reportType, adminToken, onSent }: { reportType: MailS
       </div>
       {reportType === 'weekly' && (
         <div style={{ fontSize: 15, color: '#334155', marginTop: 6, lineHeight: 1.7 }}>
-          주간 보고서는 월요일 기준이라 {targetDate} 주로 자동 보정해서 확인합니다.
+          주간 보고서는 월요일 기준이라 {getWeekLabel(targetDate)}({targetDate})로 자동 보정해서 확인합니다.
         </div>
       )}
     </div>
