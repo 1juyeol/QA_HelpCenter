@@ -341,6 +341,13 @@ async def _send_weekly_report_mail():
 # report_type('daily'/'weekly') → 그 메일링의 cron job id·핸들러. mail_endpoints.py가
 # 설정 저장 직후 reschedule_mail_job()을 불러 이 job의 시각을 즉시 새로 등록한다 —
 # 서버 재시작 없이 바로 다음 발송부터 바뀐 시각이 반영되게 하기 위함.
+#
+# 주간 메일 cron은 반드시 day_of_week(mail_settings.send_weekday)를 넘겨야 한다 — 예전엔
+# 요일 제약이 없어서 매일 돌았는데, weekly_report_mailer._last_monday()가 한 주 내내 같은
+# week_start를 계산하고 report_ready_by_deadline()도 "이미 생성된 지난 보고서"를 계속
+# "준비됨"으로 봐서, 같은 주간 보고서 메일이 요일마다 계속 재발송되는 버그가 있었다(감사
+# 로그에 weekly_report_mail이 매일 쌓이던 원인). 일별 메일링은 원래도 매일 발송이 맞아서
+# day_of_week를 주지 않는다(항상 매일).
 _MAIL_JOB_IDS = {"daily": "daily_report_mail_job", "weekly": "weekly_report_mail_job"}
 _MAIL_JOB_HANDLERS = {"daily": _send_daily_report_mail, "weekly": _send_weekly_report_mail}
 
@@ -353,13 +360,14 @@ def _register_mail_jobs(scheduler: AsyncIOScheduler) -> None:
         settings = get_mail_settings(report_type)
         scheduler.add_job(
             handler, "cron", hour=settings["send_hour"], minute=settings["send_minute"],
+            day_of_week=settings["send_weekday"] if report_type == "weekly" else None,
             id=_MAIL_JOB_IDS[report_type],
         )
 
 
 def reschedule_mail_job(report_type: str) -> None:
-    """메일링 관리 설정 저장 직후 호출한다. 저장된 새 send_hour/send_minute으로 해당
-    report_type의 cron job을 다시 등록한다."""
+    """메일링 관리 설정 저장 직후 호출한다. 저장된 새 send_hour/send_minute(+주간이면
+    send_weekday)으로 해당 report_type의 cron job을 다시 등록한다."""
     from core.mail_settings import get_mail_settings
     if _scheduler_instance is None:
         return
@@ -367,6 +375,7 @@ def reschedule_mail_job(report_type: str) -> None:
     _scheduler_instance.reschedule_job(
         _MAIL_JOB_IDS[report_type], trigger="cron",
         hour=settings["send_hour"], minute=settings["send_minute"],
+        day_of_week=settings["send_weekday"] if report_type == "weekly" else None,
     )
 
 

@@ -237,6 +237,7 @@ export interface MailSettings {
   send_minute: number
   sender_email: string
   recipients: string[]
+  send_weekday: string  // 'mon'~'sun' — 주간 메일링에서만 쓴다(일별은 매일 발송이라 무시)
 }
 
 // 보고서 자동 생성 설정. report_type별로 하나씩(daily/weekly) 관리 페이지("자동화 관리")에서

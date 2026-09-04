@@ -33,6 +33,18 @@ const REPORT_LABEL: Record<MailSettings['report_type'], string> = {
   weekly: '주간 보고서',
 }
 
+// 백엔드(core/mail_settings.py의 VALID_WEEKDAYS, APScheduler cron day_of_week 값)와 순서·값을
+// 맞춘다. 주간 보고서 메일링에서만 쓴다 — 일별은 매일 발송이라 요일 선택 자체가 없다.
+const WEEKDAY_OPTIONS: { value: string; label: string }[] = [
+  { value: 'mon', label: '월요일' },
+  { value: 'tue', label: '화요일' },
+  { value: 'wed', label: '수요일' },
+  { value: 'thu', label: '목요일' },
+  { value: 'fri', label: '금요일' },
+  { value: 'sat', label: '토요일' },
+  { value: 'sun', label: '일요일' },
+]
+
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
@@ -160,12 +172,12 @@ function RecipientsInput({ value, onChange, showDomainHint = false }: { value: s
         onChange={e => setText(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={commit}
-        placeholder="아이디 또는 이메일, Enter로 추가"
+        placeholder={`아이디만 입력해도 ${DEFAULT_EMAIL_DOMAIN}이 자동으로 붙습니다.`}
         style={{ padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 14, width: '100%', maxWidth: 420, boxSizing: 'border-box' }}
       />
       {showDomainHint && (
-        <div style={{ fontSize: 15, color: '#334155', marginTop: 6, lineHeight: 1.6 }}>
-          아이디만 입력해도 <strong>{DEFAULT_EMAIL_DOMAIN}</strong>이 자동으로 붙습니다. 다른 도메인 주소면 전체 이메일을 입력하세요.
+        <div style={{ fontSize: 15, color: '#dc2626', fontWeight: 700, marginTop: 6, lineHeight: 1.6 }}>
+          다른 도메인 주소로는 발송이 불가합니다.
         </div>
       )}
     </div>
@@ -177,6 +189,7 @@ function TestSendControl({ reportType, adminToken, onSent }: { reportType: MailS
   const [testRecipients, setTestRecipients] = useState<string[]>([])
   const [exists, setExists] = useState<boolean | null>(null)
   const [testing, setTesting] = useState(false)
+  const [testMessage, setTestMessage] = useState('')
 
   const targetDate = reportType === 'weekly' ? mondayOf(pickedDate) : pickedDate
   const canSend = exists === true && testRecipients.length > 0
@@ -191,8 +204,12 @@ function TestSendControl({ reportType, adminToken, onSent }: { reportType: MailS
 
   async function testSend() {
     setTesting(true)
+    setTestMessage('')
     try {
       await api.testMailSend(reportType, adminToken, testRecipients, targetDate)
+    } catch (err) {
+      const detail = err instanceof Error ? (() => { try { return JSON.parse(err.message).detail } catch { return null } })() : null
+      setTestMessage(detail ?? '테스트 발송 실패.')
     } finally {
       setTesting(false)
       onSent()
@@ -207,7 +224,7 @@ function TestSendControl({ reportType, adminToken, onSent }: { reportType: MailS
         <div style={{ fontSize: 15, color: '#334155', marginBottom: 6, lineHeight: 1.7 }}>
           테스트 수신자 (저장된 자동 발송 수신자와 별개입니다 — 직접 입력해야 발송됩니다)
         </div>
-        <RecipientsInput value={testRecipients} onChange={setTestRecipients} />
+        <RecipientsInput value={testRecipients} onChange={setTestRecipients} showDomainHint />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <input
@@ -235,6 +252,9 @@ function TestSendControl({ reportType, adminToken, onSent }: { reportType: MailS
           </button>
         )}
       </div>
+      {testMessage && (
+        <div style={{ fontSize: 15, color: '#dc2626', marginTop: 6 }}>{testMessage}</div>
+      )}
       {reportType === 'weekly' && (
         <div style={{ fontSize: 15, color: '#334155', marginTop: 6, lineHeight: 1.7 }}>
           주간 보고서는 월요일 기준이라 {getWeekLabel(targetDate)}({targetDate})로 자동 보정해서 확인합니다.
@@ -333,7 +353,11 @@ export function MailSettingsSection({ reportType }: { reportType: MailSettings['
 
       <FieldRow
         label="보고서 마감 시각"
-        hint={`이 시각까지 대상 날짜의 보고서가 만들어져 있어야 발송합니다. 이 시각을 넘겨서 보고서가 생성되면 그날은 발송하지 않고 건너뜁니다. 발송 시각보다 최소 ${MIN_DEADLINE_SEND_GAP_MINUTES}분 이상 앞서 있어야 합니다.`}
+        hint={[
+          '이 시각까지 대상 날짜의 보고서가 만들어져 있어야 발송합니다.',
+          '이 시각을 넘겨서 보고서가 생성되면 그날은 발송하지 않고 건너뜁니다.',
+          `발송 시각보다 최소 ${MIN_DEADLINE_SEND_GAP_MINUTES}분 이상 앞서 있어야 합니다.`,
+        ]}
       >
         <TimePicker
           hour={settings.deadline_hour} minute={settings.deadline_minute}
@@ -347,11 +371,32 @@ export function MailSettingsSection({ reportType }: { reportType: MailSettings['
         )}
       </FieldRow>
 
-      <FieldRow label="발송 시각" hint="메일이 실제로 발송되는 시각입니다. 저장하면 바로 이 시각으로 다음 발송부터 반영됩니다.">
+      <FieldRow
+        label="발송 시각"
+        hint={['메일이 실제로 발송되는 시각입니다.', '저장하면 바로 이 시각으로 다음 발송부터 반영됩니다.']}
+      >
         <TimePicker hour={settings.send_hour} minute={settings.send_minute} onChange={(h, m) => updateTime('send', h, m)} />
       </FieldRow>
 
-      <FieldRow label="발신자" hint={`여기 입력한 주소가 그대로 발신자로 표시됩니다 (그룹웨어 계정 주소). 아이디만 입력해도 ${DEFAULT_EMAIL_DOMAIN}이 자동으로 붙습니다.`}>
+      {reportType === 'weekly' && (
+        <FieldRow label="발송 요일" hint="주간 보고서 메일은 매주 이 요일에만 발송됩니다.">
+          <select
+            value={settings.send_weekday}
+            onChange={e => setSettings({ ...settings, send_weekday: e.target.value })}
+            style={{ padding: '9px 12px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 14, background: '#fff' }}
+          >
+            {WEEKDAY_OPTIONS.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
+          </select>
+        </FieldRow>
+      )}
+
+      <FieldRow
+        label="발신자"
+        hint={[
+          '여기 입력한 그룹웨어 계정 주소가 그대로 발신자로 표시됩니다.',
+          `아이디만 입력해도 ${DEFAULT_EMAIL_DOMAIN}이 자동으로 붙습니다.`,
+        ]}
+      >
         <input
           type="text" value={settings.sender_email}
           onChange={e => setSettings({ ...settings, sender_email: e.target.value })}

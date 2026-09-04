@@ -177,6 +177,15 @@ def init_db():
                 updated_at      TEXT
             )
         """)
+        try:
+            # send_weekday: 주간 보고서 메일링 발송 요일('mon'~'sun', APScheduler cron의
+            # day_of_week 값 그대로). 예전엔 요일 제약이 없어서 주간 메일 cron이 매일 돌았고,
+            # week_start가 한 주 내내 같은 값으로 계산돼 같은 보고서를 요일마다 계속 재발송하는
+            # 버그가 있었다 — 이 컬럼을 스케줄러가 day_of_week에 그대로 넘겨 막는다. 일별
+            # 메일링은 원래도 매일 발송이 맞아서 이 값을 쓰지 않는다.
+            conn.execute("ALTER TABLE mail_settings ADD COLUMN send_weekday TEXT NOT NULL DEFAULT 'mon'")
+        except Exception:
+            pass
         conn.execute("""
             CREATE TABLE IF NOT EXISTS report_generation_settings (
                 report_type      TEXT PRIMARY KEY,
