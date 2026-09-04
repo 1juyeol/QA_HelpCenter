@@ -27,6 +27,7 @@ from features.issues.issues_endpoints import router as issues_router
 from features.insights.insights_endpoints import router as insights_router
 from features.collection.collection_endpoints import router as collection_router
 from features.jira.jira_endpoints import router as jira_router
+from features.jira.jira_client import _init_jira_cache
 from features.report.report_endpoints import router as report_router
 from features.settings.settings_endpoints import router as settings_router
 from features.admin.admin_endpoints import router as admin_router
@@ -69,6 +70,7 @@ async def startup():
     start_scheduler()
     asyncio.create_task(log_gemma_models())
     asyncio.create_task(_init_insights_cache())
+    asyncio.create_task(_init_jira_cache())
 
 
 _dist = Path(__file__).parent.parent / "frontend" / "dist"

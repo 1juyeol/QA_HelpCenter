@@ -5,14 +5,15 @@
 // 수 있게 하기 위함이다.
 //
 // 탭 구성: API 관리 / 일별 보고서 생성 / 주간 보고서 생성 / 일별 보고서 발송 / 주간 보고서 발송 /
-// 반복 Wings 티켓 갱신 / 학부모 반복 상담 갱신 / 일간보고서 프롬프트 / 주간보고서 프롬프트 /
-// 분류 키워드 관리.
+// 인사이트 캐시 갱신 / 일간보고서 프롬프트 / 주간보고서 프롬프트 / 분류 키워드 관리.
 // API 관리는 기존 ApiConsole 컴포넌트를 그대로 재사용(수정 없음). 생성·발송 탭은 각각
-// GenerationSettingsSection/MailSettingsSection을 report_type만 바꿔 재사용하고, 인사이트
-// 갱신 두 탭은 InsightRefreshSettingsSection을 jobType만 바꿔, 프롬프트 두 탭은
-// PromptSettingsSection을 reportType만 바꿔 재사용한다(기존 생성/발송 탭과 같은 "설정 하나 =
-// 탭 하나" 구조를 그대로 따른다) — 실제 설정 UI·로직은 그 파일들이 담당하고, 이 페이지는
-// 탭 전환과 접근 제어(관리자 전용)만 맡는다.
+// GenerationSettingsSection/MailSettingsSection을 report_type만 바꿔 재사용하고, 프롬프트 두
+// 탭은 PromptSettingsSection을 reportType만 바꿔 재사용한다(기존 생성/발송 탭과 같은 "설정
+// 하나 = 탭 하나" 구조를 그대로 따른다).
+// "인사이트 캐시 갱신" 탭만 예외로, Wings·학부모 반복 상담·JIRA 버그 세 캐시 갱신 설정이 전에는
+// 탭이 하나씩 따로 있었는데(페이지가 늘어날 때마다 탭도 계속 늘어나는 구조라) 이제는 탭 하나
+// 안에 InsightRefreshSettingsSection을 jobType만 바꿔 세 번 나란히 쌓아서 보여준다 — 실제
+// 설정 UI·로직은 그 파일이 담당하고, 이 페이지는 탭 전환과 접근 제어(관리자 전용)만 맡는다.
 import { useState } from 'react'
 import { useAdmin } from '../../hooks/useAdmin'
 import Tabs from '../../components/Tabs'
@@ -29,8 +30,7 @@ const TABS = [
   { key: 'weekly-generate', label: '주간 보고서 생성' },
   { key: 'daily-send', label: '일별 보고서 발송' },
   { key: 'weekly-send', label: '주간 보고서 발송' },
-  { key: 'wings-refresh', label: '반복 Wings 티켓 갱신' },
-  { key: 'repeat-parents-refresh', label: '학부모 반복 상담 갱신' },
+  { key: 'insight-refresh', label: '인사이트 캐시 갱신' },
   { key: 'daily-prompt', label: '일간보고서 프롬프트' },
   { key: 'weekly-prompt', label: '주간보고서 프롬프트' },
   { key: 'classifier-keywords', label: '분류 키워드 관리' },
@@ -61,8 +61,13 @@ export default function AutomationManagement() {
       {tab === 'weekly-generate' && <GenerationSettingsSection reportType="weekly" />}
       {tab === 'daily-send' && <MailSettingsSection reportType="daily" />}
       {tab === 'weekly-send' && <MailSettingsSection reportType="weekly" />}
-      {tab === 'wings-refresh' && <InsightRefreshSettingsSection jobType="wings_refresh" />}
-      {tab === 'repeat-parents-refresh' && <InsightRefreshSettingsSection jobType="repeat_parents_refresh" />}
+      {tab === 'insight-refresh' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <InsightRefreshSettingsSection jobType="wings_refresh" />
+          <InsightRefreshSettingsSection jobType="repeat_parents_refresh" />
+          <InsightRefreshSettingsSection jobType="jira_refresh" />
+        </div>
+      )}
       {tab === 'daily-prompt' && <PromptSettingsSection reportType="daily" />}
       {tab === 'weekly-prompt' && <PromptSettingsSection reportType="weekly" />}
       {tab === 'classifier-keywords' && <ClassifierKeywordsSection />}

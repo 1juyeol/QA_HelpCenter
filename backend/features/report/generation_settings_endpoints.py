@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # 자동 실행(생성·갱신) on/off + 시각 설정 API 라우터. 관리자 페이지("자동화 관리")가 사용한다.
-# report_type은 daily/weekly(보고서 자동 생성) 뿐 아니라 wings_refresh/repeat_parents_refresh
-# (인사이트 캐시 자동 갱신)까지 포함한다 — 전부 on/off + 시각이라는 같은 설정 형태라 이름은
-# "보고서 생성" 전용이지만 그대로 재사용한다.
+# report_type은 daily/weekly(보고서 자동 생성) 뿐 아니라 wings_refresh/repeat_parents_refresh/
+# jira_refresh(인사이트 캐시 자동 갱신)까지 포함한다 — 전부 on/off + 시각이라는 같은 설정
+# 형태라 이름은 "보고서 생성" 전용이지만 그대로 재사용한다.
 #
 # GET  /api/generation-settings?report_type=...  : 저장된 설정 조회 (없으면 기본값 반환).
 # POST /api/generation-settings                   : 설정 저장 + 그 즉시 스케줄 재등록
@@ -15,8 +15,9 @@
 # /api/insights/refresh/wings, /api/insights/refresh/repeat_parents)을 그대로 재사용한다.
 #
 # 이력도 별도 API 없음 — 기존 GET /api/audit/log를 daily_report_*/weekly_report_*/
-# wings_cache_refresh*/repeat_parents_cache_refresh* 액션(실행 결과)과 generation_settings_save/
-# generation_settings_reset 액션(설정 변경 자체)으로 프론트에서 필터링해서 그대로 쓴다.
+# wings_cache_refresh*/repeat_parents_cache_refresh*/jira_cache_refresh* 액션(실행 결과)과
+# generation_settings_save/generation_settings_reset 액션(설정 변경 자체)으로 프론트에서
+# 필터링해서 그대로 쓴다.
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
@@ -29,10 +30,10 @@ from core.audit_log import log_action
 
 router = APIRouter()
 
-# daily/weekly는 보고서 자동 생성, wings_refresh/repeat_parents_refresh는 인사이트 캐시
-# 자동 갱신이다 — 이름은 "보고서 생성" 전용이지만 on/off + 시각이라는 설정 형태가 같아서
+# daily/weekly는 보고서 자동 생성, wings_refresh/repeat_parents_refresh/jira_refresh는 인사이트
+# 캐시 자동 갱신이다 — 이름은 "보고서 생성" 전용이지만 on/off + 시각이라는 설정 형태가 같아서
 # 같은 테이블·엔드포인트를 그대로 재사용한다(scheduler.py의 _GENERATION_JOB_* 참고).
-_REPORT_TYPES = {"daily", "weekly", "wings_refresh", "repeat_parents_refresh"}
+_REPORT_TYPES = {"daily", "weekly", "wings_refresh", "repeat_parents_refresh", "jira_refresh"}
 
 
 class GenerationSettingsBody(BaseModel):

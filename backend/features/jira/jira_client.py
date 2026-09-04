@@ -1,27 +1,29 @@
 # -*- coding: utf-8 -*-
-# JIRA 미해결 서비스 버그 목록 조회 및 CS 메모 매칭 클라이언트.
+# JIRA 미해결 서비스 버그 목록 조회 클라이언트.
 # DQ-424 에픽 하위 이슈 중 [학생앱]·[학부모앱]·[PC홈페이지] 태그가 있고 종료·완료 아닌 이슈만 대상.
 #
 # 주요 흐름:
-#   1. fetch_jira_bugs()       → JIRA REST API(/rest/api/3/search/jql)로 이슈 수집 (페이지네이션)
-#   2. extract_keywords()      → 이슈 요약에서 불용어 제거 후 CS 검색용 키워드 최대 3개 추출
-#   3. _compute_cs_count()     → call_memo LIKE 검색(OR)으로 연관 CS 건수 집계
-#   4. sync_bugs()             → 위 결과를 jira_issues 테이블에 UPSERT (60분 TTL)
-#   5. get_bugs()              → 캐시 조회, TTL 초과 시 자동 sync 후 반환
-#   6. get_bug_memos(key)      → 특정 이슈의 키워드로 CS 메모 전체 조회
+#   1. fetch_jira_bugs()        → JIRA REST API(/rest/api/3/search/jql)로 미해결 이슈 수집 (페이지네이션)
+#   2. sync_bugs()               → 위 결과를 jira_issues 테이블에 UPSERT
+#   3. get_bugs()                → 캐시 조회(동기화는 scheduler.py의 백그라운드 갱신 잡이 담당,
+#      요청 처리 중에는 절대 JIRA API를 부르지 않는다 — 예전엔 캐시가 60분 지나면 요청 안에서
+#      바로 JIRA API를 불러 응답이 느려졌었다)
+#   4. compute_card_counts()     → 전체/검토 대기/6개월+/1년+ 방치 건수 집계 (순수 함수, 상담
+#      메모 매칭 없이 status·created_at만 본다) — scheduler.py가 jira_bug_snapshots에 기록할 때 씀
+#   5. fetch_resolved_jira_bugs()/sync_resolved_bugs()/get_resolved_bugs() → 최근 7일 내 해결된
+#      이슈 목록(별도 캐시, jira_resolved_issues). 미해결 이슈와는 반대로 종료·완료·DROP 상태만
+#      대상으로 하고, resolutiondate가 최근 7일 이내인 것만 가져온다.
 #
 # 의존: core/db.get_conn(), .env의 JIRA_EMAIL·JIRA_TOKEN·JIRA_BASE_URL·JIRA_EPIC_KEY
 
 import os
-import re
 import base64
-from datetime import datetime, timedelta
+from datetime import date, datetime
 
 import requests as req_lib
 from dotenv import load_dotenv
 
 from core.db import get_conn
-from core.pii_mask import mask_phone_numbers
 
 load_dotenv()
 
@@ -32,35 +34,11 @@ _EPIC_KEY = os.environ.get("JIRA_EPIC_KEY", "DQ-424")
 
 EXCLUDE_STATUS   = {"종료", "완료", "DROP"}
 SERVICE_TAGS     = ["학생앱", "학부모앱", "PC홈페이지", "PC 웹"]
-SYNC_TTL_MINUTES = 60
 
-STOP_WORDS = {
-    "화면에서", "화면이", "화면을", "화면으로", "화면",
-    "상태에서", "상태일", "상태로", "상태가",
-    "기능의", "기능이", "기능을", "기능",
-    "설정이", "설정의", "설정을",
-    "선택시", "선택한", "선택",
-    "경우", "이동", "이동시", "진입시", "진입",
-    "동작합니다", "동작시", "동작",
-    "노출되는", "노출됩니다", "노출되지", "노출",
-    "확인", "현상이", "현상", "이슈", "문제", "버그", "개선", "요청", "검토",
-    "학습이", "학습을", "학습의", "학습",
-    "콘텐츠가", "콘텐츠를", "콘텐츠", "컨텐츠가", "컨텐츠를", "컨텐츠",
-    "단말기에서", "단말기로", "단말기를", "단말기가", "단말기",
-    "앱이", "앱을", "앱에서", "앱",
-    "회원이", "회원의", "회원일", "회원",
-    "학생에게", "학생앱이", "학부모앱이", "학부모앱에서",
-    "재생이", "재생시", "재생을", "재생",
-    "시도시", "완료시", "완료후", "사용시", "사용",
-    "진행시", "진행", "처리", "변경시", "변경후", "변경",
-    "아이의", "아이에게",
-    "않는", "않습니다", "됩니다",
-    "발생합니다", "발생되는", "발생",
-    "보여집니다",
-    "기존에", "기존의", "특정", "임의의",
-    "윙크", "KOR", "통합",
-    "페이지", "화면은", "꺼져있으나", "시작되기",
-}
+# "검토 대기" 카드 기준 — JIRA 기본 오픈 상태('미해결')는 아직 아무도 손대지 않은 이슈를 뜻한다.
+PENDING_REVIEW_STATUS = "미해결"
+SIX_MONTH_DAYS = 180
+ONE_YEAR_DAYS = 365
 
 
 def _auth_header() -> dict:
@@ -76,45 +54,6 @@ def _extract_adf_text(node: dict | None) -> str:
         return node.get("text", "")
     parts = [_extract_adf_text(child) for child in node.get("content", [])]
     return " ".join(p for p in parts if p)
-
-
-def extract_keywords(summary: str, description: str = "") -> list:
-    combined = summary + " " + description
-    clean = re.sub(r"\[[^\]]+\]", "", combined).strip()
-    quoted = re.findall(r'[“”"](.*?)[“”"]', clean)
-    clean2 = re.sub(r'[“”"](.*?)[“”"]', "", clean)
-    words = re.split(r"[\s,./\->&<]+", clean2)
-
-    result = []
-    for q in quoted:
-        q = q.strip()
-        if len(q) >= 4 and q not in STOP_WORDS:
-            result.append(q)
-    for w in words:
-        w = w.strip()
-        if len(w) >= 3 and w not in STOP_WORDS and not re.match(r"^[a-zA-Z0-9\-_]+$", w):
-            result.append(w)
-
-    seen, unique = set(), []
-    for w in result:
-        if w not in seen:
-            seen.add(w)
-            unique.append(w)
-    return unique[:3]
-
-
-def _compute_cs_count(keywords: list) -> int:
-    if not keywords:
-        return 0
-    # AND: 키워드 전부가 동시에 포함된 메모만 집계 (OR이면 범용어 하나로 수천 건 오집계)
-    conditions = " AND ".join(["call_memo LIKE ?" for _ in keywords])
-    params = tuple(f"%{kw}%" for kw in keywords)
-    with get_conn() as conn:
-        row = conn.execute(
-            f"SELECT COUNT(*) FROM issues WHERE call_memo IS NOT NULL AND ({conditions})",
-            params,
-        ).fetchone()
-        return row[0] if row else 0
 
 
 def fetch_jira_bugs() -> list:
@@ -157,91 +96,196 @@ def fetch_jira_bugs() -> list:
             continue
         if not any(tag in summary for tag in SERVICE_TAGS):
             continue
-        desc_adf = i["fields"].get("description") or {}
-        description = _extract_adf_text(desc_adf)
         result.append({
             "key":         i["key"],
             "summary":     summary,
-            "description": description,
             "status":      status,
             "created_at":  i["fields"]["created"][:10],
         })
     return result
 
 
-def sync_bugs() -> None:
-    issues    = fetch_jira_bugs()
-    synced_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def fetch_resolved_jira_bugs() -> list:
+    """최근 7일 내 해결(종료·완료·DROP 처리)된 이슈를 가져온다.
+    fetch_jira_bugs()와 마찬가지로 상태 조건은 JQL이 아니라 응답을 받은 뒤 파이썬에서 상태명
+    문자열로 직접 거른다 — 이 JIRA 사이트는 "종료"/"완료" 같은 이름의 상태가 워크플로우마다
+    서로 다른 내부 ID로 여러 개 등록돼 있어서, JQL의 status in (...)이 이름으로는 그중 일부
+    ID만 매칭하고 나머지(예: DQ-707이 속한 워크플로우의 "종료")는 걸러지지 않는 채로 새서
+    누락되는 문제가 있었다. resolutiondate도 이 프로젝트 워크플로우에서 상태 전환 시 채워주지
+    않아 거의 항상 비어 있어서(해결일 필드 자체를 안 쓰는 구성), 대신 updated(마지막 수정 시각)
+    로 최근 7일 여부를 판단하고 해결일 표시에도 이 값을 쓴다 — resolutiondate가 있으면
+    그쪽을 우선한다."""
+    if not _EMAIL or not _TOKEN:
+        return []
 
+    headers = _auth_header()
+    jql = f'(parent = {_EPIC_KEY} OR "Epic Link" = {_EPIC_KEY}) AND updated >= -7d'
+    all_issues, next_page = [], None
+
+    while True:
+        payload = {
+            "jql": jql,
+            "maxResults": 100,
+            "fields": ["summary", "status", "created", "resolutiondate", "updated"],
+        }
+        if next_page:
+            payload["nextPageToken"] = next_page
+        try:
+            r = req_lib.post(
+                f"{_BASE_URL}/rest/api/3/search/jql",
+                headers=headers,
+                json=payload,
+                timeout=15,
+            )
+            data = r.json()
+        except Exception:
+            break
+
+        issues = data.get("issues", [])
+        all_issues.extend(issues)
+        next_page = data.get("nextPageToken")
+        if not next_page or not issues:
+            break
+
+    result = []
+    for i in all_issues:
+        status  = i["fields"]["status"]["name"]
+        summary = i["fields"]["summary"]
+        if status not in EXCLUDE_STATUS:
+            continue
+        if not any(tag in summary for tag in SERVICE_TAGS):
+            continue
+        resolved_at = i["fields"].get("resolutiondate") or i["fields"]["updated"]
+        result.append({
+            "key":         i["key"],
+            "summary":     summary,
+            "created_at":  i["fields"]["created"][:10],
+            "resolved_at": resolved_at[:10],
+        })
+    return result
+
+
+def sync_resolved_bugs() -> None:
+    """jira_resolved_issues를 최근 7일 내 해결된 이슈로 완전히 교체한다 — sync_bugs()와 같은
+    이유로, 7일이 지나 더 이상 조회되지 않는 이슈는 캐시에서도 같이 지운다."""
+    bugs = fetch_resolved_jira_bugs()
     with get_conn() as conn:
-        for bug in issues:
-            keywords = extract_keywords(bug["summary"], bug.get("description", ""))
-            cs_count = _compute_cs_count(keywords)
+        fetched_keys = [b["key"] for b in bugs]
+        if fetched_keys:
+            placeholders = ",".join("?" for _ in fetched_keys)
+            conn.execute(f"DELETE FROM jira_resolved_issues WHERE key NOT IN ({placeholders})", fetched_keys)
+        else:
+            conn.execute("DELETE FROM jira_resolved_issues")
+        for b in bugs:
             conn.execute(
                 """
-                INSERT INTO jira_issues (key, summary, status, created_at, cs_keywords, cs_count, synced_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO jira_resolved_issues (key, summary, created_at, resolved_at)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET
-                  summary    = excluded.summary,
-                  status     = excluded.status,
-                  cs_keywords= excluded.cs_keywords,
-                  cs_count   = excluded.cs_count,
-                  synced_at  = excluded.synced_at
+                  summary     = excluded.summary,
+                  resolved_at = excluded.resolved_at
                 """,
-                (
-                    bug["key"], bug["summary"], bug["status"], bug["created_at"],
-                    ",".join(keywords), cs_count, synced_at,
-                ),
+                (b["key"], b["summary"], b["created_at"], b["resolved_at"]),
             )
         conn.commit()
 
 
-def _is_stale() -> bool:
-    with get_conn() as conn:
-        row = conn.execute("SELECT MAX(synced_at) FROM jira_issues").fetchone()
-        if not row or not row[0]:
-            return True
-        try:
-            last = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
-            return datetime.now() - last > timedelta(minutes=SYNC_TTL_MINUTES)
-        except Exception:
-            return True
-
-
-def get_bugs() -> list:
-    if _is_stale():
-        sync_bugs()
+def get_resolved_bugs() -> list:
+    """캐시(jira_resolved_issues)를 그대로 조회한다. get_bugs()와 같은 이유로 요청 처리 중에는
+    절대 JIRA API를 직접 호출하지 않는다."""
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT key, summary, status, created_at, cs_count, cs_keywords, synced_at FROM jira_issues ORDER BY cs_count DESC"
+            "SELECT key, summary, created_at, resolved_at FROM jira_resolved_issues ORDER BY resolved_at DESC"
         ).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_bug_memos(key: str) -> list:
+def sync_bugs() -> None:
+    """JIRA에서 현재 조건에 맞는 이슈 전체를 가져와 jira_issues를 완전히 교체한다. 이번 조회에
+    없는 이슈(종료·완료 처리됐거나 태그가 빠진 경우)는 캐시에서도 지운다 — 예전엔 지우지 않아서
+    이미 해결된 이슈가 계속 남아 방치 건수를 부풀리고, 그 이슈의 synced_at도 마지막으로 조회된
+    시점에 멈춘 채로 남아 "동기화" 표시가 실제로는 매번 갱신되고 있는데도 멈춘 것처럼 보였다."""
+    issues    = fetch_jira_bugs()
+    synced_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT cs_keywords FROM jira_issues WHERE key = ?", (key,)
-        ).fetchone()
-        if not row or not row["cs_keywords"]:
-            return []
+        fetched_keys = [bug["key"] for bug in issues]
+        if fetched_keys:
+            placeholders = ",".join("?" for _ in fetched_keys)
+            conn.execute(f"DELETE FROM jira_issues WHERE key NOT IN ({placeholders})", fetched_keys)
+        else:
+            conn.execute("DELETE FROM jira_issues")
+        for bug in issues:
+            conn.execute(
+                """
+                INSERT INTO jira_issues (key, summary, status, created_at, synced_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                  summary   = excluded.summary,
+                  status    = excluded.status,
+                  synced_at = excluded.synced_at
+                """,
+                (bug["key"], bug["summary"], bug["status"], bug["created_at"], synced_at),
+            )
+        conn.commit()
 
-        keywords = [kw for kw in row["cs_keywords"].split(",") if kw]
-        if not keywords:
-            return []
 
-        conditions = " AND ".join(["call_memo LIKE ?" for _ in keywords])
-        params     = tuple(f"%{kw}%" for kw in keywords)
-        memos = conn.execute(
-            f"""
-            SELECT created_date, category_main, category_sub, call_memo
-            FROM issues
-            WHERE call_memo IS NOT NULL AND ({conditions})
-            ORDER BY created_date DESC
-            """,
-            params,
+def get_bugs() -> list:
+    """캐시(jira_issues)를 그대로 조회한다. 동기화는 scheduler.py의 jira_refresh 잡이 주기적으로
+    백그라운드에서 실행하며, 이 함수는 절대 JIRA API를 직접 호출하지 않는다."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT key, summary, status, created_at, synced_at FROM jira_issues ORDER BY created_at ASC"
         ).fetchall()
-        result = [dict(m) for m in memos]
-        for r in result:
-            r["call_memo"] = mask_phone_numbers(r["call_memo"])
-        return result
+        return [dict(r) for r in rows]
+
+
+def _age_days(created_at: str, today: date | None = None) -> int:
+    today = today or date.today()
+    return (today - date.fromisoformat(created_at)).days
+
+
+def compute_card_counts(bugs: list, today: date | None = None) -> dict:
+    """전체/검토 대기/6개월 이상 방치/1년 이상 방치 건수를 집계한다. 6개월+/1년+는 서로 겹칠 수
+    있는 중첩 구간이다(1년 이상이면 항상 6개월 이상이기도 함) — Wings의 7일+/30일+ 지연 건수와
+    같은 구조."""
+    today = today or date.today()
+    return {
+        "total_count": len(bugs),
+        "pending_review_count": sum(1 for b in bugs if b["status"] == PENDING_REVIEW_STATUS),
+        "six_month_count": sum(1 for b in bugs if _age_days(b["created_at"], today) >= SIX_MONTH_DAYS),
+        "one_year_count": sum(1 for b in bugs if _age_days(b["created_at"], today) >= ONE_YEAR_DAYS),
+    }
+
+
+def get_jira_trend(days: int = 100) -> list:
+    from datetime import timedelta
+    start = str(date.today() - timedelta(days=days))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT snapshot_date, total_count, pending_review_count, six_month_count, one_year_count "
+            "FROM jira_bug_snapshots WHERE snapshot_date >= ? ORDER BY snapshot_date ASC",
+            (start,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def _init_jira_cache():
+    """서버 시작 시 jira_issues가 비어 있을 때만(첫 배포 등) 최초 동기화를 실행한다 — 이미
+    캐시가 있으면 스킵하고, 이후 갱신은 scheduler.py의 jira_refresh 잡이 담당한다."""
+    with get_conn() as conn:
+        has_cache = conn.execute("SELECT 1 FROM jira_issues LIMIT 1").fetchone()
+    if not has_cache:
+        sync_bugs()
+        sync_resolved_bugs()
+        save_jira_snapshot(str(date.today()), compute_card_counts(get_bugs()))
+
+
+def save_jira_snapshot(snapshot_date: str, counts: dict) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO jira_bug_snapshots VALUES (?, ?, ?, ?, ?)",
+            (snapshot_date, counts["total_count"], counts["pending_review_count"],
+             counts["six_month_count"], counts["one_year_count"]),
+        )
+        conn.commit()

@@ -87,16 +87,25 @@ export interface JiraBug {
   summary: string
   status: string
   created_at: string
-  cs_count: number
-  cs_keywords: string
   synced_at: string | null
 }
 
-export interface JiraBugMemo {
-  created_date: string
-  category_main: string | null
-  category_sub: string | null
-  call_memo: string
+// 최근 7일 내 해결된 JIRA 이슈 (jira_resolved_issues 테이블).
+export interface JiraResolvedBug {
+  key: string
+  summary: string
+  created_at: string
+  resolved_at: string
+}
+
+// 전체/검토 대기/6개월+/1년+ 미해결 건수 일별 스냅샷 (jira_bug_snapshots 테이블). WingsDelaySnapshot과
+// 같은 이유로 최초 배포 시점부터 하루 1건씩 쌓인다.
+export interface JiraBugSnapshot {
+  snapshot_date: string
+  total_count: number
+  pending_review_count: number
+  six_month_count: number
+  one_year_count: number
 }
 
 export interface ChurnReasonExample {
@@ -243,7 +252,7 @@ export interface MailSettings {
 // 보고서 자동 생성 설정. report_type별로 하나씩(daily/weekly) 관리 페이지("자동화 관리")에서
 // 조회·저장한다. 메일링과 달리 마감 시각·발신자·수신자 개념이 없어(생성은 그 자체가 첫
 // 단계라 기다릴 대상이 없다) on/off + 생성 시각만 있다.
-export type GenerationJobType = 'daily' | 'weekly' | 'wings_refresh' | 'repeat_parents_refresh'
+export type GenerationJobType = 'daily' | 'weekly' | 'wings_refresh' | 'repeat_parents_refresh' | 'jira_refresh'
 
 export interface GenerationSettings {
   report_type: GenerationJobType
@@ -581,6 +590,14 @@ export const api = {
     return get<{ data: JiraBug[] }>('/api/jira/bugs')
   },
 
+  fetchJiraTrend() {
+    return get<{ data: JiraBugSnapshot[] }>('/api/jira/trend')
+  },
+
+  fetchJiraResolved() {
+    return get<{ data: JiraResolvedBug[] }>('/api/jira/resolved')
+  },
+
   fetchChurnReasons() {
     return get<ChurnReasonStats>('/api/insights/churn_reasons')
   },
@@ -591,10 +608,6 @@ export const api = {
 
   fetchRetentionStats() {
     return get<RetentionStats>('/api/insights/retention')
-  },
-
-  fetchJiraBugMemos(key: string) {
-    return get<{ data: JiraBugMemo[] }>(`/api/jira/bugs/${encodeURIComponent(key)}/memos`)
   },
 
   syncJiraBugs(token: string) {
