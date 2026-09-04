@@ -8,7 +8,7 @@
 // 수 있고, 클릭하면 아래 표가 그 조건으로 필터링된다(CardFilter, CARD_PREDICATE 참고).
 // 처리 지연 건수 추이(7일+/30일+ 스냅샷을 주 단위로 묶은 선 그래프) → 가정별 이탈 위험
 // 섹션(CaseRiskSection.tsx, 같은 rows를 그대로 넘겨 카테고리별 분포·주간 추이로 재구성) →
-// 상세 테이블(학생·학부모·카테고리·경과일·관리상태·마지막 상담 언급 포함, 컬럼 헤더 클릭으로
+// 상세 테이블(학생·학부모·카테고리·경과일·상태·마지막 상담 언급 포함, 컬럼 헤더 클릭으로
 // 정렬) 순으로 구성된다. 기본 정렬은 상담 건수 내림차순 → 동률이면 경과일 내림차순(compareRows
 // 참고). 이 컴포넌트 내부에서만 상태를 관리하며 다른 페이지와 상태를 공유하지 않는다(정책 8).
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
@@ -83,11 +83,15 @@ function groupSnapshotsByWeek(snapshots: WingsDelaySnapshot[]): { week: string; 
     .map(([week, s]) => ({ week, delayed7: s.delayed_7_count, delayed30: s.delayed_30_count }))
 }
 
-type TicketStateFilter = 'unresolved' | 'all' | 'resolved'
-const STATE_FILTER_PREDICATE: Record<TicketStateFilter, (r: InsightWings) => boolean> = {
-  unresolved: r => !isClosedTicket(r),
-  all: () => true,
-  resolved: isClosedTicket,
+// '미해결'/'전체'/'해결'은 상태를 묶어서 보는 편의 옵션이고, 그 외 값은 실제 티켓 상태
+// 원문(신규/진행 중/결과 확인 중/해결/요청취소/merged 등)을 그대로 쓴다 — 두 종류를 같은
+// 드롭다운에 같이 두되 "해결"은 이미 편의 옵션에 있으므로 원문 목록에서는 제외한다(중복 방지).
+type TicketStateFilter = string
+export function matchesStateFilter(r: InsightWings, filter: TicketStateFilter): boolean {
+  if (filter === 'all') return true
+  if (filter === 'unresolved') return !isClosedTicket(r)
+  if (filter === 'resolved') return isClosedTicket(r)
+  return r.state === filter
 }
 
 // KPI 카드 클릭 필터. 'all'은 필터 없음(전체 보기) — 세 조건은 서로 겹칠 수 있다
@@ -190,9 +194,7 @@ export default function WingsTickets() {
     const f = searchParams.get('filter')
     return (CARD_FILTER_VALUES as string[]).includes(f ?? '') ? (f as CardFilter) : 'all'
   })
-  // "미해결 티켓" 카드(cardFilter === 'all')에서만 쓰는 상태 필터 — 다른 세 카드(2회 이상
-  // 상담·7일 이상 처리 지연·30일 이상 처리 지연)는 정의상 미해결 건만 다루므로 이 필터의
-  // 영향을 받지 않는다.
+  // 카드와 무관하게 항상 노출되는 상태 필터. 카드 필터와 별개(AND)로 적용된다.
   const [stateFilter, setStateFilter] = useState<TicketStateFilter>('unresolved')
   // 티켓 캡을 없앤 뒤로 표가 최대 1,600여 건까지 나올 수 있어 페이지네이션이 필요해졌다.
   const [pageSize, setPageSize] = useState(50)
@@ -200,15 +202,23 @@ export default function WingsTickets() {
 
   // 2회 이상 상담·7일 이상 처리 지연·30일 이상 처리 지연 세 카드와 처리 지연 추이 차트,
   // 가정별 이탈 위험 섹션은 전부 "아직 안 풀린 건"만 다루는 게 이 페이지의 원래 취지라 해결된
-  // 티켓을 제외한 목록을 기준으로 삼는다. "미해결 티켓" 카드만 stateFilter로 해결 건까지
-  // 선택해서 볼 수 있다.
+  // 티켓을 제외한 목록을 기준으로 삼는다. "미해결 티켓" 카드만 전체(해결 포함) 중에서 고른다.
   const unresolvedRows = useMemo(() => rows.filter(r => !isClosedTicket(r)), [rows])
 
+  // 드롭다운에 추가로 나열할 실제 티켓 상태 원문 — "해결"은 이미 상단 편의 옵션에 있어 제외한다.
+  const rawStateOptions = useMemo(
+    () => [...new Set(rows.map(r => r.state).filter((s): s is string => !!s && s !== '해결'))].sort((a, b) => a.localeCompare(b, 'ko')),
+    [rows],
+  )
+
+  const cardFilteredRows = useMemo(
+    () => cardFilter === 'all' ? rows : unresolvedRows.filter(CARD_PREDICATE[cardFilter]),
+    [rows, unresolvedRows, cardFilter],
+  )
+
   const filteredRows = useMemo(
-    () => cardFilter === 'all'
-      ? rows.filter(STATE_FILTER_PREDICATE[stateFilter])
-      : unresolvedRows.filter(CARD_PREDICATE[cardFilter]),
-    [rows, unresolvedRows, cardFilter, stateFilter],
+    () => cardFilteredRows.filter(r => matchesStateFilter(r, stateFilter)),
+    [cardFilteredRows, stateFilter],
   )
 
   const sortedRows = useMemo(
@@ -237,8 +247,21 @@ export default function WingsTickets() {
 
   const trendCanvasRef = useRef<HTMLCanvasElement>(null)
   const trendChartRef = useRef<Chart | null>(null)
+  const chartSectionRef = useRef<HTMLDivElement>(null)
+  // 주간보고서 "장기미해결 상담 현황" 카드(?filter=)를 눌러 들어온 경우 — 브라우저는 페이지
+  // 이동 시 스크롤 위치를 초기화해주지 않아서, 주간보고서에서 내려가 있던 위치 그대로 이
+  // 페이지에 도착해 표 중간 어딘가에 놓이게 된다. 카드 링크로 들어온 최초 한 번만 차트
+  // 위치로 스크롤해서 맞춰준다.
+  const cameFromCardLink = useRef(searchParams.get('filter') !== null)
 
   useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    if (!loading && rows.length > 0 && cameFromCardLink.current) {
+      cameFromCardLink.current = false
+      requestAnimationFrame(() => chartSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    }
+  }, [loading, rows])
 
   // 최근 3개월(12주)치만 보여준다 — 백엔드는 최근 100일치를 넘겨주지만, 그보다 오래된 주까지
   // 다 그리면 추이를 읽기 어렵다.
@@ -370,7 +393,7 @@ export default function WingsTickets() {
             </div>
 
             {/* 처리 지연 주간 추이 */}
-            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
+            <div ref={chartSectionRef} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 16 }}>
               <div style={{ fontSize: 20, fontWeight: 700, color: '#1e293b', marginBottom: 12 }}>처리 지연 건수 추이</div>
               {weeklyTrend.length < 2 ? (
                 <div className="empty" style={{ fontSize: 20 }}>
@@ -402,20 +425,19 @@ export default function WingsTickets() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
-          {cardFilter === 'all' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 13, color: '#64748b' }}>상태</span>
-              <select
-                value={stateFilter}
-                onChange={e => setStateFilter(e.target.value as TicketStateFilter)}
-                style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, color: '#374151', background: '#fff' }}
-              >
-                <option value="unresolved">미해결</option>
-                <option value="all">전체</option>
-                <option value="resolved">해결</option>
-              </select>
-            </div>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#64748b' }}>상태</span>
+            <select
+              value={stateFilter}
+              onChange={e => setStateFilter(e.target.value)}
+              style={{ padding: '6px 10px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, color: '#374151', background: '#fff' }}
+            >
+              <option value="unresolved">미해결</option>
+              <option value="all">전체</option>
+              <option value="resolved">해결</option>
+              {rawStateOptions.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: '#64748b' }}>페이지당</span>
             <select
@@ -426,6 +448,7 @@ export default function WingsTickets() {
               {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}개씩</option>)}
             </select>
           </div>
+          <span style={{ fontSize: 20, fontWeight: 700, color: NAVY }}>총 {sortedRows.length}건</span>
         </div>
 
         <div className="insight-table-wrap">
@@ -445,7 +468,7 @@ export default function WingsTickets() {
                   <SortableTh label="카테고리" sortKey="category" width={120} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   <SortableTh label="상담 건수" sortKey="cs_count" width={70} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   <SortableTh label="경과일" sortKey="diffDays" width={50} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                  <SortableTh label="관리상태" sortKey="state" width={110} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                  <SortableTh label="상태" sortKey="state" width={110} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   <th style={{ width: 290, fontSize: 16 }}>상담 메모</th>
                   <SortableTh label="최초 상담" sortKey="first_date" width={90} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   <SortableTh label="마지막 상담" sortKey="latest_date" width={90} currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
