@@ -389,6 +389,14 @@ export interface WeeklyReport {
   prev_wings_repeat_count?: number | null
   prev_wings_delayed_7_count?: number | null
   prev_wings_delayed_30_count?: number | null
+  parents_total_count?: number | null
+  parents_repeat_count?: number | null
+  parents_shortgap_count?: number | null
+  parents_complex_count?: number | null
+  prev_parents_total_count?: number | null
+  prev_parents_repeat_count?: number | null
+  prev_parents_shortgap_count?: number | null
+  prev_parents_complex_count?: number | null
   weekly_summary: string
   weekly_summary_error?: string | null
 }
