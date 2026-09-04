@@ -406,6 +406,15 @@ export interface WeeklyReport {
   prev_parents_repeat_count?: number | null
   prev_parents_shortgap_count?: number | null
   prev_parents_complex_count?: number | null
+  jira_total_count?: number | null
+  jira_pending_review_count?: number | null
+  jira_six_month_count?: number | null
+  jira_one_year_count?: number | null
+  prev_jira_total_count?: number | null
+  prev_jira_pending_review_count?: number | null
+  prev_jira_six_month_count?: number | null
+  prev_jira_one_year_count?: number | null
+  jira_resolved_bugs?: JiraResolvedBug[]
   weekly_summary: string
   weekly_summary_error?: string | null
 }

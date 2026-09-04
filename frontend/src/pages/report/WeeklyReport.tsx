@@ -937,6 +937,21 @@ export default function WeeklyReport() {
     ? (report.parents_complex_count ?? 0) - report.prev_parents_complex_count
     : null
 
+  // 미해결 Jira 이슈 스냅샷도 wings/학부모 반복 상담과 같은 이유로 지난주 값을
+  // report_weekly.py가 저장해둔 걸 그대로 받는다.
+  const jiraTotalDelta = report?.prev_jira_total_count != null
+    ? (report.jira_total_count ?? 0) - report.prev_jira_total_count
+    : null
+  const jiraPendingReviewDelta = report?.prev_jira_pending_review_count != null
+    ? (report.jira_pending_review_count ?? 0) - report.prev_jira_pending_review_count
+    : null
+  const jiraSixMonthDelta = report?.prev_jira_six_month_count != null
+    ? (report.jira_six_month_count ?? 0) - report.prev_jira_six_month_count
+    : null
+  const jiraOneYearDelta = report?.prev_jira_one_year_count != null
+    ? (report.jira_one_year_count ?? 0) - report.prev_jira_one_year_count
+    : null
+
   const sortedBreakdown = report ? [...report.category_breakdown].sort((a, b) => b.count - a.count) : []
   const totalCatCount = sortedBreakdown.reduce((s, c) => s + c.count, 0)
 
@@ -1366,6 +1381,97 @@ export default function WeeklyReport() {
                 />
               </Link>
             </div>
+          </div>
+
+          {/* 미해결 Jira 이슈 현황 — Wings/학부모 반복 상담과 같은 방식의 스냅샷(카드 크기·폰트는
+              KpiCard isSecondary로 동일, report_weekly.py의 _jira_snapshot_counts가 매주 생성
+              시점 값을 저장해 전주 대비 증감을 비교한다). 미해결 Jira 이슈 페이지의 6개월
+              이상/1년 이상은 서로 포함관계(1년 이상이면 항상 6개월 이상)라 Wings의 7일+/30일+
+              지연 카드와 같은 성격이지만, 여기선 차트 없이 카드 4개만 둔다(추이는 그 페이지의
+              "미해결 건수 추이" 차트에서 이미 다룬다). */}
+          <div className="section-card" style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
+              <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>미해결 Jira 이슈 현황</h2>
+              <span style={{ fontSize: 15, color: '#94a3b8' }}>고객 서비스에 영향을 줄 수 있는 미해결 이슈 현황입니다</span>
+            </div>
+            <div style={{ fontSize: 15, color: '#94a3b8', marginBottom: 10 }}>
+              카드를 클릭하면 미해결 Jira 이슈 페이지에서 그 조건으로 바로 확인할 수 있습니다.
+            </div>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+              <Link to="/insights/jira-bugs?filter=all" style={{ textDecoration: 'none', color: 'inherit', flex: '1 1 0' }}>
+                <KpiCard
+                  label="전체 이슈" value={(report.jira_total_count ?? 0).toLocaleString()} unit="건"
+                  color={NAVY} isSecondary delta={jiraTotalDelta} deltaUnit="건" deltaInvert
+                />
+              </Link>
+              <Link to="/insights/jira-bugs?filter=pendingReview" style={{ textDecoration: 'none', color: 'inherit', flex: '1 1 0' }}>
+                <KpiCard
+                  label="검토 대기 이슈" value={(report.jira_pending_review_count ?? 0).toLocaleString()} unit="건"
+                  color={NAVY} isSecondary delta={jiraPendingReviewDelta} deltaUnit="건" deltaInvert
+                />
+              </Link>
+              <Link to="/insights/jira-bugs?filter=sixMonth" style={{ textDecoration: 'none', color: 'inherit', flex: '1 1 0' }}>
+                <KpiCard
+                  label="6개월 이상" value={(report.jira_six_month_count ?? 0).toLocaleString()} unit="건"
+                  color={NAVY} isSecondary delta={jiraSixMonthDelta} deltaUnit="건" deltaInvert
+                />
+              </Link>
+              <Link to="/insights/jira-bugs?filter=oneYear" style={{ textDecoration: 'none', color: 'inherit', flex: '1 1 0' }}>
+                <KpiCard
+                  label="1년 이상" value={(report.jira_one_year_count ?? 0).toLocaleString()} unit="건"
+                  color={NAVY} isSecondary delta={jiraOneYearDelta} deltaUnit="건" deltaInvert
+                />
+              </Link>
+            </div>
+          </div>
+
+          {/* 이번 주 해결된 Jira 이슈 — 미해결 Jira 이슈 페이지의 "최근 1주일 내 해결된 이슈"
+              표를 그대로 가져온다(컬럼·정렬 동일). 그 페이지는 매 방문 시 최신 상태를 다시
+              불러오지만, 여기는 보고서 생성 시점에 report_weekly.py가 jira_resolved_issues
+              캐시를 읽어 content에 통째로 저장해둔 값을 그대로 보여준다 — 예전 보고서를
+              다시 열어봐도 그때 값이 유지되어야 하기 때문(오늘 기준 최신 값으로 바뀌면 안 됨). */}
+          <div className="section-card" style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
+              <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>이번 주 해결된 Jira 이슈</h2>
+              <span style={{ fontSize: 15, color: '#94a3b8' }}>
+                최근 7일 내 해결된 이슈 기준이며, 미해결 Jira 이슈 페이지와 집계 시점이 다를 수 있습니다
+              </span>
+            </div>
+            {!report.jira_resolved_bugs?.length ? (
+              <div style={{ fontSize: 18, color: '#94a3b8' }}>이번 주에 새로 해결된 이슈가 없습니다.</div>
+            ) : (
+              <div className="insight-table-wrap">
+                <table style={{ tableLayout: 'fixed' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 100, fontSize: 16 }}>이슈</th>
+                      <th style={{ fontSize: 16 }}>요약</th>
+                      <th style={{ width: 100, fontSize: 16 }}>생성일</th>
+                      <th style={{ width: 100, fontSize: 16 }}>해결일</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.jira_resolved_bugs.map(bug => (
+                      <tr key={bug.key}>
+                        <td>
+                          <a
+                            href={`https://danbiedu-dev.atlassian.net/browse/${bug.key}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ color: '#1a56db', fontSize: 15, fontWeight: 600, textDecoration: 'none' }}
+                          >
+                            {bug.key}
+                          </a>
+                        </td>
+                        <td style={{ fontSize: 15, color: '#374151', overflowWrap: 'break-word', wordBreak: 'break-word' }}>{bug.summary}</td>
+                        <td style={{ fontSize: 15, color: '#64748b', whiteSpace: 'nowrap' }}>{bug.created_at}</td>
+                        <td style={{ fontSize: 15, color: '#64748b', whiteSpace: 'nowrap' }}>{bug.resolved_at}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           {/* 주간 종합 분석 (전체 폭) */}
