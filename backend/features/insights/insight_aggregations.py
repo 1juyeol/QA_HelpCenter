@@ -6,15 +6,22 @@
 #   케이스라(여러 고객이 같은 티켓을 공유하지 않음), cs_count가 큰 건 "여러 고객에게 퍼진 버그"가
 #   아니라 "그 가정 하나가 CS를 여러 번 거쳤는데도 안 풀린 것" — 미해결 버그 트래킹(개발팀 압박)과
 #   가정별 이탈 위험 파악 양쪽에 다 쓰여서, parent_id·카테고리(new_category_main)도 같이 뽑는다.
-# compute_repeat_parents: parent_id 기준 30일 내 3회 이상 인입한 학부모를 집계한다.
-#   parent_id <= 100000은 내부 테스트 계정이므로 제외한다.
+# compute_repeat_parents: parent_id 기준 start_date~end_date 사이 3회 이상 인입한 학부모를
+#   집계한다(호출부인 scheduler.py/insights_cache.py는 180일을 넘긴다 — 프론트(RepeatParents.tsx)가
+#   그중 마지막 상담이 3개월 이내인 것만 화면에 남긴다). parent_id <= 100000은 내부 테스트
+#   계정이므로 제외한다.
 # compute_wings_delay_counts: group_wings_tickets() 결과(상태 포함)에서 "7일 이상 처리 지연"·
 #   "30일 이상 처리 지연" 건수를 센다. WingsTickets.tsx의 isDelayedTicket/isLongUnresolvedTicket과
 #   동일한 기준(첫 CS 언급일 기준 경과일, 해결/요청취소/merged 제외)이라 카드 숫자와 항상 일치한다.
 #   scheduler.py가 매 갱신 때 이 값을 wings_delay_snapshots에 하루 1건씩 기록해 주간 추이를 쌓는다.
+# compute_repeat_parents_snapshot_counts: compute_repeat_parents() 결과에서 최근 90일보다
+#   오래된 메모를 걸러낸 뒤 RepeatParents.tsx의 KPI 카드 4종(반복 상담 학부모/동일 유형 연속
+#   상담/7일 이내 재상담/복합 이슈 상담)과 동일한 기준으로 센다. 그 페이지의
+#   getQualifyingMemos/hasConsecutiveRepeat/hasRecentShortGap/isComplexIssue와 반드시 같은
+#   기준으로 유지해야 한다 — 어긋나면 주간보고서 스냅샷과 인사이트 페이지 숫자가 서로 달라진다.
 import re
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from core.db import get_conn
 from core.pii_mask import mask_phone_numbers
 
@@ -171,3 +178,53 @@ def compute_repeat_parents(start_date: str, end_date: str, limit: int = 100) -> 
     ]
     result.sort(key=lambda x: -x["cs_count"])
     return result
+
+
+def _repeat_parents_qualifying_memos(parent: dict, cutoff: date) -> list:
+    """parent(compute_repeat_parents가 만든 형태)의 memos 중 cutoff 이후(포함) 날짜만 남긴다.
+    RepeatParents.tsx의 getQualifyingMemos()와 동일 — 카테고리로는 좁히지 않고 날짜로만 거른다."""
+    out = []
+    for m in parent.get("memos", []):
+        d = m.get("date")
+        if not d:
+            continue
+        try:
+            memo_date = datetime.fromisoformat(d[:10]).date()
+        except ValueError:
+            continue
+        if memo_date >= cutoff:
+            out.append(m)
+    return out
+
+
+def compute_repeat_parents_snapshot_counts(parents: list, today: date | None = None) -> dict:
+    """주간보고서 "반복 상담 학부모 현황" 카드용 스냅샷 4종. RepeatParents.tsx의 KPI 카드와
+    동일한 기준으로 센다 — parents는 compute_repeat_parents()가 만든 형태(카테고리 무관하게
+    최근 180일 내 3회 이상 후보)라, 여기서 최근 90일보다 오래된 메모를 걸러내고 다시 판정한다.
+    그 결과 180일 기준으로는 후보였어도 최근 90일 안에 3건이 안 되면 더 이상 카운트되지 않는다."""
+    today = today or date.today()
+    cutoff = today - timedelta(days=90)
+
+    qualified = [p for p in parents if len(_repeat_parents_qualifying_memos(p, cutoff)) >= 3]
+
+    def has_consecutive_repeat(p: dict) -> bool:
+        memos = sorted(_repeat_parents_qualifying_memos(p, cutoff), key=lambda m: m["date"])
+        return any(memos[i]["category"] == memos[i - 1]["category"] for i in range(1, len(memos)))
+
+    def has_recent_short_gap(p: dict) -> bool:
+        dates = sorted(
+            (datetime.fromisoformat(m["date"][:10]).date() for m in _repeat_parents_qualifying_memos(p, cutoff)),
+            reverse=True,
+        )
+        return len(dates) >= 2 and (dates[0] - dates[1]).days <= 7
+
+    def is_complex_issue(p: dict) -> bool:
+        mains = {m["category"].split(" > ")[0] for m in _repeat_parents_qualifying_memos(p, cutoff)}
+        return len(mains) >= 3
+
+    return {
+        "total_count": len(qualified),
+        "repeat_count": sum(1 for p in qualified if has_consecutive_repeat(p)),
+        "shortgap_count": sum(1 for p in qualified if has_recent_short_gap(p)),
+        "complex_count": sum(1 for p in qualified if is_complex_issue(p)),
+    }

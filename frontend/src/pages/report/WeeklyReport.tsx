@@ -922,6 +922,21 @@ export default function WeeklyReport() {
     ? (report.wings_delayed_30_count ?? 0) - report.prev_wings_delayed_30_count
     : null
 
+  // 반복 상담 학부모 스냅샷도 wings와 같은 이유(캐시가 현재 상태만 남김)로 지난주 값을
+  // report_weekly.py가 저장해둔 걸 그대로 받는다.
+  const parentsTotalDelta = report?.prev_parents_total_count != null
+    ? (report.parents_total_count ?? 0) - report.prev_parents_total_count
+    : null
+  const parentsRepeatDelta = report?.prev_parents_repeat_count != null
+    ? (report.parents_repeat_count ?? 0) - report.prev_parents_repeat_count
+    : null
+  const parentsShortgapDelta = report?.prev_parents_shortgap_count != null
+    ? (report.parents_shortgap_count ?? 0) - report.prev_parents_shortgap_count
+    : null
+  const parentsComplexDelta = report?.prev_parents_complex_count != null
+    ? (report.parents_complex_count ?? 0) - report.prev_parents_complex_count
+    : null
+
   const sortedBreakdown = report ? [...report.category_breakdown].sort((a, b) => b.count - a.count) : []
   const totalCatCount = sortedBreakdown.reduce((s, c) => s + c.count, 0)
 
@@ -1309,6 +1324,49 @@ export default function WeeklyReport() {
           {severityModal && (
             <SeverityListModal key={severityModal} bucket={severityModal} rows={severityModalRows} onClose={() => setSeverityModal(null)} />
           )}
+
+          {/* 반복 상담 학부모 현황 — 장기미해결 상담 현황과 같은 방식의 스냅샷(카드 크기·폰트는
+              KpiCard isSecondary로 동일, report_weekly.py의 _repeat_parents_snapshot_counts가
+              매주 생성 시점 값을 저장해 전주 대비 증감을 비교한다). 학부모 반복 상담 페이지의
+              3개 축(동일 유형 연속·7일 이내 재상담·복합 이슈)은 서로 포함관계가 아니라
+              독립적으로 겹칠 수 있는 조건이라 Wings처럼 세그먼트 바로 표현할 수 없고, 카테고리
+              비중도 위 "리스크 카테고리별 AI 분석"과 겹쳐서 여기선 다루지 않는다 — 그래서
+              차트 없이 카드 4개만 둔다. */}
+          <div className="section-card" style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid #f1f5f9' }}>
+              <h2 style={{ margin: 0, fontSize: 25, color: NAVY }}>반복 상담 학부모 현황</h2>
+              <span style={{ fontSize: 15, color: '#94a3b8' }}>짧은 기간 안에 반복 상담이 몰릴수록 해당 가정의 이탈 위험이 높아집니다</span>
+            </div>
+            <div style={{ fontSize: 15, color: '#94a3b8', marginBottom: 10 }}>
+              카드를 클릭하면 학부모 반복 상담 페이지에서 그 조건으로 바로 확인할 수 있습니다.
+            </div>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+              <Link to="/insights/parents?filter=all" style={{ textDecoration: 'none', color: 'inherit', flex: '1 1 0' }}>
+                <KpiCard
+                  label="반복 상담 학부모" value={(report.parents_total_count ?? 0).toLocaleString()} unit="명"
+                  color={NAVY} isSecondary delta={parentsTotalDelta} deltaUnit="명" deltaInvert
+                />
+              </Link>
+              <Link to="/insights/parents?filter=repeat" style={{ textDecoration: 'none', color: 'inherit', flex: '1 1 0' }}>
+                <KpiCard
+                  label="동일 유형 연속 상담" value={(report.parents_repeat_count ?? 0).toLocaleString()} unit="명"
+                  color={NAVY} isSecondary delta={parentsRepeatDelta} deltaUnit="명" deltaInvert
+                />
+              </Link>
+              <Link to="/insights/parents?filter=shortGap" style={{ textDecoration: 'none', color: 'inherit', flex: '1 1 0' }}>
+                <KpiCard
+                  label="7일 이내 재상담" value={(report.parents_shortgap_count ?? 0).toLocaleString()} unit="명"
+                  color={NAVY} isSecondary delta={parentsShortgapDelta} deltaUnit="명" deltaInvert
+                />
+              </Link>
+              <Link to="/insights/parents?filter=complex" style={{ textDecoration: 'none', color: 'inherit', flex: '1 1 0' }}>
+                <KpiCard
+                  label="복합 이슈 상담" value={(report.parents_complex_count ?? 0).toLocaleString()} unit="명"
+                  color={NAVY} isSecondary delta={parentsComplexDelta} deltaUnit="명" deltaInvert
+                />
+              </Link>
+            </div>
+          </div>
 
           {/* 주간 종합 분석 (전체 폭) */}
           <div className="section-card" id="summary-section">

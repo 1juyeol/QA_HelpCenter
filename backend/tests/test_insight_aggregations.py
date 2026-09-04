@@ -11,7 +11,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from features.insights.insight_aggregations import group_wings_tickets, compute_wings_delay_counts, compute_wings_snapshot_counts
+from features.insights.insight_aggregations import (
+    group_wings_tickets, compute_wings_delay_counts, compute_wings_snapshot_counts,
+    compute_repeat_parents_snapshot_counts,
+)
 
 TICKET = "wings.danbiedu.co.kr/#ticket/zoom/1234"
 
@@ -216,3 +219,86 @@ class TestComputeWingsDelayCounts:
             ticket("해결", "2026-01-01"),           # 해결이라 제외
         ]
         assert compute_wings_delay_counts(rows, today=self.TODAY) == (2, 1)
+
+
+def parent(memos):
+    return {"parent_id": 999999, "cs_count": len(memos), "categories": [], "memos": memos,
+            "latest_date": memos[-1]["date"] if memos else None}
+
+
+def memo(date_str, category, text="메모"):
+    return {"date": date_str, "memo": text, "category": category}
+
+
+class TestComputeRepeatParentsSnapshotCounts:
+    # RepeatParents.tsx와 반드시 같은 기준을 써야 하므로, 이 클래스의 today 기준(2026-09-03)에서
+    # "최근 90일"은 2026-06-05 이후다.
+    TODAY = date(2026, 9, 3)
+
+    def test_empty_list_returns_all_zero(self):
+        assert compute_repeat_parents_snapshot_counts([], today=self.TODAY) == {
+            "total_count": 0, "repeat_count": 0, "shortgap_count": 0, "complex_count": 0,
+        }
+
+    def test_90일보다_오래된_메모만_있으면_자격_미달(self):
+        p = parent([
+            memo("2026-05-01 10:00:00", "네트워크·앱 오류 > 와이파이 오류"),
+            memo("2026-05-05 10:00:00", "네트워크·앱 오류 > 앱 오류"),
+            memo("2026-05-10 10:00:00", "기기·하드웨어 오류 > 충전 불량"),
+        ])
+        result = compute_repeat_parents_snapshot_counts([p], today=self.TODAY)
+        assert result["total_count"] == 0
+
+    def test_90일_이내_메모가_3건_이상이면_total에_포함(self):
+        p = parent([
+            memo("2026-07-01 10:00:00", "네트워크·앱 오류 > 와이파이 오류"),
+            memo("2026-07-15 10:00:00", "네트워크·앱 오류 > 앱 오류"),
+            memo("2026-08-01 10:00:00", "기기·하드웨어 오류 > 충전 불량"),
+        ])
+        result = compute_repeat_parents_snapshot_counts([p], today=self.TODAY)
+        assert result["total_count"] == 1
+
+    def test_인접한_두_상담이_같은_카테고리면_repeat에_포함(self):
+        p = parent([
+            memo("2026-07-01 10:00:00", "기기·하드웨어 오류 > 충전 불량"),
+            memo("2026-07-10 10:00:00", "기기·하드웨어 오류 > 충전 불량"),
+            memo("2026-08-01 10:00:00", "네트워크·앱 오류 > 와이파이 오류"),
+        ])
+        result = compute_repeat_parents_snapshot_counts([p], today=self.TODAY)
+        assert result["repeat_count"] == 1
+
+    def test_대분류만_같고_소분류가_다르면_repeat_아님(self):
+        p = parent([
+            memo("2026-07-01 10:00:00", "기기·하드웨어 오류 > 충전 불량"),
+            memo("2026-07-10 10:00:00", "기기·하드웨어 오류 > 분실, 파손"),
+            memo("2026-08-01 10:00:00", "네트워크·앱 오류 > 와이파이 오류"),
+        ])
+        result = compute_repeat_parents_snapshot_counts([p], today=self.TODAY)
+        assert result["repeat_count"] == 0
+
+    def test_가장_최근_두_상담_간격이_7일_이내면_shortgap에_포함(self):
+        p = parent([
+            memo("2026-07-01 10:00:00", "네트워크·앱 오류 > 와이파이 오류"),   # 가장 오래된 건 — 간격 계산과 무관
+            memo("2026-08-20 10:00:00", "네트워크·앱 오류 > 앱 오류"),
+            memo("2026-08-27 10:00:00", "기기·하드웨어 오류 > 충전 불량"),    # 바로 위와 7일 간격
+        ])
+        result = compute_repeat_parents_snapshot_counts([p], today=self.TODAY)
+        assert result["shortgap_count"] == 1
+
+    def test_대분류가_3개_이상이면_complex에_포함(self):
+        p = parent([
+            memo("2026-07-01 10:00:00", "네트워크·앱 오류 > 와이파이 오류"),
+            memo("2026-07-15 10:00:00", "기기·하드웨어 오류 > 충전 불량"),
+            memo("2026-08-01 10:00:00", "미납·결제 > 미납 관리"),
+        ])
+        result = compute_repeat_parents_snapshot_counts([p], today=self.TODAY)
+        assert result["complex_count"] == 1
+
+    def test_기타_카테고리도_다른_카테고리와_동일하게_카운트(self):
+        p = parent([
+            memo("2026-07-01 10:00:00", "기타 > 기타"),
+            memo("2026-07-15 10:00:00", "기타 > 교사 상담 요청"),
+            memo("2026-08-01 10:00:00", "체험 관련 > 중복 신청"),
+        ])
+        result = compute_repeat_parents_snapshot_counts([p], today=self.TODAY)
+        assert result["total_count"] == 1

@@ -17,6 +17,10 @@
 # 기준으로 스냅샷을 뜬다(_wings_snapshot_counts) — AI 분석이 아니라 카테고리 비중도 다루지
 # 않는 단순 집계다. 개별 학부모를 짚는 내용은 인사이트 페이지에서만 다룬다.
 #
+# 반복 상담 학부모 현황(parents_total_count/repeat_count/shortgap_count/complex_count)도 같은
+# 방식이다 — insights_cache의 repeat_parents를 읽어 학부모 반복 상담 페이지의 KPI 카드와 같은
+# 기준으로 스냅샷을 뜬다(_repeat_parents_snapshot_counts).
+#
 # 공유 상수·유틸: report_utils.py (RISK_MAIN, _is_risk, _SYSTEM_CATEGORY 등)
 # Gemma 클라이언트: core/gemma_client.py
 # 정책 2 준수: DB 날짜 필터는 datetime(created_date, '+9 hours') KST 변환
@@ -33,7 +37,7 @@ from core.gemma_client import call_gemma, parse_json_response
 from core.prompt_settings import get_prompt_text
 from features.issues.classifier import extract_symptom_fields
 from features.insights.insights_cache import _read_cache
-from features.insights.insight_aggregations import compute_wings_snapshot_counts
+from features.insights.insight_aggregations import compute_wings_snapshot_counts, compute_repeat_parents_snapshot_counts
 from features.report.report_utils import (
     INSUFFICIENT_SUMMARY, _MIN_ANALYSIS_MEMOS,
     _MAIN_ORDER, _is_risk,
@@ -204,6 +208,16 @@ def _wings_snapshot_counts() -> dict:
     return compute_wings_snapshot_counts(json.loads(row["data"]))
 
 
+def _repeat_parents_snapshot_counts() -> dict:
+    """insights_cache의 repeat_parents를 읽어 학부모 반복 상담 페이지 KPI 카드와 같은 기준의
+    스냅샷 4종(반복 상담 학부모/동일 유형 연속 상담/7일 이내 재상담/복합 이슈 상담)을 센다.
+    _wings_snapshot_counts와 같은 이유로 보고서 생성 시점 상태를 그대로 저장한다."""
+    row = _read_cache("repeat_parents")
+    if not row:
+        return {"total_count": 0, "repeat_count": 0, "shortgap_count": 0, "complex_count": 0}
+    return compute_repeat_parents_snapshot_counts(json.loads(row["data"]))
+
+
 # ── 내부 함수 ─────────────────────────────────────────────────────────────────
 
 
@@ -354,11 +368,19 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
         prev_wings_repeat_count = prev_report.get("wings_repeat_count") if prev_report else None
         prev_wings_delayed_7_count = prev_report.get("wings_delayed_7_count") if prev_report else None
         prev_wings_delayed_30_count = prev_report.get("wings_delayed_30_count") if prev_report else None
+        # 반복 상담 학부모 스냅샷도 wings와 같은 이유(캐시가 현재 상태만 남김)로 재계산 대신
+        # 지난주 생성 시점에 저장해둔 값을 그대로 가져온다.
+        prev_parents_total_count = prev_report.get("parents_total_count") if prev_report else None
+        prev_parents_repeat_count = prev_report.get("parents_repeat_count") if prev_report else None
+        prev_parents_shortgap_count = prev_report.get("parents_shortgap_count") if prev_report else None
+        prev_parents_complex_count = prev_report.get("parents_complex_count") if prev_report else None
     else:
         prev_total_all = prev_total_weekday = prev_risk_total = prev_daily_avg = None
         prev_risk_sub_stack = {}
         prev_wings_unresolved_count = prev_wings_repeat_count = None
         prev_wings_delayed_7_count = prev_wings_delayed_30_count = None
+        prev_parents_total_count = prev_parents_repeat_count = None
+        prev_parents_shortgap_count = prev_parents_complex_count = None
 
     risk_memos: dict = defaultdict(list)
     for row in risk_memo_raw:
@@ -383,6 +405,7 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
         })
 
     wings_snapshot = _wings_snapshot_counts()
+    parents_snapshot = _repeat_parents_snapshot_counts()
 
     return {
         "week_start": week_start,
@@ -412,6 +435,14 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
         "prev_wings_repeat_count": prev_wings_repeat_count,
         "prev_wings_delayed_7_count": prev_wings_delayed_7_count,
         "prev_wings_delayed_30_count": prev_wings_delayed_30_count,
+        "parents_total_count": parents_snapshot["total_count"],
+        "parents_repeat_count": parents_snapshot["repeat_count"],
+        "parents_shortgap_count": parents_snapshot["shortgap_count"],
+        "parents_complex_count": parents_snapshot["complex_count"],
+        "prev_parents_total_count": prev_parents_total_count,
+        "prev_parents_repeat_count": prev_parents_repeat_count,
+        "prev_parents_shortgap_count": prev_parents_shortgap_count,
+        "prev_parents_complex_count": prev_parents_complex_count,
     }
 
 
@@ -606,6 +637,14 @@ def _build_weekly_content(stats: dict, weekly_summary: str, weekly_summary_error
         "prev_wings_repeat_count": stats.get("prev_wings_repeat_count"),
         "prev_wings_delayed_7_count": stats.get("prev_wings_delayed_7_count"),
         "prev_wings_delayed_30_count": stats.get("prev_wings_delayed_30_count"),
+        "parents_total_count": stats.get("parents_total_count", 0),
+        "parents_repeat_count": stats.get("parents_repeat_count", 0),
+        "parents_shortgap_count": stats.get("parents_shortgap_count", 0),
+        "parents_complex_count": stats.get("parents_complex_count", 0),
+        "prev_parents_total_count": stats.get("prev_parents_total_count"),
+        "prev_parents_repeat_count": stats.get("prev_parents_repeat_count"),
+        "prev_parents_shortgap_count": stats.get("prev_parents_shortgap_count"),
+        "prev_parents_complex_count": stats.get("prev_parents_complex_count"),
         "weekly_summary": weekly_summary,
         "weekly_summary_error": weekly_summary_error,
     }
