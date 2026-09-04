@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from core.mail_settings import (
     get_mail_settings, save_mail_settings, reset_mail_settings, parse_recipients,
     has_min_deadline_gap, MIN_DEADLINE_SEND_GAP_MINUTES,
+    is_allowed_recipient, ALLOWED_RECIPIENT_DOMAIN, VALID_WEEKDAYS,
 )
 from features.admin.admin_endpoints import require_admin
 from features.collection.scheduler import reschedule_mail_job
@@ -42,6 +43,7 @@ class MailSettingsBody(BaseModel):
     send_minute: int
     sender_email: str
     recipients: list[str]
+    send_weekday: str = "mon"
 
 
 @router.get("/api/mail-settings")
@@ -60,6 +62,10 @@ def update_settings(body: MailSettingsBody, _: None = Depends(require_admin)):
             status_code=400,
             detail=f"보고서 마감 시각은 발송 시각보다 최소 {MIN_DEADLINE_SEND_GAP_MINUTES}분 이상 앞서 있어야 합니다",
         )
+    if any(not is_allowed_recipient(r) for r in body.recipients):
+        raise HTTPException(status_code=400, detail=f"@{ALLOWED_RECIPIENT_DOMAIN} 외에는 발송이 불가합니다")
+    if body.send_weekday not in VALID_WEEKDAYS:
+        raise HTTPException(status_code=400, detail="send_weekday는 mon~sun 중 하나여야 합니다")
     save_mail_settings(body.report_type, body.model_dump(exclude={"report_type"}))
     reschedule_mail_job(body.report_type)
     return get_mail_settings(body.report_type)
@@ -82,6 +88,8 @@ async def test_send(
     recipients = parse_recipients(to)
     if not recipients:
         raise HTTPException(status_code=400, detail="테스트 수신자를 입력해주세요")
+    if any(not is_allowed_recipient(r) for r in recipients):
+        raise HTTPException(status_code=400, detail=f"@{ALLOWED_RECIPIENT_DOMAIN} 외에는 발송이 불가합니다")
     if report_type == "daily":
         from features.mailer.daily_report_mailer import send_daily_report_mail
         await send_daily_report_mail(target_date=date, mode="manual", recipient_override=recipients)

@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-# core/mail_settings.py의 parse_recipients()/report_ready_by_deadline() 유닛 테스트.
+# core/mail_settings.py의 parse_recipients()/report_ready_by_deadline()/is_allowed_recipient()
+# 유닛 테스트.
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.mail_settings import parse_recipients, report_ready_by_deadline, has_min_deadline_gap
+from core.mail_settings import parse_recipients, report_ready_by_deadline, has_min_deadline_gap, is_allowed_recipient
 
 
 class TestParseRecipients:
@@ -63,3 +64,20 @@ class TestHasMinDeadlineGap:
     def test_gap_across_hour_boundary(self):
         assert has_min_deadline_gap(9, 56, 10, 5) is False
         assert has_min_deadline_gap(9, 55, 10, 5) is True
+
+
+class TestIsAllowedRecipient:
+    def test_allows_danbiedu_domain(self):
+        assert is_allowed_recipient("jylee@danbiedu.co.kr") is True
+
+    def test_blocks_other_domain(self):
+        assert is_allowed_recipient("jylee@gmail.com") is False
+
+    def test_is_case_insensitive(self):
+        assert is_allowed_recipient("jylee@DANBIEDU.CO.KR") is True
+
+    def test_ignores_surrounding_whitespace(self):
+        assert is_allowed_recipient("  jylee@danbiedu.co.kr  ") is True
+
+    def test_blocks_lookalike_subdomain(self):
+        assert is_allowed_recipient("jylee@danbiedu.co.kr.evil.com") is False

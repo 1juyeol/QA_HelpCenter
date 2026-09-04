@@ -16,11 +16,24 @@ DEFAULTS = {
     "send_minute": 0,
     "sender_email": "",
     "recipients": [],
+    "send_weekday": "mon",
 }
+
+# APScheduler cron의 day_of_week 값 그대로 — 주간 보고서 메일링에서만 쓴다(일별은 매일 발송).
+VALID_WEEKDAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 
 # 마감 시각과 발송 시각 사이에 최소한 이만큼(분)은 떨어져 있어야 한다. 너무 붙어있으면
 # "마감 시각에 딱 맞춰 만들어진 보고서"를 스크린샷·발송까지 끝낼 시간이 부족해질 수 있다.
 MIN_DEADLINE_SEND_GAP_MINUTES = 10
+
+# 사내 메일 서버(gm.danbiedu.co.kr)가 외부 도메인으로의 발송을 상정하고 있지 않아, 자동
+# 발송·테스트 발송 모두 이 도메인 수신자로만 제한한다.
+ALLOWED_RECIPIENT_DOMAIN = "danbiedu.co.kr"
+
+
+def is_allowed_recipient(email: str) -> bool:
+    """수신자 이메일이 ALLOWED_RECIPIENT_DOMAIN 소속인지 판별한다."""
+    return email.strip().lower().endswith(f"@{ALLOWED_RECIPIENT_DOMAIN}")
 
 
 def has_min_deadline_gap(
@@ -72,6 +85,7 @@ def get_mail_settings(report_type: str) -> dict:
         "send_minute": row["send_minute"],
         "sender_email": row["sender_email"],
         "recipients": parse_recipients(row["recipients"]),
+        "send_weekday": row["send_weekday"],
     }
 
 
@@ -87,12 +101,12 @@ def save_mail_settings(report_type: str, settings: dict) -> None:
         conn.execute(
             """
             INSERT INTO mail_settings
-                (report_type, enabled, deadline_hour, deadline_minute, send_hour, send_minute, sender_email, recipients, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+                (report_type, enabled, deadline_hour, deadline_minute, send_hour, send_minute, sender_email, recipients, send_weekday, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
             ON CONFLICT(report_type) DO UPDATE SET
                 enabled=excluded.enabled, deadline_hour=excluded.deadline_hour, deadline_minute=excluded.deadline_minute,
                 send_hour=excluded.send_hour, send_minute=excluded.send_minute, sender_email=excluded.sender_email,
-                recipients=excluded.recipients, updated_at=excluded.updated_at
+                recipients=excluded.recipients, send_weekday=excluded.send_weekday, updated_at=excluded.updated_at
             """,
             (
                 report_type,
@@ -103,6 +117,7 @@ def save_mail_settings(report_type: str, settings: dict) -> None:
                 settings["send_minute"],
                 settings["sender_email"],
                 ",".join(settings["recipients"]),
+                settings.get("send_weekday", "mon"),
             ),
         )
         conn.commit()
