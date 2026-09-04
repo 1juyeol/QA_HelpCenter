@@ -21,6 +21,16 @@
 # 방식이다 — insights_cache의 repeat_parents를 읽어 학부모 반복 상담 페이지의 KPI 카드와 같은
 # 기준으로 스냅샷을 뜬다(_repeat_parents_snapshot_counts).
 #
+# 미해결 Jira 이슈 현황(jira_total_count/pending_review_count/six_month_count/one_year_count)도
+# 같은 방식이다 — jira_issues 캐시를 읽어 미해결 Jira 이슈 페이지의 KPI 카드와 같은 기준으로
+# 스냅샷을 뜬다(_jira_snapshot_counts).
+#
+# 해결된 Jira 이슈(jira_resolved_bugs)도 같은 스냅샷 방식이다 — jira_resolved_issues 캐시를
+# 보고서 생성 시점 그대로 읽어 목록으로 담는다(_jira_resolved_bugs). 다만 이 캐시는 "생성 시점
+# 기준 최근 7일 롤링 창"이라 "지난주 월~일" 정확한 달력 주와는 다를 수 있고, 과거 값을 남겨두지
+# 않아 이전 주 보고서를 재생성하면 그 시점 기준 최신 값으로 다시 채워진다 — wings/학부모 반복
+# 상담 스냅샷과 같은 한계를 그대로 안고 간다.
+#
 # 공유 상수·유틸: report_utils.py (RISK_MAIN, _is_risk, _SYSTEM_CATEGORY 등)
 # Gemma 클라이언트: core/gemma_client.py
 # 정책 2 준수: DB 날짜 필터는 datetime(created_date, '+9 hours') KST 변환
@@ -218,6 +228,22 @@ def _repeat_parents_snapshot_counts() -> dict:
     return compute_repeat_parents_snapshot_counts(json.loads(row["data"]))
 
 
+def _jira_snapshot_counts() -> dict:
+    """jira_issues 캐시를 읽어 미해결 Jira 이슈 페이지 KPI 카드와 같은 기준의 스냅샷 4종
+    (전체 이슈/검토 대기 이슈/6개월 이상/1년 이상)을 센다. wings/학부모 반복 상담 스냅샷과
+    같은 이유로 보고서 생성 시점 상태를 그대로 저장한다."""
+    from features.jira.jira_client import get_bugs, compute_card_counts
+    return compute_card_counts(get_bugs())
+
+
+def _jira_resolved_bugs() -> list:
+    """jira_resolved_issues 캐시(최근 7일 내 해결된 이슈, 미해결 Jira 이슈 페이지와 같은 캐시)를
+    보고서 생성 시점 그대로 읽어 목록으로 담는다. 해결일 내림차순 — get_resolved_bugs()가
+    이미 그 순서로 반환한다."""
+    from features.jira.jira_client import get_resolved_bugs
+    return get_resolved_bugs()
+
+
 # ── 내부 함수 ─────────────────────────────────────────────────────────────────
 
 
@@ -374,6 +400,12 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
         prev_parents_repeat_count = prev_report.get("parents_repeat_count") if prev_report else None
         prev_parents_shortgap_count = prev_report.get("parents_shortgap_count") if prev_report else None
         prev_parents_complex_count = prev_report.get("parents_complex_count") if prev_report else None
+        # 미해결 Jira 이슈 스냅샷도 wings/학부모 반복 상담과 같은 이유로 지난주 생성 시점에
+        # 저장해둔 값을 그대로 가져온다.
+        prev_jira_total_count = prev_report.get("jira_total_count") if prev_report else None
+        prev_jira_pending_review_count = prev_report.get("jira_pending_review_count") if prev_report else None
+        prev_jira_six_month_count = prev_report.get("jira_six_month_count") if prev_report else None
+        prev_jira_one_year_count = prev_report.get("jira_one_year_count") if prev_report else None
     else:
         prev_total_all = prev_total_weekday = prev_risk_total = prev_daily_avg = None
         prev_risk_sub_stack = {}
@@ -381,6 +413,8 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
         prev_wings_delayed_7_count = prev_wings_delayed_30_count = None
         prev_parents_total_count = prev_parents_repeat_count = None
         prev_parents_shortgap_count = prev_parents_complex_count = None
+        prev_jira_total_count = prev_jira_pending_review_count = None
+        prev_jira_six_month_count = prev_jira_one_year_count = None
 
     risk_memos: dict = defaultdict(list)
     for row in risk_memo_raw:
@@ -406,6 +440,8 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
 
     wings_snapshot = _wings_snapshot_counts()
     parents_snapshot = _repeat_parents_snapshot_counts()
+    jira_snapshot = _jira_snapshot_counts()
+    jira_resolved_bugs = _jira_resolved_bugs()
 
     return {
         "week_start": week_start,
@@ -443,6 +479,15 @@ def _fetch_week_stats(week_start: str, include_prev: bool = True) -> dict:
         "prev_parents_repeat_count": prev_parents_repeat_count,
         "prev_parents_shortgap_count": prev_parents_shortgap_count,
         "prev_parents_complex_count": prev_parents_complex_count,
+        "jira_total_count": jira_snapshot["total_count"],
+        "jira_pending_review_count": jira_snapshot["pending_review_count"],
+        "jira_six_month_count": jira_snapshot["six_month_count"],
+        "jira_one_year_count": jira_snapshot["one_year_count"],
+        "prev_jira_total_count": prev_jira_total_count,
+        "prev_jira_pending_review_count": prev_jira_pending_review_count,
+        "prev_jira_six_month_count": prev_jira_six_month_count,
+        "prev_jira_one_year_count": prev_jira_one_year_count,
+        "jira_resolved_bugs": jira_resolved_bugs,
     }
 
 
@@ -645,6 +690,15 @@ def _build_weekly_content(stats: dict, weekly_summary: str, weekly_summary_error
         "prev_parents_repeat_count": stats.get("prev_parents_repeat_count"),
         "prev_parents_shortgap_count": stats.get("prev_parents_shortgap_count"),
         "prev_parents_complex_count": stats.get("prev_parents_complex_count"),
+        "jira_total_count": stats.get("jira_total_count", 0),
+        "jira_pending_review_count": stats.get("jira_pending_review_count", 0),
+        "jira_six_month_count": stats.get("jira_six_month_count", 0),
+        "jira_one_year_count": stats.get("jira_one_year_count", 0),
+        "prev_jira_total_count": stats.get("prev_jira_total_count"),
+        "prev_jira_pending_review_count": stats.get("prev_jira_pending_review_count"),
+        "prev_jira_six_month_count": stats.get("prev_jira_six_month_count"),
+        "prev_jira_one_year_count": stats.get("prev_jira_one_year_count"),
+        "jira_resolved_bugs": stats.get("jira_resolved_bugs", []),
         "weekly_summary": weekly_summary,
         "weekly_summary_error": weekly_summary_error,
     }
