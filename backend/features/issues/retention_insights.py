@@ -26,10 +26,10 @@ def get_retention_stats() -> dict:
     with get_conn() as conn:
         defense_rows = conn.execute(
             "SELECT id, datetime(created_date, '+9 hours') AS kst_date, call_memo "
-            "FROM issues WHERE new_category_sub = '해지 방어'"
+            "FROM cs_issues WHERE new_category_sub = '해지 방어'"
         ).fetchall()
         confirmed_count = conn.execute(
-            "SELECT COUNT(*) c FROM issues WHERE new_category_sub = '해지 확정'"
+            "SELECT COUNT(*) c FROM cs_issues WHERE new_category_sub = '해지 확정'"
         ).fetchone()["c"]
 
     defense_count = len(defense_rows)
