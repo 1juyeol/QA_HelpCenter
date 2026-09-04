@@ -302,11 +302,11 @@ tr:last-child td { border-bottom: none; }
 .ticket-link { color: #1a56db; text-decoration: none; font-size: 15px; }
 .ticket-link:hover { text-decoration: underline; }
 .cat-filter-btn {
-  padding: 5px 12px;
+  padding: 8px 16px;
   border-radius: 999px;
   border: 1px solid #e2e8f0;
   background: #fff;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   color: #64748b;
   cursor: pointer;
