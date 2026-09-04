@@ -35,7 +35,7 @@ export default function ChurnReasonInsight() {
         cutout: '62%',
         plugins: {
           legend: { position: 'right', labels: { boxWidth: 10, font: { size: 17 }, color: '#6b7689' } },
-          tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.parsed}건` } },
+          tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.parsed.toLocaleString()}건` } },
         },
       },
     })
@@ -56,7 +56,7 @@ export default function ChurnReasonInsight() {
             미기재 건은 집계에서 제외됩니다.
           </p>
         </div>
-        <span className="qi-chip">{churn ? `사유 명시 ${churn.total}건 기준` : '조회 중'}</span>
+        <span className="qi-chip">{churn ? `사유 명시 ${churn.total.toLocaleString()}건 기준` : '조회 중'}</span>
       </div>
 
       {loading ? (

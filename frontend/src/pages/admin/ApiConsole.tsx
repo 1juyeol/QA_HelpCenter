@@ -133,9 +133,9 @@ function CollectionCallCounts() {
               >
                 <span style={{ fontSize: 15, color: '#1e293b' }}>{c.day}</span>
                 {over ? (
-                  <Badge color="#ef4444">{c.count}회 · 한도 {DAILY_CALL_LIMIT}회 초과</Badge>
+                  <Badge color="#ef4444">{c.count.toLocaleString()}회 · 한도 {DAILY_CALL_LIMIT}회 초과</Badge>
                 ) : (
-                  <Badge color="#16a34a">{c.count}회</Badge>
+                  <Badge color="#16a34a">{c.count.toLocaleString()}회</Badge>
                 )}
               </div>
             )
@@ -189,7 +189,7 @@ function LogRow({ entry }: { entry: CollectionLogEntry }) {
           )}
         </div>
         <span style={{ fontSize: 14, color: entry.status === 'error' ? '#ef4444' : '#64748b' }}>
-          {entry.status === 'error' ? `실패: ${entry.message}` : `${entry.count_fetched}건`}
+          {entry.status === 'error' ? `실패: ${entry.message}` : `${entry.count_fetched.toLocaleString()}건`}
           {entry.count_fetched > 0 && (open ? ' ▲' : ' ▼')}
         </span>
       </button>
@@ -241,7 +241,7 @@ function OverLimitDateGroup({ day, entries }: { day: string; entries: Collection
       >
         <span style={{ fontSize: 15, color: '#1e293b', fontWeight: 700 }}>{day}</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Badge color="#ef4444">{entries.length}회 · 한도 {DAILY_CALL_LIMIT}회 초과</Badge>
+          <Badge color="#ef4444">{entries.length.toLocaleString()}회 · 한도 {DAILY_CALL_LIMIT}회 초과</Badge>
           <span style={{ fontSize: 14, color: '#94a3b8' }}>{open ? '▲' : '▼'}</span>
         </span>
       </button>

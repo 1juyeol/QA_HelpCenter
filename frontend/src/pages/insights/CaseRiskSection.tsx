@@ -158,7 +158,7 @@ export default function CaseRiskSection({ rows }: { rows: InsightWings[] }) {
         },
         plugins: {
           legend: { position: 'bottom', labels: { font: { size: 17 }, boxWidth: 12 } },
-          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw}건` } },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${Number(ctx.raw).toLocaleString()}건` } },
         },
         scales: {
           x: { stacked: true, ticks: { font: { size: 13 } } },
@@ -213,7 +213,7 @@ export default function CaseRiskSection({ rows }: { rows: InsightWings[] }) {
               <div>
                 <div style={{ fontSize: 20, fontWeight: 700, color: '#1e293b' }}>{modalSel.category}</div>
                 <div style={{ marginTop: 4, fontSize: 15, color: '#475569', fontWeight: 500 }}>
-                  {monthWeekLabel(modalSel.week)} 최초 상담 · 총 {matchingTickets.length}건
+                  {monthWeekLabel(modalSel.week)} 최초 상담 · 총 {matchingTickets.length.toLocaleString()}건
                 </div>
               </div>
               <button

@@ -148,9 +148,9 @@ describe('formatField', () => {
     expect(formatField('minute', '30')).toBe('30분으로 설정')
   })
 
-  it('total/changed/etc_reclaimed는 재분류 결과 건수 문장으로 바꾼다', () => {
-    expect(formatField('total', '80251')).toBe('전체 80251건')
-    expect(formatField('changed', '3521')).toBe('변경 3521건')
+  it('total/changed/etc_reclaimed는 재분류 결과 건수 문장으로 바꾼다(천 단위 콤마 포함)', () => {
+    expect(formatField('total', '80251')).toBe('전체 80,251건')
+    expect(formatField('changed', '3521')).toBe('변경 3,521건')
     expect(formatField('etc_reclaimed', '1')).toBe('기타→타 카테고리 흡수 1건')
   })
 
