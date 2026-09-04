@@ -1,6 +1,6 @@
-// Wings 티켓·학부모 반복 상담 캐시 자동 갱신 설정 화면. "자동화 관리" 페이지
-// (AutomationManagement.tsx)의 "인사이트 자동 갱신" 탭이 이 파일이 내보내는
-// InsightRefreshSettingsSection을 jobType만 바꿔 그대로 가져다 쓴다.
+// Wings 티켓·학부모 반복 상담·JIRA 버그 캐시 자동 갱신 설정 화면. "자동화 관리" 페이지
+// (AutomationManagement.tsx)의 "인사이트 캐시 갱신" 탭이 이 파일이 내보내는
+// InsightRefreshSettingsSection을 jobType만 바꿔 세 번 나란히 가져다 쓴다.
 //
 // GenerationSettings.tsx(일별/주간 보고서 생성 설정)와 같은 구조(on/off + 시각, 저장하면
 // 그 즉시 스케줄 재등록, 이력은 감사 로그 필터링)지만 두 가지가 다르다:
@@ -15,22 +15,25 @@ import FieldRow from '../../components/FieldRow'
 import HistoryList from '../../components/HistoryList'
 import TimePicker from '../../components/TimePicker'
 
-type InsightJobType = 'wings_refresh' | 'repeat_parents_refresh'
+type InsightJobType = 'wings_refresh' | 'repeat_parents_refresh' | 'jira_refresh'
 
 const INSIGHT_LABEL: Record<InsightJobType, string> = {
   wings_refresh: '반복 Wings 티켓',
   repeat_parents_refresh: '학부모 반복 상담',
+  jira_refresh: '미해결 Jira 이슈',
 }
 
 const INSIGHT_LINK: Record<InsightJobType, string> = {
   wings_refresh: '/insights/wings',
   repeat_parents_refresh: '/insights/parents',
+  jira_refresh: '/insights/jira-bugs',
 }
 
 // 이 jobType의 갱신이 남기는 감사 로그 action 전부(성공/스킵).
 const HISTORY_ACTIONS: Record<InsightJobType, string[]> = {
   wings_refresh: ['wings_cache_refresh', 'wings_cache_refresh_skipped'],
   repeat_parents_refresh: ['repeat_parents_cache_refresh', 'repeat_parents_cache_refresh_skipped'],
+  jira_refresh: ['jira_cache_refresh', 'jira_cache_refresh_skipped'],
 }
 
 export function InsightRefreshSettingsSection({ jobType }: { jobType: InsightJobType }) {

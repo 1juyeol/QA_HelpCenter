@@ -1,6 +1,6 @@
 // 좌측 네비게이션 사이드바. 대시보드 링크와 인사이트 서브메뉴(접기·펼치기)를 표시한다.
 // NavLink로 현재 경로를 감지해 활성 메뉴를 하이라이트한다.
-// 인사이트 목록: 월별 보고서(준비 중) / 반복 Wings 티켓 / 학부모 반복 상담 / 방치된 JIRA 버그 / 미지의 버그 탐지기 / 서비스 품질 지수
+// 인사이트 목록: 월별 보고서(준비 중) / 반복 Wings 티켓 / 학부모 반복 상담 / 미해결 Jira 이슈 / 미지의 버그 탐지기 / 서비스 품질 지수
 // / 이탈·교체 원인 분석(하위: 해지 사유 분석, 기기 교체 분석, 해지 방어 성과)
 // 관리자 모드: 하단 자물쇠 아이콘 클릭 → 암호 입력 모달 → useAdmin().verify()로 확인.
 //   통과하면 다음이 추가로 노출된다:
@@ -139,7 +139,7 @@ export default function Sidebar() {
           to="/insights/jira-bugs"
           className={({ isActive }) => `nav-sub-item${isActive ? ' active' : ''}`}
         >
-          방치된 JIRA 버그
+          미해결 Jira 이슈
         </NavLink>
         <div className="nav-sub-item" style={{ color: '#94a3b8', fontWeight: 700, cursor: 'default' }}>
           이탈·교체 원인 분석
