@@ -225,8 +225,8 @@ export default function StrategicDashboard() {
   const riskAlerts: string[] = []
   if (!loading) {
     if (riskDelta !== null && riskDelta > 0) riskAlerts.push(`리스크 비율 ↑ +${riskDelta}%`)
-    if (delayedWings.length > 0)             riskAlerts.push(`처리 지연 ${delayedWings.length}건`)
-    if (parentSameIssue > 0)                 riskAlerts.push(`동일 이슈 반복 ${parentSameIssue}명`)
+    if (delayedWings.length > 0)             riskAlerts.push(`처리 지연 ${delayedWings.length.toLocaleString()}건`)
+    if (parentSameIssue > 0)                 riskAlerts.push(`동일 이슈 반복 ${parentSameIssue.toLocaleString()}명`)
   }
 
   // ── 렌더 ────────────────────────────────────────────────────────────────────
@@ -306,7 +306,7 @@ export default function StrategicDashboard() {
                 총 상담 건수
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginBottom: 6 }}>
-                <span style={{ fontSize: 38, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{weekTotal ?? '—'}</span>
+                <span style={{ fontSize: 38, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{weekTotal?.toLocaleString() ?? '—'}</span>
                 <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>건</span>
               </div>
               <DeltaBadge delta={csDelta} colorCode={false} />
@@ -323,7 +323,7 @@ export default function StrategicDashboard() {
                 Wings 미해결
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginBottom: 14 }}>
-                <span style={{ fontSize: 38, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{unresolvedWings.length}</span>
+                <span style={{ fontSize: 38, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{unresolvedWings.length.toLocaleString()}</span>
                 <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>건</span>
               </div>
               {/* 처리지연 비율 바 */}
@@ -331,7 +331,7 @@ export default function StrategicDashboard() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>처리 지연</span>
                   <span style={{ fontSize: 11, color: delayedWings.length > 0 ? '#f87171' : 'rgba(255,255,255,0.4)', fontWeight: 600 }}>
-                    {delayedWings.length}건
+                    {delayedWings.length.toLocaleString()}건
                   </span>
                 </div>
                 <div style={{ height: 3, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }}>
@@ -376,7 +376,7 @@ export default function StrategicDashboard() {
                   <div key={item.label}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
                       <span style={{ fontSize: 13, color: '#64748b' }}>{item.label}</span>
-                      <span style={{ fontSize: 16, fontWeight: 700, color: item.color }}>{item.value}건</span>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: item.color }}>{item.value.toLocaleString()}건</span>
                     </div>
                     <ProgressBar value={item.value} total={item.total} color={item.color} />
                   </div>
@@ -385,7 +385,7 @@ export default function StrategicDashboard() {
             </div>
 
             <div style={{ padding: '14px 24px 18px', borderTop: '1px solid #f1f5f9', marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>총 상담 언급 {totalWingsCs}건</span>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>총 상담 언급 {totalWingsCs.toLocaleString()}건</span>
               <DetailButton to="/insights/wings" />
             </div>
           </div>
@@ -407,7 +407,7 @@ export default function StrategicDashboard() {
 
               {/* 헤드라인 수 */}
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginBottom: 18 }}>
-                <span style={{ fontSize: 32, fontWeight: 800, color: '#111827', lineHeight: 1 }}>{parents.length}</span>
+                <span style={{ fontSize: 32, fontWeight: 800, color: '#111827', lineHeight: 1 }}>{parents.length.toLocaleString()}</span>
                 <span style={{ fontSize: 13, color: '#94a3b8' }}>명</span>
                 <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>반복 상담 학부모</span>
               </div>
@@ -424,7 +424,7 @@ export default function StrategicDashboard() {
                         <span style={{ fontSize: 13, color: '#64748b' }}>{item.label}</span>
                         <span style={{ fontSize: 10, color: '#94a3b8' }}>{item.note}</span>
                       </div>
-                      <span style={{ fontSize: 16, fontWeight: 700, color: item.color }}>{item.value}명</span>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: item.color }}>{item.value.toLocaleString()}명</span>
                     </div>
                     <ProgressBar value={item.value} total={item.total} color={item.color} />
                   </div>
@@ -433,7 +433,7 @@ export default function StrategicDashboard() {
             </div>
 
             <div style={{ padding: '14px 24px 18px', borderTop: '1px solid #f1f5f9', marginTop: 'auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: '#94a3b8' }}>최다 상담 {maxParentCs}건</span>
+              <span style={{ fontSize: 12, color: '#94a3b8' }}>최다 상담 {maxParentCs.toLocaleString()}건</span>
               <DetailButton to="/insights/parents" />
             </div>
           </div>

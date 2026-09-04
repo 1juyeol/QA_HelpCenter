@@ -221,9 +221,9 @@ export function formatField(key: string, value: string): string | null {
     case 'enabled': return value === 'True' ? '자동 실행 켜짐' : '자동 실행 꺼짐'
     case 'hour': return `${value}시로 설정`
     case 'minute': return `${value}분으로 설정`
-    case 'total': return `전체 ${value}건`
-    case 'changed': return `변경 ${value}건`
-    case 'etc_reclaimed': return `기타→타 카테고리 흡수 ${value}건`
+    case 'total': return `전체 ${Number(value).toLocaleString()}건`
+    case 'changed': return `변경 ${Number(value).toLocaleString()}건`
+    case 'etc_reclaimed': return `기타→타 카테고리 흡수 ${Number(value).toLocaleString()}건`
     case 'top_changes': return `주요 변화: ${value}`
     default: return null // 알 수 없는 키는 조용히 생략 (미래에 필드가 늘어도 깨지지 않게)
   }
@@ -466,10 +466,10 @@ export default function AuditLog() {
       ) : entries === null ? (
         <div style={{ fontSize: 18, color: '#94a3b8' }}>불러오는 중...</div>
       ) : filtered.length === 0 ? (
-        <div style={{ fontSize: 18, color: '#94a3b8' }}>조건에 맞는 기록 없음 ({entries.length}건 중 0건)</div>
+        <div style={{ fontSize: 18, color: '#94a3b8' }}>조건에 맞는 기록 없음 ({entries.length.toLocaleString()}건 중 0건)</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 17, color: '#94a3b8' }}>{filtered.length}건 (전체 {entries.length}건)</div>
+          <div style={{ fontSize: 17, color: '#94a3b8' }}>{filtered.length.toLocaleString()}건 (전체 {entries.length.toLocaleString()}건)</div>
           {pagedEntries.map(e => <AuditLogRow key={e.id} entry={e} />)}
           {totalPages > 1 && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 8 }}>

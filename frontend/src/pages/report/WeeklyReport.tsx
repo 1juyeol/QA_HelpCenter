@@ -257,7 +257,7 @@ function UnresolvedSeverityBar({
             key={s.key}
             onClick={() => onSegmentClick(s.key)}
             style={{ width: `${counts[s.key] / total * 100}%`, background: s.color, cursor: 'pointer' }}
-            title={`${s.label}: ${counts[s.key]}건 — 클릭하면 목록 확인`}
+            title={`${s.label}: ${counts[s.key].toLocaleString()}건 — 클릭하면 목록 확인`}
           />
         ))}
       </div>
@@ -336,7 +336,7 @@ function SeverityListModal({ bucket, rows, onClose }: { bucket: SeverityBucket; 
           <div>
             <div style={{ fontSize: 20, fontWeight: 700, color: '#1e293b' }}>경과일 {label}</div>
             <div style={{ marginTop: 4, fontSize: 15, color: '#475569', fontWeight: 500 }}>
-              현재 시점 기준 목록 · 총 {rows.length}건
+              현재 시점 기준 목록 · 총 {rows.length.toLocaleString()}건
             </div>
           </div>
           <button

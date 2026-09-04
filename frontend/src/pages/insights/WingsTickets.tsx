@@ -290,7 +290,7 @@ export default function WingsTickets() {
         maintainAspectRatio: false,
         plugins: {
           legend: { position: 'bottom', labels: { font: { size: 17 }, boxWidth: 12 } },
-          tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}건` } },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${Number(ctx.parsed.y).toLocaleString()}건` } },
         },
         scales: {
           x: { grid: { display: false }, ticks: { color: '#374151', font: { size: 13 } } },
@@ -383,7 +383,7 @@ export default function WingsTickets() {
                     }} title={card.label}>
                       {card.label}
                     </div>
-                    <div style={{ fontSize: 45, fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>{card.value}건</div>
+                    <div style={{ fontSize: 45, fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>{card.value.toLocaleString()}건</div>
                   </button>
                 )
               })}
@@ -448,7 +448,7 @@ export default function WingsTickets() {
               {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}개씩</option>)}
             </select>
           </div>
-          <span style={{ fontSize: 20, fontWeight: 700, color: NAVY }}>총 {sortedRows.length}건</span>
+          <span style={{ fontSize: 20, fontWeight: 700, color: NAVY }}>총 {sortedRows.length.toLocaleString()}건</span>
         </div>
 
         <div className="insight-table-wrap">
@@ -544,7 +544,7 @@ export default function WingsTickets() {
 
         {!loading && sortedRows.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 12 }}>
-            <span style={{ fontSize: 13, color: '#94a3b8' }}>총 {sortedRows.length}건 · {currentPage} / {totalPages}페이지</span>
+            <span style={{ fontSize: 13, color: '#94a3b8' }}>총 {sortedRows.length.toLocaleString()}건 · {currentPage} / {totalPages}페이지</span>
             {totalPages > 1 && (
               <>
                 <button

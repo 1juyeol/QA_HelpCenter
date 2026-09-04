@@ -44,7 +44,7 @@ export default function DeviceSwapInsight() {
         maintainAspectRatio: false,
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { label: ctx => `${ctx.parsed.x}건` } },
+          tooltip: { callbacks: { label: ctx => `${Number(ctx.parsed.x).toLocaleString()}건` } },
         },
         scales: {
           x: { grid: { color: '#ebeef5' }, ticks: { color: '#9aa3b5', font: { size: 13 } } },

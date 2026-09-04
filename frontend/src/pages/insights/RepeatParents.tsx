@@ -506,7 +506,7 @@ export default function RepeatParents() {
           ctx.fillStyle = '#374151'
           ctx.textAlign = 'left'
           ctx.textBaseline = 'middle'
-          ctx.fillText(`${val}건`, bar.x + 6, bar.y)
+          ctx.fillText(`${val.toLocaleString()}건`, bar.x + 6, bar.y)
           ctx.restore()
         })
       },
@@ -655,7 +655,7 @@ export default function RepeatParents() {
                   }} title={card.label}>
                     {card.label}
                   </div>
-                  <div style={{ fontSize: 45, fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>{card.value}명</div>
+                  <div style={{ fontSize: 45, fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>{card.value.toLocaleString()}명</div>
                 </button>
               )
             })}
@@ -668,7 +668,7 @@ export default function RepeatParents() {
           <div className="section-card" style={{ marginBottom: 16 }} ref={chartSectionRef}>
             <h2 style={{ fontSize: 20 }}>
               최근 3개월 반복 상담 유형 분포{' '}
-              <span style={{ fontSize: 23, fontWeight: 700, color: '#1e293b' }}>(총 {chartTotalCount}건)</span>
+              <span style={{ fontSize: 23, fontWeight: 700, color: '#1e293b' }}>(총 {chartTotalCount.toLocaleString()}건)</span>
             </h2>
             <div style={{ height: Math.max(180, chartCategoryCount * 34), position: 'relative' }}>
               {/* index.css의 전역 규칙 canvas{max-height:300px}이 이 차트엔 안 맞아서(카테고리
@@ -753,7 +753,7 @@ export default function RepeatParents() {
           >
             {[10, 20, 50, 100].map(n => <option key={n} value={n}>{n}개씩</option>)}
           </select>
-          <span style={{ fontSize: 20, fontWeight: 700, color: NAVY }}>총 {sortedRows.length}명</span>
+          <span style={{ fontSize: 20, fontWeight: 700, color: NAVY }}>총 {sortedRows.length.toLocaleString()}명</span>
           {filter.main && (
             <button
               onClick={() => setFilter({ main: null, sub: null })}
@@ -851,7 +851,7 @@ export default function RepeatParents() {
 
         {!loading && sortedRows.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, marginTop: 12 }}>
-            <span style={{ fontSize: 13, color: '#94a3b8' }}>총 {sortedRows.length}명 · {currentPage} / {totalPages}페이지</span>
+            <span style={{ fontSize: 13, color: '#94a3b8' }}>총 {sortedRows.length.toLocaleString()}명 · {currentPage} / {totalPages}페이지</span>
             {totalPages > 1 && (
               <>
                 <button
