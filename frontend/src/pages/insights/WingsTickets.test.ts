@@ -3,7 +3,7 @@
 // 2순위"라는 기본 정렬 요건과, 그 외 컬럼은 단순 단일 기준 정렬이라는 점을 검증한다.
 // isRepeatTicket: "여러번 상담" KPI 카드 필터 조건("같은 티켓 2회+ 언급").
 import { describe, it, expect } from 'vitest'
-import { compareRows, isRepeatTicket } from './WingsTickets'
+import { compareRows, isRepeatTicket, matchesStateFilter } from './WingsTickets'
 import type { InsightWings } from '../../api/client'
 
 function ticket(overrides: Partial<InsightWings>): InsightWings {
@@ -64,5 +64,29 @@ describe('isRepeatTicket', () => {
 
   it('cs_count가 2 이상이면 여러번 상담이다', () => {
     expect(isRepeatTicket(ticket({ cs_count: 2 }))).toBe(true)
+  })
+})
+
+describe('matchesStateFilter', () => {
+  it('all은 상태와 무관하게 항상 통과한다', () => {
+    expect(matchesStateFilter(ticket({ state: '해결' }), 'all')).toBe(true)
+    expect(matchesStateFilter(ticket({ state: '신규' }), 'all')).toBe(true)
+  })
+
+  it('unresolved는 종료 상태(해결/요청취소/merged)가 아닌 것만 통과한다', () => {
+    expect(matchesStateFilter(ticket({ state: '신규' }), 'unresolved')).toBe(true)
+    expect(matchesStateFilter(ticket({ state: '해결' }), 'unresolved')).toBe(false)
+    expect(matchesStateFilter(ticket({ state: '요청취소' }), 'unresolved')).toBe(false)
+    expect(matchesStateFilter(ticket({ state: 'merged' }), 'unresolved')).toBe(false)
+  })
+
+  it('resolved는 종료 상태만 통과한다', () => {
+    expect(matchesStateFilter(ticket({ state: '해결' }), 'resolved')).toBe(true)
+    expect(matchesStateFilter(ticket({ state: '신규' }), 'resolved')).toBe(false)
+  })
+
+  it('그 외 값은 실제 상태 원문과 정확히 일치할 때만 통과한다', () => {
+    expect(matchesStateFilter(ticket({ state: '진행 중' }), '진행 중')).toBe(true)
+    expect(matchesStateFilter(ticket({ state: '결과 확인 중' }), '진행 중')).toBe(false)
   })
 })
