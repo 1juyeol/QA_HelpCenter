@@ -4,7 +4,7 @@
 # collection_settings.py처럼 파일이 아니라 테이블인 이유는, 값이 하나가 아니라 report_type별로
 # 여러 항목(시각 4개, 발신자, 수신자 목록)이 필요해서 단일 JSON보다 테이블이 자연스럽다.
 # 아직 설정한 적 없는 report_type을 조회하면 DEFAULTS로 채워 반환한다(테이블에 행이 없어도 됨).
-from datetime import date
+from datetime import date, datetime
 
 from core.db import get_conn
 
@@ -21,6 +21,28 @@ DEFAULTS = {
 
 # APScheduler cron의 day_of_week 값 그대로 — 주간 보고서 메일링에서만 쓴다(일별은 매일 발송).
 VALID_WEEKDAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+_WEEKDAY_INDEX = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+
+
+def has_daily_slot_passed(send_hour: int, send_minute: int, now: datetime | None = None) -> bool:
+    """오늘의 발송 시각(send_hour:send_minute)이 이미 지났는지 판별한다. 메일링을 꺼둔 채로
+    발송 시각을 넘긴 뒤 다시 켜서 저장하는 경우, 이 값이 True면 그 즉시 한 번 발송을
+    시도해야 한다는 뜻이다(그러지 않으면 다음 날까지 그냥 넘어가 버린다)."""
+    now = now or datetime.now()
+    return (now.hour, now.minute) >= (send_hour, send_minute)
+
+
+def has_weekly_slot_passed(send_weekday: str, send_hour: int, send_minute: int, now: datetime | None = None) -> bool:
+    """이번 주의 발송 요일·시각이 이미 지났는지 판별한다. 지정 요일이 오늘보다 이전이면
+    무조건 지난 것이고, 오늘이면 시각을 비교한다. 아직 안 온 요일이면 False — 이 경우는
+    평소 스케줄이 알아서 그 요일에 발송하므로 즉시 재시도할 필요가 없다."""
+    now = now or datetime.now()
+    target = _WEEKDAY_INDEX[send_weekday]
+    if now.weekday() > target:
+        return True
+    if now.weekday() < target:
+        return False
+    return (now.hour, now.minute) >= (send_hour, send_minute)
 
 # 마감 시각과 발송 시각 사이에 최소한 이만큼(분)은 떨어져 있어야 한다. 너무 붙어있으면
 # "마감 시각에 딱 맞춰 만들어진 보고서"를 스크린샷·발송까지 끝낼 시간이 부족해질 수 있다.

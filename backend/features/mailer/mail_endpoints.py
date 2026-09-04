@@ -6,6 +6,11 @@
 #   (서버 재시작 없이 다음 발송부터 바뀐 시각·수신자 등이 반영된다). 마감 시각이 발송 시각보다
 #   MIN_DEADLINE_SEND_GAP_MINUTES(10분) 이상 앞서 있지 않으면 400으로 거부한다 — 마감에 딱
 #   맞춰 만들어진 보고서를 스크린샷 찍고 발송까지 끝낼 시간을 최소한으로 확보하기 위함.
+#   저장 결과 enabled=true이고 오늘(주간이면 이번 주) 발송 시각이 이미 지난 상태면, 그
+#   자리에서 즉시 한 번 자동 발송을 시도한다 — 메일링을 꺼둔 채로 발송 시각을 넘긴 뒤 다시
+#   켜서 저장하는 경우 다음 발송까지(일별은 내일, 주간은 다음 주) 그냥 넘어가 버리는 걸
+#   막기 위함이다. 이미 발송된 건 daily_report_mailer.py/weekly_report_mailer.py 안의
+#   중복 발송 방지 로직이 알아서 건너뛰므로 여기서 별도로 막을 필요는 없다.
 # POST /api/mail-settings/test?report_type=daily|weekly&date=YYYY-MM-DD&to=a@x.com,b@x.com :
 #   (디버그·특정 상황용) 발송 시각을 기다리지 않고 즉시 한 번 실행한다. date를 안 넘기면 평소
 #   스케줄과 똑같이 "직전 영업일"(daily)/"직전 주"(weekly)로 자동 계산한다. date를 넘기면 그
@@ -25,6 +30,7 @@ from core.mail_settings import (
     get_mail_settings, save_mail_settings, reset_mail_settings, parse_recipients,
     has_min_deadline_gap, MIN_DEADLINE_SEND_GAP_MINUTES,
     is_allowed_recipient, ALLOWED_RECIPIENT_DOMAIN, VALID_WEEKDAYS,
+    has_daily_slot_passed, has_weekly_slot_passed,
 )
 from features.admin.admin_endpoints import require_admin
 from features.collection.scheduler import reschedule_mail_job
@@ -54,7 +60,7 @@ def get_settings(report_type: str = Query(...), _: None = Depends(require_admin)
 
 
 @router.post("/api/mail-settings")
-def update_settings(body: MailSettingsBody, _: None = Depends(require_admin)):
+async def update_settings(body: MailSettingsBody, _: None = Depends(require_admin)):
     if body.report_type not in _REPORT_TYPES:
         raise HTTPException(status_code=400, detail="report_type은 daily 또는 weekly여야 합니다")
     if not has_min_deadline_gap(body.deadline_hour, body.deadline_minute, body.send_hour, body.send_minute):
@@ -68,6 +74,20 @@ def update_settings(body: MailSettingsBody, _: None = Depends(require_admin)):
         raise HTTPException(status_code=400, detail="send_weekday는 mon~sun 중 하나여야 합니다")
     save_mail_settings(body.report_type, body.model_dump(exclude={"report_type"}))
     reschedule_mail_job(body.report_type)
+
+    if body.enabled:
+        if body.report_type == "daily":
+            slot_passed = has_daily_slot_passed(body.send_hour, body.send_minute)
+        else:
+            slot_passed = has_weekly_slot_passed(body.send_weekday, body.send_hour, body.send_minute)
+        if slot_passed:
+            if body.report_type == "daily":
+                from features.mailer.daily_report_mailer import send_daily_report_mail
+                await send_daily_report_mail(mode="auto")
+            else:
+                from features.mailer.weekly_report_mailer import send_weekly_report_mail
+                await send_weekly_report_mail(mode="auto")
+
     return get_mail_settings(body.report_type)
 
 
