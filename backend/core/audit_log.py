@@ -35,6 +35,19 @@ def log_action(action: str, detail: str = "", mode: str = "manual") -> None:
         conn.commit()
 
 
+def was_already_logged(action: str, detail: str) -> bool:
+    """action+detail이 정확히 일치하는 로그가 이미 있는지 확인한다. 일별·주간 메일러가 자동
+    발송 직전에 "이 날짜/이 주는 이미 status=sent로 남아있지 않은가"를 확인하는 용도 —
+    메일링을 꺼둔 채로 발송 시각을 넘겼다가 다시 켜서 저장할 때 즉시 재시도 발송하는 기능이
+    생기면서, 같은 보고서를 두 번 보내는 걸 막기 위해 필요해졌다."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM audit_log WHERE action = ? AND detail = ? LIMIT 1",
+            (action, detail),
+        ).fetchone()
+    return row is not None
+
+
 def list_audit_log(limit: int = 200) -> list:
     with get_conn() as conn:
         rows = conn.execute(

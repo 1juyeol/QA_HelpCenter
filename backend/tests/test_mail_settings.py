@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
-# core/mail_settings.py의 parse_recipients()/report_ready_by_deadline()/is_allowed_recipient()
-# 유닛 테스트.
+# core/mail_settings.py의 parse_recipients()/report_ready_by_deadline()/is_allowed_recipient()/
+# has_daily_slot_passed()/has_weekly_slot_passed() 유닛 테스트.
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.mail_settings import parse_recipients, report_ready_by_deadline, has_min_deadline_gap, is_allowed_recipient
+from core.mail_settings import (
+    parse_recipients, report_ready_by_deadline, has_min_deadline_gap, is_allowed_recipient,
+    has_daily_slot_passed, has_weekly_slot_passed,
+)
 
 
 class TestParseRecipients:
@@ -81,3 +85,39 @@ class TestIsAllowedRecipient:
 
     def test_blocks_lookalike_subdomain(self):
         assert is_allowed_recipient("jylee@danbiedu.co.kr.evil.com") is False
+
+
+class TestHasDailySlotPassed:
+    def test_before_send_time_not_passed(self):
+        now = datetime(2026, 9, 4, 10, 30)
+        assert has_daily_slot_passed(11, 0, now=now) is False
+
+    def test_after_send_time_passed(self):
+        now = datetime(2026, 9, 4, 11, 30)
+        assert has_daily_slot_passed(11, 0, now=now) is True
+
+    def test_exactly_at_send_time_passed(self):
+        now = datetime(2026, 9, 4, 11, 0)
+        assert has_daily_slot_passed(11, 0, now=now) is True
+
+
+class TestHasWeeklySlotPassed:
+    def test_earlier_weekday_not_passed(self):
+        now = datetime(2026, 9, 1, 15, 0)  # 화요일
+        assert has_weekly_slot_passed("wed", 11, 0, now=now) is False
+
+    def test_later_weekday_passed(self):
+        now = datetime(2026, 9, 4, 9, 0)  # 금요일
+        assert has_weekly_slot_passed("wed", 11, 0, now=now) is True
+
+    def test_same_weekday_before_send_time_not_passed(self):
+        now = datetime(2026, 9, 2, 10, 30)  # 수요일
+        assert has_weekly_slot_passed("wed", 11, 0, now=now) is False
+
+    def test_same_weekday_after_send_time_passed(self):
+        now = datetime(2026, 9, 2, 11, 30)  # 수요일
+        assert has_weekly_slot_passed("wed", 11, 0, now=now) is True
+
+    def test_same_weekday_exactly_at_send_time_passed(self):
+        now = datetime(2026, 9, 2, 11, 0)  # 수요일
+        assert has_weekly_slot_passed("wed", 11, 0, now=now) is True
