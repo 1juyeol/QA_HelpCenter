@@ -386,7 +386,7 @@ def get_churn_reason_stats() -> dict:
         rows = conn.execute(
             """
             SELECT id, datetime(created_date, '+9 hours') AS kst_date, call_memo
-            FROM issues
+            FROM cs_issues
             WHERE new_category_main = '해지·유지 상담' AND call_memo LIKE '%해지요청 사유%'
             """
         ).fetchall()
@@ -422,7 +422,7 @@ def get_device_swap_stats() -> dict:
         rows = conn.execute(
             """
             SELECT id, datetime(created_date, '+9 hours') AS kst_date, call_memo
-            FROM issues
+            FROM cs_issues
             WHERE new_category_sub = '기기 교체 요청'
             """
         ).fetchall()

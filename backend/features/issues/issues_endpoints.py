@@ -3,6 +3,9 @@
 # GET /api/issues: 날짜·기간·카테고리·버킷 필터를 조합해 이슈 목록을 반환한다.
 #   subs 파라미터(쉼표 구분)로 복수 소분류 IN 필터 지원.
 #   limit/offset 페이지네이션 지원. parent_id=92(내부 계정)는 NULL로 마스킹하여 반환한다.
+#   include_system_batches=true를 넘기면 cs_issues 대신 원본 issues 테이블을 쓴다 —
+#   운영 현황 대시보드(Dashboard.tsx)만 이 값을 true로 넘긴다. stats_endpoints.py 상단
+#   주석 참고.
 # GET /api/issues/subs: 날짜 범위 + 대분류 조건의 소분류 목록 반환 (모달 체크박스 초기화용).
 # 대시보드에서 카테고리 드릴다운·메모 모달 클릭 시 이 엔드포인트들을 호출한다.
 from datetime import date
@@ -47,6 +50,7 @@ def list_issues(
     offset: int = 0,
     bucket: str = Query(default=None),
     q: str = Query(default=None),
+    include_system_batches: bool = False,
 ):
     if start_date and end_date:
         col = "date(datetime(created_date, '+9 hours'))"
@@ -79,14 +83,15 @@ def list_issues(
         elif category_sub:
             where += " AND new_category_sub = ?"
             params.append(category_sub)
+    table = "issues" if include_system_batches else "cs_issues"
     with get_conn() as conn:
-        total = conn.execute(f"SELECT COUNT(*) FROM cs_issues WHERE {where}", params).fetchone()[0]
+        total = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {where}", params).fetchone()[0]
         rows = conn.execute(
             f"""
             SELECT id, datetime(created_date, '+9 hours') AS created_date,
                    new_category_main, new_category_sub, call_memo,
                    student_id, CASE WHEN parent_id = 92 THEN NULL ELSE parent_id END AS parent_id
-            FROM cs_issues WHERE {where}
+            FROM {table} WHERE {where}
             ORDER BY created_date DESC LIMIT ? OFFSET ?
             """,
             params + [limit, offset],

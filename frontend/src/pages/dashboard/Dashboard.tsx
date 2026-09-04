@@ -3,6 +3,10 @@
 // Chart.js 차트(Bar·Line) / 카테고리 드릴다운(대분류→소분류→메모 목록) /
 // 피크 시간대 하이라이트 / 정시·30분 자동 리로드.
 // 데이터 흐름: api/client.ts 함수 호출 → 상태 업데이트 → Chart.js 재렌더링 → DOM 반영.
+// api 호출 시 includeSystemBatches: true를 넘긴다 — 이 페이지는 "실제 CS 업무량"이 아니라
+// "시스템에 지금 뭐가 쌓이고 있는지"를 있는 그대로 보여주는 화면이라, 백엔드 개발자가
+// 추가배송·재가입선물 등을 일괄로 밀어넣는 시스템 자동 이력도 걸러내지 않고 그대로 본다
+// (일별/주간 보고서·인사이트 페이지들은 반대로 이 이력을 걸러낸 값을 쓴다).
 import { useEffect, useRef, useState } from 'react'
 import Chart from 'chart.js/auto'
 import { api, adminStudentUrl, adminParentUrl, type BucketRow, type CategoryRow, type DailyRow, type Issue, type MonthlyRow, type WeeklyRow } from '../../api/client'
@@ -263,7 +267,7 @@ export default function Dashboard() {
 
   async function doLoadChart(p: Period, d: string, mo: string, sd: string, ed: string) {
     if (p === 'hourly_range') {
-      const rows = await api.fetchHourly(sd, ed)
+      const rows = await api.fetchHourly(sd, ed, true)
       chartRowsRef.current = rows
       const labels = rows.map(r => r.bucket)
       const data = rows.map(r => r.count)
@@ -301,7 +305,7 @@ export default function Dashboard() {
       ])
 
     } else if (p === 'day') {
-      const rows = await api.fetchDaily(d, 'week') as DailyRow[]
+      const rows = await api.fetchDaily(d, 'week', true) as DailyRow[]
       chartRowsRef.current = rows
       const labels = rows.map(r => r.date.slice(5).replace('-', '/'))
       const data = rows.map(r => r.count)
@@ -338,7 +342,7 @@ export default function Dashboard() {
       ])
 
     } else if (p === 'week') {
-      const rows = await api.fetchWeekly(d) as WeeklyRow[]
+      const rows = await api.fetchWeekly(d, true) as WeeklyRow[]
       chartRowsRef.current = rows
       const labels = rows.map(r => monthWeekLabel(r.week_start))
       const data = rows.map(r => r.count)
@@ -377,7 +381,7 @@ export default function Dashboard() {
       ])
 
     } else {
-      const rows = await api.fetchMonthly(mo + '-01') as MonthlyRow[]
+      const rows = await api.fetchMonthly(mo + '-01', true) as MonthlyRow[]
       chartRowsRef.current = rows
       const labels = rows.map(r => r.month.slice(5) + '월')
       const data = rows.map(r => r.count)
@@ -420,7 +424,7 @@ export default function Dashboard() {
     setCatLoading(true)
     try {
       const { start, end } = getActiveFilter(p, sd, ed, seg)
-      const rows = await api.fetchCategory({ startDate: start, endDate: end, buckets: buckets.length ? buckets : undefined, q: q || undefined })
+      const rows = await api.fetchCategory({ startDate: start, endDate: end, buckets: buckets.length ? buckets : undefined, q: q || undefined, includeSystemBatches: true })
       if (!rows.length) { setCatEmpty(true); setSorted([]); return }
       setCatEmpty(false)
       const grouped: Record<string, CatGroup> = {}
@@ -452,6 +456,7 @@ export default function Dashboard() {
         q: activeQuery || undefined,
         ...(isUnclassified ? { unclassified: true } : { categoryMain: main, categorySub: sub }),
         limit: PAGE_SIZE, offset: page * PAGE_SIZE,
+        includeSystemBatches: true,
       })
       setMemoItems(result.items)
       setMemoTotal(result.total)

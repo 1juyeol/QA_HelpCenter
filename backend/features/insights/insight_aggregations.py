@@ -76,7 +76,7 @@ def compute_wings_tickets(start_date: str, end_date: str, limit: int | None = No
         rows = conn.execute(
             """
             SELECT datetime(created_date, '+9 hours') AS kst_date, call_memo, student_id, parent_id, new_category_main
-            FROM issues
+            FROM cs_issues
             WHERE date(datetime(created_date, '+9 hours')) BETWEEN ? AND ?
               AND call_memo LIKE '%wings.danbiedu.co.kr/#ticket/zoom/%'
             ORDER BY kst_date DESC

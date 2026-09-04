@@ -5,6 +5,14 @@
 # category           : 대분류·소분류·버킷 조합 필터 집계 — 카테고리 드릴다운용.
 # weekly             : 주차별 건수 (최근 4주). monthly : 월별 건수 (최근 3개월).
 # category_daily     : 최근 4주 일별·카테고리별 건수, 주말·공휴일 제외 — 일별 SQI 계산용.
+#
+# hourly_range/daily/category/weekly/monthly는 include_system_batches=true 쿼리 파라미터를
+# 받는다 — 기본값(false)은 지금까지처럼 cs_issues(추가배송·재가입선물 등 백엔드 개발자가
+# 일괄로 수천~수만 건씩 밀어넣는 시스템 자동 이력을 제외한 뷰)를 쓴다. 운영 현황
+# 대시보드(Dashboard.tsx)만 이 값을 true로 넘겨 원본 issues 테이블을 그대로 본다 — 운영
+# 현황은 "실제 CS 업무량"이 아니라 "시스템에 지금 뭐가 쌓이고 있는지" 있는 그대로 보여주는
+# 화면이라는 취지라, 일별/주간 보고서·인사이트 페이지들과는 다르게 걸러내지 않기로 했다.
+# category_daily(SQI 계산 전용)는 운영 현황이 쓰지 않아 이 옵션이 없다.
 from datetime import date, timedelta
 from fastapi import APIRouter, Query
 from core.db import get_conn
@@ -14,15 +22,23 @@ from core.holidays import is_off_day
 router = APIRouter()
 
 
+def _issues_table(include_system_batches: bool) -> str:
+    return "issues" if include_system_batches else "cs_issues"
+
+
 @router.get("/api/stats/hourly_range")
-def stats_hourly_range(start_date: str = Query(default=None), end_date: str = Query(default=None)):
+def stats_hourly_range(
+    start_date: str = Query(default=None), end_date: str = Query(default=None),
+    include_system_batches: bool = False,
+):
     if not end_date:
         end_date = str(date.today())
     if not start_date:
         start_date = end_date
+    table = _issues_table(include_system_batches)
     with get_conn() as conn:
         rows = conn.execute(
-            f"SELECT {BUCKET_SQL}, COUNT(*) AS count FROM cs_issues "
+            f"SELECT {BUCKET_SQL}, COUNT(*) AS count FROM {table} "
             "WHERE date(datetime(created_date, '+9 hours')) BETWEEN ? AND ? GROUP BY bucket",
             (start_date, end_date),
         ).fetchall()
@@ -31,16 +47,17 @@ def stats_hourly_range(start_date: str = Query(default=None), end_date: str = Qu
 
 
 @router.get("/api/stats/daily")
-def stats_daily(target_date: str = Query(default=None), period: str = "week"):
+def stats_daily(target_date: str = Query(default=None), period: str = "week", include_system_batches: bool = False):
     if not target_date:
         target_date = str(date.today())
     where, params = _period_where(target_date, period)
+    table = _issues_table(include_system_batches)
     with get_conn() as conn:
         rows = conn.execute(
             f"""
             SELECT date(datetime(created_date, '+9 hours')) AS day,
                    COUNT(*) AS count
-            FROM cs_issues WHERE {where}
+            FROM {table} WHERE {where}
             GROUP BY day ORDER BY day
             """,
             params,
@@ -56,6 +73,7 @@ def stats_category(
     end_date: str = Query(default=None),
     bucket: str = Query(default=None),
     q: str = Query(default=None),
+    include_system_batches: bool = False,
 ):
     if start_date and end_date:
         col = "date(datetime(created_date, '+9 hours'))"
@@ -74,11 +92,12 @@ def stats_category(
         where += " AND (call_memo LIKE ? OR student_id LIKE ? OR CAST(parent_id AS TEXT) LIKE ?)"
         like = f"%{q}%"
         params.extend([like, like, like])
+    table = _issues_table(include_system_batches)
     with get_conn() as conn:
         rows = conn.execute(
             f"""
             SELECT new_category_main, new_category_sub, COUNT(*) AS count
-            FROM cs_issues WHERE {where}
+            FROM {table} WHERE {where}
             GROUP BY new_category_main, new_category_sub
             ORDER BY new_category_main, count DESC
             """,
@@ -88,20 +107,21 @@ def stats_category(
 
 
 @router.get("/api/stats/weekly")
-def stats_weekly(target_date: str = Query(default=None)):
+def stats_weekly(target_date: str = Query(default=None), include_system_batches: bool = False):
     if not target_date:
         target_date = str(date.today())
     range_start, range_end = _four_week_range(target_date)
+    table = _issues_table(include_system_batches)
     with get_conn() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 date(
                     datetime(created_date, '+9 hours'),
                     '-' || ((strftime('%w', datetime(created_date, '+9 hours')) + 6) % 7) || ' days'
                 ) AS week_start,
                 COUNT(*) AS count
-            FROM cs_issues
+            FROM {table}
             WHERE date(datetime(created_date, '+9 hours')) BETWEEN ? AND ?
             GROUP BY week_start
             ORDER BY week_start
@@ -112,7 +132,7 @@ def stats_weekly(target_date: str = Query(default=None)):
 
 
 @router.get("/api/stats/monthly")
-def stats_monthly(target_date: str = Query(default=None)):
+def stats_monthly(target_date: str = Query(default=None), include_system_batches: bool = False):
     if not target_date:
         target_date = str(date.today())
     d = date.fromisoformat(target_date)
@@ -122,12 +142,13 @@ def stats_monthly(target_date: str = Query(default=None)):
         m += 12
         y -= 1
     start_ym = f"{y:04d}-{m:02d}"
+    table = _issues_table(include_system_batches)
     with get_conn() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT strftime('%Y-%m', datetime(created_date, '+9 hours')) AS month,
                    COUNT(*) AS count
-            FROM cs_issues
+            FROM {table}
             WHERE strftime('%Y-%m', datetime(created_date, '+9 hours')) BETWEEN ? AND ?
             GROUP BY month
             ORDER BY month

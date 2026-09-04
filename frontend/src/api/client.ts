@@ -485,20 +485,33 @@ async function deleteAdmin<T>(url: string, token: string): Promise<T> {
 // ── API 함수 ─────────────────────────────────────────────────────
 
 export const api = {
-  fetchHourly(startDate: string, endDate: string) {
-    return get<BucketRow[]>(`/api/stats/hourly_range?start_date=${startDate}&end_date=${endDate}`)
+  // includeSystemBatches: true면 cs_issues 대신 원본 issues 테이블을 쓴다 — 백엔드 개발자가
+  // 추가배송·재가입선물 등을 일괄로 수천~수만 건씩 밀어넣는 시스템 자동 이력까지 그대로
+  // 보여준다는 뜻. 운영 현황 대시보드(Dashboard.tsx)만 이 옵션을 켠다 — 그 화면은 "실제 CS
+  // 업무량"이 아니라 "시스템에 지금 뭐가 쌓이고 있는지"를 있는 그대로 보여주는 화면이기
+  // 때문. 일별/주간 보고서·인사이트 페이지들은 이 옵션을 절대 켜면 안 된다(기본값 false 유지).
+  fetchHourly(startDate: string, endDate: string, includeSystemBatches = false) {
+    const p = new URLSearchParams({ start_date: startDate, end_date: endDate })
+    if (includeSystemBatches) p.set('include_system_batches', '1')
+    return get<BucketRow[]>(`/api/stats/hourly_range?${p}`)
   },
 
-  fetchDaily(targetDate: string, period = 'week') {
-    return get<DailyRow[]>(`/api/stats/daily?target_date=${targetDate}&period=${period}`)
+  fetchDaily(targetDate: string, period = 'week', includeSystemBatches = false) {
+    const p = new URLSearchParams({ target_date: targetDate, period })
+    if (includeSystemBatches) p.set('include_system_batches', '1')
+    return get<DailyRow[]>(`/api/stats/daily?${p}`)
   },
 
-  fetchWeekly(targetDate: string) {
-    return get<WeeklyRow[]>(`/api/stats/weekly?target_date=${targetDate}`)
+  fetchWeekly(targetDate: string, includeSystemBatches = false) {
+    const p = new URLSearchParams({ target_date: targetDate })
+    if (includeSystemBatches) p.set('include_system_batches', '1')
+    return get<WeeklyRow[]>(`/api/stats/weekly?${p}`)
   },
 
-  fetchMonthly(targetDate: string) {
-    return get<MonthlyRow[]>(`/api/stats/monthly?target_date=${targetDate}`)
+  fetchMonthly(targetDate: string, includeSystemBatches = false) {
+    const p = new URLSearchParams({ target_date: targetDate })
+    if (includeSystemBatches) p.set('include_system_batches', '1')
+    return get<MonthlyRow[]>(`/api/stats/monthly?${p}`)
   },
 
   fetchCategory(params: {
@@ -508,6 +521,7 @@ export const api = {
     period?: string
     buckets?: string[]
     q?: string
+    includeSystemBatches?: boolean
   }) {
     const p = new URLSearchParams()
     if (params.startDate) p.set('start_date', params.startDate)
@@ -516,6 +530,7 @@ export const api = {
     if (params.period)    p.set('period',      params.period)
     if (params.buckets?.length) p.set('bucket', params.buckets.join(','))
     if (params.q)         p.set('q',           params.q)
+    if (params.includeSystemBatches) p.set('include_system_batches', '1')
     return get<CategoryRow[]>(`/api/stats/category?${p}`)
   },
 
@@ -532,6 +547,7 @@ export const api = {
     unclassified?: boolean
     limit?: number
     offset?: number
+    includeSystemBatches?: boolean
   }) {
     const p = new URLSearchParams()
     if (params.startDate)    p.set('start_date',     params.startDate)
@@ -546,6 +562,7 @@ export const api = {
     if (params.unclassified) p.set('unclassified',   '1')
     if (params.limit  != null) p.set('limit',  String(params.limit))
     if (params.offset != null) p.set('offset', String(params.offset))
+    if (params.includeSystemBatches) p.set('include_system_batches', '1')
     return get<IssueList>(`/api/issues?${p}`)
   },
 
